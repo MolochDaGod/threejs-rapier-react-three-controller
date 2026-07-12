@@ -1,0 +1,386 @@
+/* ============================================================
+   UNIT STATUS FRAMES — ornate gold fantasy frames for the player
+   (top-left) and the locked target (top-right, mirrored), styled
+   after the reference art: circular portrait ring with diamond
+   spikes, angled gold-framed plates for name / HP / energy, and
+   animated fills (drain tween + damage ghost + flash + heal
+   shimmer, driven by vitalAnim).
+   ============================================================ */
+
+/* --- panel anchors: consume the HUD-editor layout vars like other panels --- */
+.uf-panel {
+  position: absolute;
+  pointer-events: none;
+  z-index: 12;
+}
+.uf-panel-player {
+  left: 16px;
+  top: 58px;
+  transform: translate(var(--hud-dx, 0px), var(--hud-dy, 0px)) scale(var(--hud-scale, 1));
+  transform-origin: top left;
+}
+.uf-panel-target {
+  right: 16px;
+  top: 58px;
+  transform: translate(var(--hud-dx, 0px), var(--hud-dy, 0px)) scale(var(--hud-scale, 1));
+  transform-origin: top right;
+}
+
+/* --- frame layout --- */
+.uf {
+  --uf-cut: 9px;
+  --uf-gold-hi: #f2dd9b;
+  --uf-gold: #b78d3d;
+  --uf-gold-dk: #6e4c1c;
+  position: relative;
+  display: flex;
+  align-items: center;
+  font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+}
+.uf-flip {
+  flex-direction: row-reverse;
+}
+
+/* --- circular portrait ring --- */
+.uf-portrait {
+  position: relative;
+  z-index: 2;
+  width: 86px;
+  height: 86px;
+  flex: none;
+}
+.uf-ring {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  padding: 5px;
+  background: conic-gradient(
+    from 210deg,
+    #8a6427,
+    var(--uf-gold-hi) 12%,
+    #a1742d 30%,
+    #f4e2a0 48%,
+    #8a6427 64%,
+    #d9b968 82%,
+    #8a6427
+  );
+  box-shadow:
+    0 0 0 1px #241905,
+    inset 0 0 0 1px rgba(255, 236, 180, 0.35),
+    0 3px 9px rgba(0, 0, 0, 0.6);
+}
+.uf-ring-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 35% 28%, #23262c, #0a0b0d 72%);
+  box-shadow:
+    inset 0 0 16px rgba(0, 0, 0, 0.95),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.85);
+}
+.uf-portrait-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.uf-portrait-letter {
+  font-size: 34px;
+  font-weight: 800;
+  color: #e8cd7f;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+  line-height: 1;
+  user-select: none;
+}
+
+/* diamond spikes at the ring's top / bottom (reference ornament) */
+.uf-spike {
+  position: absolute;
+  left: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateX(-50%) rotate(45deg);
+  background: linear-gradient(135deg, #f4e2a0, #a1742d 55%, var(--uf-gold-dk));
+  box-shadow: 0 0 0 1px #241905;
+}
+.uf-spike-top {
+  top: -6px;
+}
+.uf-spike-bottom {
+  bottom: -6px;
+}
+
+/* small round badge on the portrait's lower-outer edge */
+.uf-badge {
+  position: absolute;
+  bottom: -4px;
+  left: -6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--uf-gold);
+  background: radial-gradient(circle at 35% 30%, #2c2418, #0d0a06 75%);
+  box-shadow:
+    0 0 0 1px #241905,
+    0 2px 6px rgba(0, 0, 0, 0.6),
+    inset 0 0 8px rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e8cd7f;
+  font-size: 14px;
+  font-weight: 800;
+  overflow: hidden;
+}
+.uf-flip .uf-badge {
+  left: auto;
+  right: -6px;
+}
+
+/* --- plate stack (name + bars) --- */
+.uf-plates {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 224px;
+  margin-left: -14px;
+}
+.uf-flip .uf-plates {
+  margin-left: 0;
+  margin-right: -14px;
+}
+
+/* an angled gold plate: gold gradient body clipped to a hex, dark inner inset */
+.uf-plate {
+  position: relative;
+  height: 25px;
+  background: linear-gradient(180deg, #e6c87c, #a1742d 45%, var(--uf-gold-dk));
+  clip-path: polygon(
+    0 50%,
+    var(--uf-cut) 0,
+    calc(100% - var(--uf-cut)) 0,
+    100% 50%,
+    calc(100% - var(--uf-cut)) 100%,
+    var(--uf-cut) 100%
+  );
+}
+.uf-plate-inner {
+  position: absolute;
+  inset: 2px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #14171c, #08090b);
+  clip-path: polygon(
+    0 50%,
+    var(--uf-cut) 0,
+    calc(100% - var(--uf-cut)) 0,
+    100% 50%,
+    calc(100% - var(--uf-cut)) 100%,
+    var(--uf-cut) 100%
+  );
+}
+
+/* nameplate text */
+.uf-nameplate {
+  height: 24px;
+}
+.uf-name-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px;
+}
+.uf-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #f0e0b0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.uf-sub {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #a58c55;
+  white-space: nowrap;
+}
+.uf-flip .uf-name-inner {
+  flex-direction: row-reverse;
+}
+
+/* --- bar internals: ghost behind fill, flash on top, centered numbers --- */
+.uf-ghost,
+.uf-fill,
+.uf-flash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+}
+.uf-flip .uf-ghost,
+.uf-flip .uf-fill,
+.uf-flip .uf-flash {
+  left: auto;
+  right: 0;
+}
+.uf-ghost {
+  background: linear-gradient(180deg, rgba(244, 226, 186, 0.8), rgba(196, 168, 116, 0.55));
+}
+.uf-fill {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -3px 6px rgba(0, 0, 0, 0.45);
+}
+.uf-bar-hp-friendly .uf-fill {
+  background: linear-gradient(180deg, #a4de52, #4d8a14 55%, #2f5c0a);
+}
+.uf-bar-hp-hostile .uf-fill {
+  background: linear-gradient(180deg, #e05a4e, #8c1210 55%, #570a08);
+}
+.uf-bar-energy .uf-fill {
+  background: linear-gradient(180deg, #63a4e8, #17458c 55%, #0b2a5c);
+}
+.uf-flash {
+  background: rgba(255, 255, 255, 0.85);
+  mix-blend-mode: screen;
+}
+.uf-healing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.55) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: uf-heal-sweep 0.45s ease-out;
+}
+@keyframes uf-heal-sweep {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
+}
+.uf-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  color: #f5efdd;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* red rim pulse over the whole frame while the damage flash is live */
+.uf-hurt-glow {
+  position: absolute;
+  inset: -6px;
+  pointer-events: none;
+  border-radius: 14px;
+  box-shadow:
+    inset 0 0 22px rgba(255, 46, 30, 0.55),
+    0 0 18px rgba(255, 46, 30, 0.35);
+}
+
+/* --- footer strip (poise / combat chip / hints) under the frame --- */
+.uf-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 7px;
+  padding-left: 78px;
+}
+.uf-flip-footer {
+  padding-left: 0;
+  padding-right: 78px;
+  align-items: flex-end;
+}
+
+/* ============================================================
+   HUD-EDITOR THEMING — every rule below is class-gated under
+   `.studio.hud-themed` (the class only exists when a non-default
+   theme is active), so the shipped gold look above stays
+   byte-identical when no theme is picked. The frame chrome is
+   re-tinted from the theme accents, plates pick up the theme
+   panel background, and the friendly HP / energy fills use the
+   theme's --hud-hp / --hud-sp gradients. Hostile HP stays red on
+   purpose (universal "enemy" signal, matching the old enemy bar).
+   ============================================================ */
+.studio.hud-themed .uf {
+  /* Re-derive the three gold chrome tones from the theme accent so
+     every gradient that consumes them re-tints in one place. */
+  --uf-gold-hi: color-mix(in srgb, var(--hud-accent) 55%, #ffffff);
+  --uf-gold: var(--hud-accent);
+  --uf-gold-dk: color-mix(in srgb, var(--hud-accent) 45%, #000000);
+  font-family: var(--hud-font);
+}
+.studio.hud-themed .uf-ring {
+  background: conic-gradient(
+    from 210deg,
+    var(--uf-gold-dk),
+    var(--uf-gold-hi) 12%,
+    var(--uf-gold) 30%,
+    var(--uf-gold-hi) 48%,
+    var(--uf-gold-dk) 64%,
+    var(--uf-gold) 82%,
+    var(--uf-gold-dk)
+  );
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 1px color-mix(in srgb, var(--uf-gold-hi) 40%, transparent),
+    0 3px 9px rgba(0, 0, 0, 0.6);
+}
+.studio.hud-themed .uf-portrait-letter {
+  color: var(--hud-text);
+}
+.studio.hud-themed .uf-spike {
+  background: linear-gradient(135deg, var(--uf-gold-hi), var(--uf-gold) 55%, var(--uf-gold-dk));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.85);
+}
+.studio.hud-themed .uf-badge {
+  border-color: var(--uf-gold);
+  color: var(--hud-text);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.85),
+    0 2px 6px rgba(0, 0, 0, 0.6),
+    inset 0 0 8px rgba(0, 0, 0, 0.9);
+}
+.studio.hud-themed .uf-plate {
+  background: linear-gradient(180deg, var(--uf-gold-hi), var(--uf-gold) 45%, var(--uf-gold-dk));
+}
+.studio.hud-themed .uf-plate-inner {
+  background: var(--hud-panel-bg);
+}
+.studio.hud-themed .uf-name {
+  color: var(--hud-text);
+}
+.studio.hud-themed .uf-sub {
+  color: var(--hud-muted);
+}
+.studio.hud-themed .uf-num {
+  color: var(--hud-text);
+}
+.studio.hud-themed .uf-bar-hp-friendly .uf-fill {
+  background: var(--hud-hp);
+}
+.studio.hud-themed .uf-bar-energy .uf-fill {
+  background: var(--hud-sp);
+}
+.studio.hud-themed .uf-ghost {
+  background: color-mix(in srgb, var(--hud-text) 55%, transparent);
+}

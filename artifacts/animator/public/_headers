@@ -1,0 +1,26 @@
+# Static-host caching best practices (Cloudflare Pages reads this at deploy).
+# Hashed build output — safe to cache forever.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Heavy media (not content-hashed) — cache a day, revalidate after.
+/models/*
+  Cache-Control: public, max-age=86400
+/anim/*
+  Cache-Control: public, max-age=86400
+/audio/*
+  Cache-Control: public, max-age=86400
+/rooms/*
+  Cache-Control: public, max-age=86400
+/frames/*
+  Cache-Control: public, max-age=86400
+/avatar/*
+  Cache-Control: public, max-age=86400
+/backdrops/*
+  Cache-Control: public, max-age=86400
+/icons/*
+  Cache-Control: public, max-age=86400
+
+# Never cache the HTML shell — always pick up new deploys.
+/index.html
+  Cache-Control: no-cache

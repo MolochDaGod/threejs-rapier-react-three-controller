@@ -1,0 +1,11 @@
+# The format of this file is identical to `.dockerignore`.
+# It is used to reduce the size of deployed images to make the process of publishing faster.
+
+# No need to store the pnpm store twice.
+.local
+
+# Upload/extraction staging only (~2.8GB) — never imported at app build or
+# runtime (the `@assets` Vite alias has zero imports; shipped assets live in
+# lib/assets and artifacts/animator/public). Excluding it keeps the deploy
+# image small so the layer push doesn't time out. Files stay in version control.
+attached_assets

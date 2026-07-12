@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">
+  <!-- Pixel-art pointer hand — cyan tint, dark outline -->
+  <!-- Hotspot: finger tip at (7,2) -->
+  <!-- Finger -->
+  <rect x="6" y="2" width="4" height="10" rx="2" fill="#6fe0ff" stroke="#0a1628" stroke-width="1.2" paint-order="stroke"/>
+  <!-- Hand body -->
+  <path d="M4 12 Q2 12 2 15 L2 22 Q2 26 6 26 L16 26 Q20 26 20 22 L20 16 Q20 14 18 14 L14 14 L14 12 Q14 11 13 11 L11 11 L11 12 Q11 11 10 11 L10 12 L10 12 Q10 11 9 11 L8 11 Q6 11 6 12 L6 11"
+    fill="#6fe0ff" stroke="#0a1628" stroke-width="1.2" stroke-linejoin="round" paint-order="stroke"/>
+</svg>

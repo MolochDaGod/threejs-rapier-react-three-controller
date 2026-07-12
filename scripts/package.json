@@ -1,0 +1,25 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx ./src/hello.ts",
+    "convert-character": "node ./src/convert-character.mjs",
+    "prep-grudge": "node ./src/prep-grudge.mjs",
+    "optimize-world": "node ./src/optimize-world.mjs",
+    "retarget-gestures": "node ./src/retarget-gestures.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.4.0",
+    "@gltf-transform/extensions": "^4.4.0",
+    "@gltf-transform/functions": "^4.4.0",
+    "@types/node": "catalog:",
+    "fflate": "^0.8.3",
+    "meshoptimizer": "^1.2.0",
+    "sharp": "^0.35.2",
+    "three": "^0.184.0",
+    "tsx": "catalog:"
+  }
+}

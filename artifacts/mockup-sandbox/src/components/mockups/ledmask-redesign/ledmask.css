@@ -1,0 +1,310 @@
+/* Verbatim copy of the Animator's LED Mask stylesheet (index.css .ledmask block)
+   so the "Current" baseline renders pixel-faithful in the sandbox. */
+
+.ledmask {
+  position: fixed;
+  inset: 0;
+  background: #0a0a0f;
+  color: #e0e0ff;
+  padding: clamp(16px, 3vw, 40px);
+  overflow: auto;
+  font-family: var(--g-font, system-ui, sans-serif);
+}
+.ledmask-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.ledmask-title {
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+.ledmask-sub { color: #8b93b5; margin: 4px 0 0; font-size: 0.9rem; }
+.ledmask-head-right { display: flex; align-items: center; gap: 12px; }
+.ledmask-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #12131c;
+  border: 1px solid #242842;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.78rem;
+}
+.ledmask-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #34d399;
+  box-shadow: 0 0 10px #34d399;
+  animation: ledmask-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ledmask-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.ledmask-exit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #1b1d2b;
+  border: 1px solid #2c3150;
+  color: #cdd3f5;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ledmask-exit:hover { background: #262a40; }
+
+.ledmask-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) { .ledmask-grid { grid-template-columns: 1fr; } }
+
+.ledmask-stage {
+  background: radial-gradient(120% 90% at 50% 18%, #0c1428 0%, #06070d 55%, #030308 100%);
+  border: 1px solid #1b1f33;
+  border-radius: 20px;
+  padding: 16px;
+  box-shadow: inset 0 0 80px rgba(40, 120, 255, 0.08);
+}
+.ledmask-canvas-wrap {
+  position: relative;
+  border: 1px solid #2a3a5e;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  background:
+    radial-gradient(80% 70% at 50% 38%, rgba(35, 120, 220, 0.16) 0%, rgba(5, 7, 14, 0) 70%),
+    #04050a;
+  box-shadow: 0 0 50px rgba(40, 150, 255, 0.12), inset 0 0 120px rgba(0, 0, 0, 0.6);
+}
+.ledmask-canvas-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.025) 0px,
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+}
+.ledmask-canvas { display: block; width: 100%; height: 100%; }
+.ledmask-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  color: #8b93b5;
+  font-size: 0.9rem;
+}
+
+.ledmask-controls { display: flex; flex-direction: column; gap: 20px; }
+.ledmask-panel {
+  background: #12131c;
+  border: 1px solid #242842;
+  border-radius: 18px;
+  padding: 18px;
+}
+.ledmask-panel-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+  color: #c7cdf0;
+}
+.ledmask-banner-row { display: flex; gap: 8px; }
+.ledmask-input {
+  flex: 1;
+  min-width: 0;
+  background: #06070d;
+  border: 1px solid #2c3150;
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: #e0e0ff;
+  font-family: "Courier New", monospace;
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-size: 0.85rem;
+}
+.ledmask-input:focus { outline: none; border-color: #3b82f6; }
+.ledmask-run {
+  background: #2563eb;
+  border: none;
+  color: #fff;
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ledmask-run:hover { background: #1d4ed8; }
+
+.ledmask-faces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ledmask-face {
+  background: #1b1d2b;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 12px 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.1s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.ledmask-face:hover { background: #232639; }
+.ledmask-face:active { transform: scale(0.95); }
+.ledmask-face.is-active { border-color: #3b82f6; background: #20294a; }
+.ledmask-face-glyph { display: block; font-size: 1.5rem; line-height: 1; }
+.ledmask-face-label { display: block; font-size: 0.6rem; margin-top: 5px; color: #aeb4d8; }
+
+.ledmask-states { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ledmask-state {
+  background: #1b1d2b;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #d3d8f5;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.ledmask-state:hover { background: #232639; }
+.ledmask-state:active { transform: scale(0.95); }
+.ledmask-state.is-active { border-color: #3b82f6; background: #20294a; }
+.ledmask-state.is-danger { grid-column: span 2; background: rgba(127, 29, 29, 0.7); font-weight: 600; }
+.ledmask-state.is-danger:hover { background: rgba(127, 29, 29, 0.95); }
+.ledmask-state.is-danger.is-active { border-color: #ef4444; }
+.ledmask-hint { margin: 12px 0 0; font-size: 0.72rem; color: #7b82a8; letter-spacing: 0.05em; }
+
+.ledmask-chat { display: flex; flex-direction: column; gap: 10px; }
+.ledmask-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.ledmask-chat-empty { color: #7b82a8; font-size: 0.8rem; line-height: 1.5; }
+.ledmask-msg { display: flex; }
+.ledmask-msg.user { justify-content: flex-end; }
+.ledmask-bubble {
+  max-width: 86%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ledmask-msg.user .ledmask-bubble {
+  background: #2563eb;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.ledmask-msg.assistant .ledmask-bubble {
+  background: #1b1d2b;
+  border: 1px solid #2c3150;
+  color: #d8ddf7;
+  border-bottom-left-radius: 4px;
+}
+.ledmask-typing { display: inline-flex; gap: 4px; padding: 2px 0; }
+.ledmask-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #6b73a0;
+  animation: ledmask-blink 1s infinite;
+}
+.ledmask-typing span:nth-child(2) { animation-delay: 0.15s; }
+.ledmask-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ledmask-blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+.ledmask-chat-row { display: flex; gap: 8px; align-items: flex-end; }
+.ledmask-chat-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  background: #06070d;
+  border: 1px solid #2c3150;
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: #e0e0ff;
+  font-family: var(--g-font, system-ui, sans-serif);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  max-height: 120px;
+}
+.ledmask-chat-input:focus { outline: none; border-color: #3b82f6; }
+.ledmask-chat-input:disabled { opacity: 0.5; }
+.ledmask-chat-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: #7b82a8;
+  cursor: pointer;
+  font-size: 0.72rem;
+  align-self: flex-start;
+  padding: 0;
+}
+.ledmask-chat-clear:hover { color: #c7cdf0; }
+.ledmask-chat-clear:disabled { opacity: 0.4; cursor: default; }
+
+/* Active Mode — live camera/mic/caption controls */
+.ledmask-active-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.ledmask-active-preview { display: block; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.ledmask-active-preview-video { width: 1px; height: 1px; object-fit: cover; display: block; }
+.ledmask-active-live { margin: 12px 0 0; font-size: 0.78rem; color: #4ade80; letter-spacing: 0.04em; }
+.ledmask-active-cc {
+  margin-top: 12px; padding: 9px 11px; border-radius: 8px;
+  background: #0a0d18; border: 1px solid #2a2f45; color: #9fb4c8;
+  font-size: 0.82rem; line-height: 1.4; min-height: 1.3em;
+}
+.ledmask-active-err { margin: 10px 0 0; font-size: 0.74rem; color: #fca5a5; line-height: 1.45; }
+
+/* --- Stage frame button ------------------------------------------------ */
+.ledmask-frame-btn {
+  background: linear-gradient(180deg, #1d2440, #161a2e);
+  border-color: #34407a;
+  color: #bcd0ff;
+}
+.ledmask-frame-btn:hover {
+  background: linear-gradient(180deg, #243057, #1b2138);
+  box-shadow: 0 0 16px rgba(80, 130, 255, 0.28);
+}
+
+/* Sandbox-only: static dot-matrix stand-in for the WebGL LED visor. */
+.ledmask-mock-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ledmask-mock-stage svg { width: 62%; height: auto; filter: drop-shadow(0 0 18px rgba(60, 160, 255, 0.5)); }
+.ledmask-mock-note {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #4d567c;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+}

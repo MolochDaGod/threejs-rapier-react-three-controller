@@ -1,0 +1,40 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compileOnSave": false,
+  "files": [],
+  "references": [
+    {
+      "path": "./lib/assets"
+    },
+    {
+      "path": "./lib/animator"
+    },
+    {
+      "path": "./lib/epicfight"
+    },
+    {
+      "path": "./lib/vfx"
+    },
+    {
+      "path": "./lib/db"
+    },
+    {
+      "path": "./lib/api-client-react"
+    },
+    {
+      "path": "./lib/api-zod"
+    },
+    {
+      "path": "./lib/space-net"
+    },
+    {
+      "path": "./lib/carrier-net"
+    },
+    {
+      "path": "./lib/danger-net"
+    },
+    {
+      "path": "./lib/integrations-openai-ai-server"
+    }
+  ]
+}

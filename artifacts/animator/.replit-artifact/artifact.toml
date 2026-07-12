@@ -1,0 +1,36 @@
+kind = "web"
+previewPath = "/"
+title = "Animator"
+version = "1.0.0"
+id = "artifacts/animator"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19936
+
+[services.development]
+run = "pnpm --filter @workspace/animator-app run dev"
+
+[services.production]
+publicDir = "artifacts/animator/dist/public"
+serve = "static"
+
+[services.production.build]
+args = [ "pnpm", "--filter", "@workspace/animator-app", "run", "build" ]
+
+[services.production.build.env]
+NODE_ENV = "production"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19936"
+BASE_PATH = "/"

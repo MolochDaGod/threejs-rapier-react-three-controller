@@ -1,0 +1,19 @@
+uploads = []
+
+[[generated]]
+id = "WWBj7pdSeiKaMTvuamYzp"
+uri = "file://artifacts/animator/public/rooms/avatar-scene.png"
+type = "image"
+title = "avatar edit neon poster"
+
+[[generated]]
+id = "wy_8pgITAxX4r0QUp5z17"
+uri = "file://artifacts/animator/public/rooms/avatar-poster.png"
+type = "image"
+title = "avatar edit room poster"
+
+[[outputs]]
+id = "ZdknWTf_S_PCnxwYGNdst"
+uri = "file://artifacts/animator/dist/animator-dist.zip"
+type = "unspecified"
+title = "Animator production build (index.html at root)"

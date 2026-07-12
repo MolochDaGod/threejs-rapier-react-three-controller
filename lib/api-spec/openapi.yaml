@@ -1,0 +1,516 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: posts
+    description: Gallery posts (authored scenes and dungeons)
+  - name: openai
+    description: AI editor assistant chat (conversations, messages, streaming)
+  - name: wallet
+    description: Phantom wallet linking (ownership-proof signature → account)
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /posts:
+    get:
+      operationId: listPosts
+      tags: [posts]
+      summary: List public gallery posts
+      description: Returns public posts, optionally filtered by kind.
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PostKind"
+      responses:
+        "200":
+          description: A list of public posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Post"
+    post:
+      operationId: createPost
+      tags: [posts]
+      summary: Publish a post
+      description: Creates a gallery post owned by the authenticated user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePost"
+      responses:
+        "201":
+          description: The created post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /posts/mine:
+    get:
+      operationId: listMyPosts
+      tags: [posts]
+      summary: List the authenticated user's own posts
+      responses:
+        "200":
+          description: The user's posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Post"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /posts/{id}:
+    get:
+      operationId: getPost
+      tags: [posts]
+      summary: Get a single post by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /openai/conversations:
+    get:
+      operationId: listOpenaiConversations
+      tags: [openai]
+      summary: List AI assistant conversations
+      parameters:
+        - name: surface
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenaiConversation"
+    post:
+      operationId: createOpenaiConversation
+      tags: [openai]
+      summary: Create a new conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenaiConversationInput"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiConversation"
+  /openai/conversations/{id}:
+    get:
+      operationId: getOpenaiConversation
+      tags: [openai]
+      summary: Get a conversation with its messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Conversation with messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiConversationWithMessages"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: deleteOpenaiConversation
+      tags: [openai]
+      summary: Delete a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /openai/conversations/{id}/messages:
+    get:
+      operationId: listOpenaiMessages
+      tags: [openai]
+      summary: List messages in a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenaiMessage"
+    post:
+      operationId: sendOpenaiMessage
+      tags: [openai]
+      summary: Send a message and receive a streaming assistant response (SSE)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenaiMessageInput"
+      responses:
+        "200":
+          description: SSE stream of assistant text chunks and tool calls
+          content:
+            text/event-stream: {}
+  /wallet:
+    get:
+      operationId: getMyWallet
+      tags: [wallet]
+      summary: Get the wallet linked to the current account
+      responses:
+        "200":
+          description: The linked wallet, or null if none
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedWallet"
+    delete:
+      operationId: unlinkWallet
+      tags: [wallet]
+      summary: Unlink the wallet from the current account
+      responses:
+        "204":
+          description: Wallet unlinked (or nothing was linked)
+  /wallet/nonce:
+    post:
+      operationId: createWalletNonce
+      tags: [wallet]
+      summary: Issue a one-time nonce + message to sign for ownership proof
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletNonceInput"
+      responses:
+        "200":
+          description: Nonce and the exact message the wallet must sign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletNonce"
+  /wallet/link:
+    post:
+      operationId: linkWallet
+      tags: [wallet]
+      summary: Verify a signed nonce and link the wallet to the account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletLinkInput"
+      responses:
+        "200":
+          description: The newly linked wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletInfo"
+        "401":
+          description: Signature did not verify against the issued nonce
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    PostKind:
+      type: string
+      enum:
+        - scene
+        - dungeon
+    Post:
+      type: object
+      properties:
+        id:
+          type: integer
+        kind:
+          $ref: "#/components/schemas/PostKind"
+        name:
+          type: string
+        ownerId:
+          type: string
+        authorName:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        isPublic:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - kind
+        - name
+        - ownerId
+        - authorName
+        - payload
+        - isPublic
+        - createdAt
+        - updatedAt
+    CreatePost:
+      type: object
+      properties:
+        kind:
+          $ref: "#/components/schemas/PostKind"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        payload:
+          type: object
+          additionalProperties: true
+        isPublic:
+          type: boolean
+      required:
+        - kind
+        - name
+        - payload
+    OpenaiConversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        surface:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - surface
+        - createdAt
+    OpenaiMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+        conversationId:
+          type: integer
+        role:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - conversationId
+        - role
+        - content
+        - createdAt
+    OpenaiConversationWithMessages:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        surface:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenaiMessage"
+      required:
+        - id
+        - title
+        - surface
+        - createdAt
+        - messages
+    OpenaiConversationInput:
+      type: object
+      properties:
+        title:
+          type: string
+        surface:
+          type: string
+      required:
+        - title
+    OpenaiMessageInput:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+        system:
+          type: string
+        tools:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required:
+        - content
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    WalletInfo:
+      type: object
+      properties:
+        address:
+          type: string
+        chain:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - address
+        - chain
+        - createdAt
+        - updatedAt
+    LinkedWallet:
+      type: object
+      properties:
+        wallet:
+          oneOf:
+            - $ref: "#/components/schemas/WalletInfo"
+            - type: "null"
+      required:
+        - wallet
+    WalletNonceInput:
+      type: object
+      properties:
+        address:
+          type: string
+          description: The public wallet address (base58 for Solana) being linked
+      required:
+        - address
+    WalletNonce:
+      type: object
+      properties:
+        nonce:
+          type: string
+        message:
+          type: string
+          description: The exact UTF-8 message the wallet must sign
+      required:
+        - nonce
+        - message
+    WalletLinkInput:
+      type: object
+      properties:
+        address:
+          type: string
+        signature:
+          type: string
+          description: base58-encoded signature of the issued message
+      required:
+        - address
+        - signature
