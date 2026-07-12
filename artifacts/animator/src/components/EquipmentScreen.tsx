@@ -2,6 +2,17 @@ import { useMemo, useState } from "react";
 import type { WeaponGroup, WeaponId } from "../three/types";
 import { WEAPONS, OFF_HAND_WEAPONS, offHandEligible } from "../three/arsenal";
 import { WEAPON_ICON } from "../three/icons";
+import {
+  ARMOR_SETS,
+  ARMOR_SLOTS,
+  emptyArmorLoadout,
+  getArmorPiece,
+  getArmorSet,
+  loadoutDefense,
+  loadoutFromSet,
+  type ArmorLoadout,
+  type ArmorSlot,
+} from "../three/equipment";
 import { Icon } from "./Icon";
 import "./EquipmentScreen.css";
 
@@ -12,10 +23,14 @@ interface Props {
   currentWeapon: WeaponId;
   /** Currently equipped off-hand piece id, or null when the off hand is empty. */
   currentOffHand: WeaponId | null;
+  /** Minecraft-style four-slot armor loadout. */
+  armorLoadout: ArmorLoadout;
   /** Equip a weapon live (mirrors the real combat equip path via studio.setWeapon). */
   onEquip: (id: WeaponId) => void;
   /** Equip / clear the independent off-hand piece (studio.setOffHand). */
   onEquipOff: (id: WeaponId | null) => void;
+  /** Replace the full armor loadout (set equip or clear). */
+  onArmorLoadout: (loadout: ArmorLoadout) => void;
   /** Close the overlay. */
   onClose: () => void;
 }
@@ -33,29 +48,31 @@ const GROUP_ORDER: { id: WeaponGroup; label: string }[] = [
   { id: "unarmed", label: "Unarmed" },
 ];
 
-/**
- * Future modular equipment slots. Main Hand + Off-Hand are wired to the live
- * combat equip path; the rest are intentional teasers that frame this overlay as
- * the foundation for a full modular loadout system.
- */
-const TEASER_SLOTS = ["Armor", "Trinket"] as const;
+const SLOT_LABEL: Record<ArmorSlot, string> = {
+  head: "Head",
+  chest: "Chest",
+  legs: "Legs",
+  feet: "Feet",
+};
+
+type Tab = "weapons" | "armor";
 
 /**
- * In-play loadout overlay — swap the active weapon live, mid-session, instead of
- * having to back out to the Dressing Room. Presentational: it consumes the
- * existing arsenal catalog + engine equip callback so it stays additive to the
- * weapon data model. The Off-Hand slot (Tower Shield) is gated to single
- * one-handed / unarmed mains that aren't already dual-wielding.
+ * In-play loadout overlay — weapons (live combat equip) + Minecraft-style armor
+ * slots (head/chest/legs/feet) backed by the realistic armor stand catalog.
  */
 export function EquipmentScreen({
   characterName,
   currentWeapon,
   currentOffHand,
+  armorLoadout,
   onEquip,
   onEquipOff,
+  onArmorLoadout,
   onClose,
 }: Props) {
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<Tab>("weapons");
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -68,17 +85,35 @@ export function EquipmentScreen({
     })).filter((g) => g.items.length > 0);
   }, [query]);
 
+  const armorSets = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return ARMOR_SETS.filter(
+      (s) =>
+        !q ||
+        s.label.toLowerCase().includes(q) ||
+        s.material.includes(q) ||
+        s.description.toLowerCase().includes(q),
+    );
+  }, [query]);
+
   const active = WEAPONS.find((w) => w.id === currentWeapon);
   const activeOff = currentOffHand ? WEAPONS.find((w) => w.id === currentOffHand) : null;
   const offEligible = offHandEligible(currentWeapon);
-  const totalShown = groups.reduce((n, g) => n + g.items.length, 0);
+  const totalShown =
+    tab === "weapons"
+      ? groups.reduce((n, g) => n + g.items.length, 0)
+      : armorSets.length;
+  const defense = loadoutDefense(armorLoadout);
+
+  const activeSetId = ARMOR_SETS.find((set) =>
+    ARMOR_SLOTS.every((slot) => armorLoadout[slot] === set.pieces[slot]),
+  )?.id;
 
   return (
     <div className="eq-screen" role="dialog" aria-label="Equipment loadout">
       <button className="eq-backdrop" aria-label="Close loadout" onClick={onClose} />
 
       <div className="eq-panel" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
         <header className="eq-head">
           <div className="eq-title">
             <span className="eq-title-main">LOADOUT</span>
@@ -89,7 +124,7 @@ export function EquipmentScreen({
           </button>
         </header>
 
-        {/* Modular slot strip — Main Hand + Off-Hand are live, the rest are upcoming. */}
+        {/* Minecraft-style strip: weapons hands + four armor slots */}
         <div className="eq-slots">
           <div className="eq-slot eq-slot-active">
             <span className="eq-slot-label">Main Hand</span>
@@ -127,22 +162,59 @@ export function EquipmentScreen({
             </div>
           </div>
 
-          {TEASER_SLOTS.map((s) => (
-            <div className="eq-slot eq-slot-locked" key={s} data-tip="Modular slot — coming soon">
-              <span className="eq-slot-label">{s}</span>
-              <div className="eq-slot-body">
-                <span className="eq-slot-empty">＋</span>
-                <span className="eq-slot-soon">Soon</span>
+          {ARMOR_SLOTS.map((slot) => {
+            const piece = getArmorPiece(armorLoadout[slot] ?? null);
+            return (
+              <div
+                key={slot}
+                className={`eq-slot ${piece ? "eq-slot-active" : ""}`}
+                data-tip={piece ? `${piece.label} · def ${piece.defense ?? 0}` : `${SLOT_LABEL[slot]} empty`}
+              >
+                <span className="eq-slot-label">{SLOT_LABEL[slot]}</span>
+                <div className="eq-slot-body">
+                  {piece ? (
+                    <div className="eq-slot-meta">
+                      <span className="eq-slot-name">{piece.label}</span>
+                      <span className="eq-slot-tag">def {piece.defense ?? 0}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="eq-slot-empty">＋</span>
+                      <span className="eq-slot-soon">Empty</span>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Search */}
+        <div className="eq-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            className={`eq-tab ${tab === "weapons" ? "on" : ""}`}
+            aria-selected={tab === "weapons"}
+            onClick={() => setTab("weapons")}
+          >
+            Weapons
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`eq-tab ${tab === "armor" ? "on" : ""}`}
+            aria-selected={tab === "armor"}
+            onClick={() => setTab("armor")}
+          >
+            Armor
+            {defense > 0 && <span className="eq-tab-def">DEF {defense}</span>}
+          </button>
+        </div>
+
         <div className="eq-search">
           <input
             type="text"
-            placeholder="Search weapons…"
+            placeholder={tab === "weapons" ? "Search weapons…" : "Search armor sets…"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             autoFocus
@@ -150,82 +222,130 @@ export function EquipmentScreen({
           <span className="eq-count">{totalShown}</span>
         </div>
 
-        {/* Grouped weapon grid */}
         <div className="eq-grid-scroll">
-          {/* Off-hand picker — None + each off-hand piece, gated by main eligibility. */}
-          {OFF_HAND_WEAPONS.length > 0 && (
-            <section className="eq-group">
-              <h3 className="eq-group-head">
-                Off-Hand <span>{OFF_HAND_WEAPONS.length}</span>
-              </h3>
-              {!offEligible && (
-                <p className="eq-offhand-note">
-                  Equip a single one-handed weapon (or unarmed) to use an off-hand — dual-wielding
-                  and two-handed kits already occupy that hand.
-                </p>
-              )}
-              <div className="eq-grid">
-                <button
-                  className={`eq-card ${!currentOffHand ? "on" : ""}`}
-                  onClick={() => onEquipOff(null)}
-                  disabled={!offEligible}
-                  data-tip="Clear the off-hand slot"
-                >
-                  <Icon name={WEAPON_ICON["none"]} size={28} className="eq-card-icon" />
-                  <span className="eq-card-name">None</span>
-                  {!currentOffHand && <span className="eq-card-badge">Equipped</span>}
-                </button>
-                {OFF_HAND_WEAPONS.map((w) => {
-                  const on = w.id === currentOffHand;
-                  return (
+          {tab === "weapons" && (
+            <>
+              {OFF_HAND_WEAPONS.length > 0 && (
+                <section className="eq-group">
+                  <h3 className="eq-group-head">
+                    Off-Hand <span>{OFF_HAND_WEAPONS.length}</span>
+                  </h3>
+                  {!offEligible && (
+                    <p className="eq-offhand-note">
+                      Equip a single one-handed weapon (or unarmed) to use an off-hand — dual-wielding
+                      and two-handed kits already occupy that hand.
+                    </p>
+                  )}
+                  <div className="eq-grid">
                     <button
-                      key={w.id}
-                      className={`eq-card ${on ? "on" : ""}`}
-                      onClick={() => onEquipOff(w.id)}
+                      className={`eq-card ${!currentOffHand ? "on" : ""}`}
+                      onClick={() => onEquipOff(null)}
                       disabled={!offEligible}
-                      data-tip={`${w.label} — equip in your off-hand`}
+                      data-tip="Clear the off-hand slot"
                     >
-                      <Icon name={WEAPON_ICON[w.id]} size={28} className="eq-card-icon" />
-                      <span className="eq-card-name">{w.label}</span>
-                      {on && <span className="eq-card-badge">Equipped</span>}
+                      <Icon name={WEAPON_ICON["none"]} size={28} className="eq-card-icon" />
+                      <span className="eq-card-name">None</span>
+                      {!currentOffHand && <span className="eq-card-badge">Equipped</span>}
                     </button>
-                  );
-                })}
-              </div>
-            </section>
+                    {OFF_HAND_WEAPONS.map((w) => {
+                      const on = w.id === currentOffHand;
+                      return (
+                        <button
+                          key={w.id}
+                          className={`eq-card ${on ? "on" : ""}`}
+                          onClick={() => onEquipOff(w.id)}
+                          disabled={!offEligible}
+                          data-tip={`${w.label} — equip in your off-hand`}
+                        >
+                          <Icon name={WEAPON_ICON[w.id]} size={28} className="eq-card-icon" />
+                          <span className="eq-card-name">{w.label}</span>
+                          {on && <span className="eq-card-badge">Equipped</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {groups.map((g) => (
+                <section className="eq-group" key={g.id}>
+                  <h3 className="eq-group-head">
+                    {g.label} <span>{g.items.length}</span>
+                  </h3>
+                  <div className="eq-grid">
+                    {g.items.map((w) => {
+                      const on = w.id === currentWeapon;
+                      return (
+                        <button
+                          key={w.id}
+                          className={`eq-card ${on ? "on" : ""}`}
+                          onClick={() => onEquip(w.id)}
+                          data-tip={`${w.label} — ${w.animSet} moveset`}
+                        >
+                          <Icon name={WEAPON_ICON[w.id]} size={28} className="eq-card-icon" />
+                          <span className="eq-card-name">{w.label}</span>
+                          {on && <span className="eq-card-badge">Equipped</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+              {groups.length === 0 && <p className="eq-empty">No weapons match “{query}”.</p>}
+            </>
           )}
 
-          {groups.map((g) => (
-            <section className="eq-group" key={g.id}>
+          {tab === "armor" && (
+            <section className="eq-group">
               <h3 className="eq-group-head">
-                {g.label} <span>{g.items.length}</span>
+                Armor sets <span>{armorSets.length}</span>
               </h3>
+              <p className="eq-offhand-note">
+                Minecraft-style full sets (head · chest · legs · feet). Preview on the armor stand
+                asset; worn bone-attach is the same slot model when mesh pieces land.
+              </p>
               <div className="eq-grid">
-                {g.items.map((w) => {
-                  const on = w.id === currentWeapon;
+                <button
+                  className={`eq-card ${!activeSetId && defense === 0 ? "on" : ""}`}
+                  onClick={() => onArmorLoadout(emptyArmorLoadout())}
+                  data-tip="Clear all armor slots"
+                >
+                  <span className="eq-card-name">Unequip</span>
+                  {!activeSetId && defense === 0 && (
+                    <span className="eq-card-badge">Bare</span>
+                  )}
+                </button>
+                {armorSets.map((s) => {
+                  const on = s.id === activeSetId;
                   return (
                     <button
-                      key={w.id}
+                      key={s.id}
                       className={`eq-card ${on ? "on" : ""}`}
-                      onClick={() => onEquip(w.id)}
-                      data-tip={`${w.label} — ${w.animSet} moveset`}
+                      onClick={() => onArmorLoadout(loadoutFromSet(s.id))}
+                      data-tip={`${s.description} · DEF ${s.defense}`}
                     >
-                      <Icon name={WEAPON_ICON[w.id]} size={28} className="eq-card-icon" />
-                      <span className="eq-card-name">{w.label}</span>
+                      <span className="eq-card-name">{s.label}</span>
+                      <span className="eq-card-mat">{s.material}</span>
+                      <span className="eq-card-def">DEF {s.defense}</span>
                       {on && <span className="eq-card-badge">Equipped</span>}
                     </button>
                   );
                 })}
               </div>
+              {armorSets.length === 0 && <p className="eq-empty">No armor sets match “{query}”.</p>}
+              {activeSetId && (
+                <p className="eq-armor-active">
+                  Active: <strong>{getArmorSet(activeSetId)?.label}</strong> · stand node{" "}
+                  <code>{getArmorSet(activeSetId)?.standNode}</code>
+                </p>
+              )}
             </section>
-          ))}
-          {groups.length === 0 && <p className="eq-empty">No weapons match “{query}”.</p>}
+          )}
         </div>
 
-        {/* Footer hint */}
         <footer className="eq-foot">
           <span>
-            Click to equip live · <kbd>I</kbd> toggle · <kbd>Esc</kbd> close
+            Click to equip · <kbd>I</kbd> toggle · <kbd>Esc</kbd> close
           </span>
         </footer>
       </div>

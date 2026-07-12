@@ -27,7 +27,7 @@ import { ROOM_PRESETS, ROOM_PRESET_LIST, asRoomPresetId, loadRoomPreset, saveRoo
 import { loadDjShow, saveDjShow } from "./three/djShowSettings";
 import { loadSound, type SoundSettings } from "./three/soundSettings";
 import { musicStation } from "./three/audio/musicStation";
-import { djStationUrls, djStationTitles } from "./three/audio/djPlaylist";
+import { djStationUrls, djStationTitles, djProducerTagUrl } from "./three/audio/djPlaylist";
 import { loadDjStation, saveDjStation, type DjStationSettings } from "./three/djStationSettings";
 import {
   RADIO_STATIONS,
@@ -37,6 +37,11 @@ import {
   assertStation,
 } from "./three/audio/radioStations";
 import { LandingPage } from "./components/LandingPage";
+import {
+  readRememberedAnimatorCharacter,
+  rememberAnimatorCharacter,
+  resolveFleetPlayerLoadout,
+} from "./auth/fleetCharacter";
 import { SoundMixer, SoundLevels, type SoundChannel } from "./components/SoundMixer";
 import { DjStationPanel, DjStationBody, type DjNowPlaying } from "./components/DjStationPanel";
 import type {
@@ -50,6 +55,11 @@ import { Crosshair } from "./components/Crosshair";
 import { Hud } from "./components/Hud";
 import { MechHud } from "./components/MechHud";
 import { EquipmentScreen } from "./components/EquipmentScreen";
+import {
+  loadArmorLoadoutFromStorage,
+  saveArmorLoadoutToStorage,
+  type ArmorLoadout,
+} from "./three/equipment";
 import { AdminPanel } from "./components/AdminPanel";
 import { EnvThumb } from "./components/EnvThumb";
 import { EditorPanel } from "./components/EditorPanel";
@@ -177,7 +187,7 @@ export default function App() {
   const [djNow, setDjNow] = useState<DjNowPlaying | null>(null);
   // Radio station picker state: which station is tuned (persisted), the live
   // track list (differs per station), transport (paused / station mute), and a
-  // busy label while an Audius station's playlist is being fetched.
+  // busy label while a free stream station's playlist is being fetched.
   const [djStationId, setDjStationId] = useState<string>(() => loadStationId());
   const [djTitles, setDjTitles] = useState<string[]>([]);
   const [djPaused, setDjPaused] = useState(false);
@@ -218,9 +228,20 @@ export default function App() {
       musicStation.setOnTrack(null);
     };
   }, []);
-  const [characterId, setCharacterId] = useState("explorer");
+  // Prefer last fleet/GRUDOX character so reloads keep the Warlords hero.
+  const [characterId, setCharacterId] = useState(
+    () => readRememberedAnimatorCharacter() || "explorer",
+  );
   const [weaponId, setWeaponId] = useState<WeaponId>("sword");
   const [offHand, setOffHandState] = useState<WeaponId | null>(null);
+  const [armorLoadout, setArmorLoadoutState] = useState<ArmorLoadout>(() =>
+    loadArmorLoadoutFromStorage(),
+  );
+  const onArmorLoadout = useCallback((loadout: ArmorLoadout) => {
+    setArmorLoadoutState(loadout);
+    saveArmorLoadoutToStorage(loadout);
+  }, []);
+  const [fleetHeroName, setFleetHeroName] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   // Hydrate from persisted controls so the saved controller/camera/mouse feel
   // is the source of truth on mount — Studio also loads these, and pushing this
@@ -359,7 +380,8 @@ export default function App() {
       // Gate the session behind the readiness loading screen. A networked room
       // with a chosen map builds that arena during load; a plain Danger Room
       // play-session gates on character + weapon + physics only (no arena).
-      studio = new Studio(mountRef.current, "explorer", (h) => hudRef.current(h), {
+      // Spawn the fleet/GRUDOX hero when known; otherwise Explorer procedural.
+      studio = new Studio(mountRef.current, characterId, (h) => hudRef.current(h), {
         gate: roomMap ? { arena: roomMap } : {},
       });
       // The engine owns the arena build now (kicked off internally once the rig
@@ -376,6 +398,8 @@ export default function App() {
       setParams(persistedControls);
       studio.setParams(persistedControls);
       studio.setTimeScale(timeScale);
+      studio.setWeapon(weaponId);
+      if (offHand) studio.setOffHand(offHand);
       // A networked room dictates its environment preset; apply it over the
       // engine's local default so every joiner sees the same arena. This adopts
       // the room's current preset, so don't re-broadcast it back to the relay.
@@ -418,13 +442,15 @@ export default function App() {
     try {
       // Gate the play session behind the readiness loading screen; the engine
       // builds the authored arena internally once the rig is ready.
-      studio = new Studio(mountRef.current, "explorer", (h) => hudRef.current(h), {
+      studio = new Studio(mountRef.current, characterId, (h) => hudRef.current(h), {
         gate: { arena: map },
       });
       studio.onCharacterLoaded = () => refreshAnim();
       studio.onReadiness = (s) => setLoading(s);
       setLoading(studio.readinessSnapshot());
       studio.setFireParams(loadFireFx());
+      studio.setWeapon(weaponId);
+      if (offHand) studio.setOffHand(offHand);
       // Re-read persisted controls at every mount so engine-only mutations
       // (e.g. wheel-zoom cameraDistance, saved on the previous teardown) win on
       // re-entry, and sync them back into React state so the settings sliders
@@ -618,8 +644,43 @@ export default function App() {
     studioRef.current?.setTouchMode(isMobile);
   }, [isMobile]);
 
+  // Pull the player's active Warlords character (created on GRUDOX / fleet) into
+  // this game as the playable Grudge modular avatar.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const loadout = await resolveFleetPlayerLoadout();
+        if (cancelled || !loadout) return;
+        setCharacterId(loadout.characterId);
+        setWeaponId(loadout.weaponId);
+        setOffHandState(loadout.offHand);
+        setFleetHeroName(loadout.displayName);
+        rememberAnimatorCharacter(loadout.characterId, loadout.source.id);
+        const studio = studioRef.current;
+        if (studio) {
+          studio.setCharacter(loadout.characterId);
+          studio.setWeapon(loadout.weaponId);
+          studio.setOffHand(loadout.offHand);
+        }
+        console.info(
+          "[Animator] fleet hero →",
+          loadout.characterId,
+          loadout.displayName,
+          loadout.source.id,
+        );
+      } catch (err) {
+        console.warn("[Animator] fleet character resolve failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const onCharacter = useCallback((id: string) => {
     setCharacterId(id);
+    rememberAnimatorCharacter(id);
     studioRef.current?.setCharacter(id);
   }, []);
 
@@ -810,6 +871,7 @@ export default function App() {
       .then((list) => {
         if (djStationReqRef.current !== token) return;
         musicStation.setStationName(def.name);
+        // stationPlaylist already arms/clears the CPT RAC producer tag.
         musicStation.setPlaylist(list.urls, list.titles);
         setDjTitles(list.titles);
         setDjPaused(false);
@@ -822,6 +884,8 @@ export default function App() {
         saveStationId("cpt-rac");
         setDjStationId("cpt-rac");
         musicStation.setStationName(RADIO_STATIONS[0].name);
+        // stationPlaylist sets the tag; hard-fallback must arm it too.
+        musicStation.setProducerTag(djProducerTagUrl());
         musicStation.setPlaylist(djStationUrls(), djStationTitles());
         setDjTitles(djStationTitles());
       })
@@ -1105,7 +1169,8 @@ export default function App() {
     return null;
   }, [mode, dangerAiTools, characterId, weaponId, difficulty, params]);
 
-  // Wrap any mode's content in the persistent shell (launcher + global AI dock).
+  // Wrap any mode's content in the persistent shell (title dropdown + toolbox
+  // with tools / music / AI tabs). LED Mask keeps its own face chat.
   const shell = (content: React.ReactNode) => (
     <AppShell
       mode={mode}
@@ -1544,8 +1609,10 @@ export default function App() {
               characterName={hud?.character ?? characterId}
               currentWeapon={hud?.weapon ?? weaponId}
               currentOffHand={offHand}
+              armorLoadout={armorLoadout}
               onEquip={onWeapon}
               onEquipOff={onOffHand}
+              onArmorLoadout={onArmorLoadout}
               onClose={() => setEquipOpen(false)}
             />
           )}
@@ -1646,8 +1713,10 @@ export default function App() {
               characterName={hud?.character ?? characterId}
               currentWeapon={hud?.weapon ?? weaponId}
               currentOffHand={offHand}
+              armorLoadout={armorLoadout}
               onEquip={onWeapon}
               onEquipOff={onOffHand}
+              onArmorLoadout={onArmorLoadout}
               onClose={() => setEquipOpen(false)}
             />
           )}

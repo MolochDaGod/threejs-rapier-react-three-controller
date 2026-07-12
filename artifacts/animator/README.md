@@ -14,6 +14,9 @@ from an in-app editor.
 - **Switch characters and weapons** — the default is the procedural **Explorer**;
   others (e.g. the **Striker**, a weaponless kick-fighter) bring their own clips
   and combat style.
+- **Minecraft-style armor loadout** (`I` equipment) — four slots (head / chest /
+  legs / feet) plus full-set equip from the realistic armor stand pack. See
+  [`docs/minecraft-armor-equipment.md`](./docs/minecraft-armor-equipment.md).
 - **Tune everything live** — move speed, jump, gravity, camera distance/height,
   FOV, dash distance, AoE radius, knockback, and per-character **attack
   direction-assist + dash rating**.
@@ -43,8 +46,25 @@ hand-written engine.
   behind one shared `Avatar` interface the controller/studio drive.
 - `src/three/assets.ts`, `types.ts` — character/weapon/skill definitions and
   editor params; `Vfx.ts` — impact/skill effects.
+- `src/three/equipment/` — Minecraft-style armor slots, catalog (leather / iron /
+  gold / magic sets), and armor-stand visibility helpers for
+  `public/models/armor/mc-armor-stand.glb`.
 - `src/components/Hud.tsx` — the RPG-style HUD overlay (vitals, action bar with
   cooldowns), fed by snapshots the engine pushes.
+- `src/components/EquipmentScreen.tsx` — live weapons + armor set loadout (`I`).
+
+## Armor (Minecraft practices)
+
+| Practice | How we do it |
+|----------|----------------|
+| Four body slots | `head` · `chest` · `legs` · `feet` |
+| Full set equip | `loadoutFromSet(id)` fills all four |
+| Armor stand preview | `mc-armor-stand.glb` node visibility per set |
+| Data ≠ mesh | Stable piece/set ids; stand nodes or future `wornFile` |
+
+**Asset note:** the source Fin Armor GLB is a mannequin showcase (no skinned worn pieces).
+High value for rack + UI; worn bone-attach is the same slot model when split meshes exist.
+Full write-up: `docs/minecraft-armor-equipment.md`.
 
 ## Self-contained by design
 
