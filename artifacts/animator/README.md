@@ -86,3 +86,6 @@ hosted in this app's own `public/anim/...` and loaded via `FBXLoader`.
 
 > Combat tuning (direction-assist / dash-rating), the lunge/dash motion model, and
 > the locomotion blend are documented in `replit.md` and `.agents/memory/`.
+
+<!-- vercel deploy kick 2026-07-12T22:22:55.3617306-05:00 -->
+
