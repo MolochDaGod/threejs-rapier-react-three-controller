@@ -24,6 +24,7 @@ export type WeaponId =
   | "spear"
   | "hammer"
   | "mace"
+  | "mace2h"
   | "greataxe"
   | "hammer2h"
   | "bow"
@@ -70,7 +71,11 @@ export type StatusId =
   | "regen"
   | "empowered"
   | "shielded"
-  | "haste";
+  | "haste"
+  /** Movement slow (ice/venom snakes, earth roots). */
+  | "slowed"
+  /** Brief hard CC (storm/holy snakes, roots peak). */
+  | "stunned";
 
 /**
  * Elemental school of a magic staff. Each element is its own staff weapon type
@@ -575,6 +580,7 @@ export type WeaponAnimSet =
   | "greatsword"
   | "axe"
   | "mace"
+  | "mace2h"
   | "spear"
   | "hammer"
   | "greataxe"
@@ -704,6 +710,12 @@ export interface WeaponDef {
   /** When true, AI melee duels may select this weapon. */
   duelEligible?: boolean;
   /**
+   * Optional complete skill kit (F + keys 1–4). When set, Studio prefers these
+   * labels/kinds over character `signatureSkills` for HUD + fire. Fill one weapon
+   * at a time — only `mace2h` ships a kit today so other weapons stay unchanged.
+   */
+  skillKit?: import("./arsenal/weaponSkillKits").WeaponSkillKit;
+  /**
    * Explicit AI combat role override. The sparring brain reads this to decide how
    * a fighter plays the weapon (kite + shoot, mid-range hurl, or melee combo).
    * When omitted, the role is inferred from `group` (`ranged` group → ranged,
@@ -721,8 +733,10 @@ export interface WeaponDef {
  * stands for a lifetime and fires a repeating, self-re-targeting effect.
  * - `snareField` — a zone that re-pulses a movement slow + chip damage on every
  *   enemy standing in it (the support/control counterpart to the turret).
+ * - `bearTrap` — owner-only-visible one-shot snare: 2 m trigger, stuns enemies
+ *   that walk into it (Bear Trap.glb).
  */
-export type GadgetKind = "snareField";
+export type GadgetKind = "snareField" | "bearTrap";
 
 export interface CharacterDef {
   id: string;
@@ -758,6 +772,12 @@ export interface CharacterDef {
   handBone: string;
   /** When true the character never mounts a weapon (a pure martial artist). */
   weaponless?: boolean;
+  /**
+   * When true the character already carries a baked-in weapon mesh (e.g. Hippolin
+   * Guard's 2H maul). Studio skips library weapon mount so we don't double-equip,
+   * but {@link defaultWeapon} still drives combat stats, combo animSet, and skills.
+   */
+  bakedWeapon?: boolean;
   /**
    * Special melee style. "kick": every attack is a foot strike that lunges in
    * toward the aimed target along an eased spline and springs back like a ninja,

@@ -42,7 +42,7 @@ describe("uiLayout", () => {
     const shrunk = clampLayout(big, 800, 400);
     expect(shrunk.topbar).toEqual({ dx: 740, dy: 340 });
     expect(shrunk.wallet).toEqual({ dx: -740, dy: 0 });
-    expect(shrunk.assistant).toEqual({ dx: 0, dy: 0 });
+    expect(shrunk.toolbox).toEqual({ dx: 0, dy: 0 });
   });
 
   it("mergeUiLayout rejects hostile shapes without throwing", () => {

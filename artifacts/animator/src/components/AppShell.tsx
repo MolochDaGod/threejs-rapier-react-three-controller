@@ -3,14 +3,10 @@
  *
  * Wraps every mode's content in one persistent shell so the user can hop between
  * systems (Danger Room, Voxel Editor, Dressing Room, Lobby, LED Mask) WITHOUT a
- * doors round-trip, and so the AI companion is reachable from everywhere.
- *
- * The shell renders as an overlay fragment (it does not box the mode content —
- * each mode keeps its own fixed/absolute full-screen layout), contributing two
- * things above the scene:
- *   1. a persistent top launcher pill + nav (bottom sheet on phones, dropdown on
- *      pointer devices), safe-area aware with touch-sized targets, and
- *   2. ONE global {@link AiAssistant} dock driven by the active surface's config.
+ * doors round-trip. Chrome layout:
+ *   1. Top-left mode title — click opens the system switcher dropdown.
+ *   2. Bottom-right Toolbox — tools grid, music, and the agentic AI chat tab
+ *      (no separate floating AI dock).
  *
  * Modes that own a live engine (the Dressing Room) register their assistant via
  * {@link useRegisterAssistant}; the shell prefers that child-registered config
@@ -22,7 +18,6 @@ import { CursorManager } from "./CursorManager";
 import {
   Boxes,
   ChevronDown,
-  Grid3x3,
   Home,
   Move,
   RotateCcw,
@@ -30,20 +25,23 @@ import {
   Shirt,
   SquareUser,
   Swords,
+  Globe2,
+  Pickaxe,
   Users,
   X,
 } from "lucide-react";
-const toolboxArt = `${import.meta.env.BASE_URL}emblem.png`;
 import { AiAssistant } from "../ai/AiAssistant";
 import { AssistantSurfaceContext, type AssistantConfig } from "../ai/AssistantSurface";
 import { useDevice } from "../hooks/useDevice";
 import { WalletProvider } from "../wallet/useWallet";
 import { WalletButton } from "../wallet/WalletButton";
 import { TipLayer } from "./ui/TipLayer";
-import { ToolboxOverlay } from "./toolbox/ToolboxOverlay";
+import { ToolboxOverlay, type ToolboxTab } from "./toolbox/ToolboxOverlay";
 import type { ToolDef } from "./toolbox/tools";
 import { useUiEdit } from "./shell/useUiEdit";
 import "./appShell.css";
+
+const toolboxArt = `${import.meta.env.BASE_URL}emblem.png`;
 
 /** Every mode the shell can route to. Mirrors App's `Mode` union. */
 export type ShellMode =
@@ -54,6 +52,9 @@ export type ShellMode =
   | "play"
   | "editor"
   | "lobby"
+  | "lobbyWorld"
+  | "characters"
+  | "minegrudge"
   | "ledmask"
   | "avatar";
 
@@ -71,11 +72,14 @@ const NAV: NavItem[] = [
   { mode: "voxel", label: "Voxel Editor", hint: "Build & test maps", icon: <Boxes size={20} />, tone: "#7ee0a0" },
   { mode: "editor", label: "Dressing Room", hint: "Dress up a rig", icon: <Shirt size={20} />, tone: "#ffb24d" },
   { mode: "lobby", label: "Lobby", hint: "Rooms & community", icon: <Users size={20} />, tone: "#9d8bff" },
+  { mode: "lobbyWorld", label: "GRUDOX World", hint: "Persistent island", icon: <Globe2 size={20} />, tone: "#5fd48a" },
+  { mode: "characters", label: "Characters", hint: "Campfire roster", icon: <SquareUser size={20} />, tone: "#4fc3ff" },
+  { mode: "minegrudge", label: "Realms", hint: "Survival multiplayer", icon: <Pickaxe size={20} />, tone: "#7ee0a0" },
   { mode: "avatar", label: "Avatar Edit", hint: "Cube head builder", icon: <SquareUser size={20} />, tone: "#ffd28a" },
   { mode: "ledmask", label: "LED Mask", hint: "LED Mask & rooms", icon: <ScanFace size={20} />, tone: "#5fe0ff" },
 ];
 
-/** The launcher pill reflects the active surface (play folds into the editor). */
+/** The title pill reflects the active surface (play folds into the editor). */
 function activeNav(mode: ShellMode): NavItem {
   const voxel = NAV.find((n) => n.mode === "voxel")!;
   if (mode === "play") return { ...voxel, label: "Playtest", hint: "Testing your map" };
@@ -83,13 +87,13 @@ function activeNav(mode: ShellMode): NavItem {
 }
 
 interface Props {
-  /** Current mode (drives the launcher label + active highlight). */
+  /** Current mode (drives the title label + active highlight). */
   mode: ShellMode;
   /** Switch systems. The host wires in any per-mode teardown (e.g. net leave). */
   onNavigate: (mode: ShellMode) => void;
   /** Base assistant config for the active mode (null = no host-owned config). */
   assistant: AssistantConfig | null;
-  /** Suppress the global dock (e.g. LED Mask runs its own embedded face chat). */
+  /** Suppress the AI tab (e.g. LED Mask runs its own embedded face chat). */
   hideAssistant?: boolean;
   /** Launch a Toolbox tool (mode switch / panel open). Host-owned side effects. */
   onTool?: (tool: ToolDef) => void;
@@ -111,7 +115,8 @@ export function AppShell({
   const phone = deviceClass === "phone";
   const [navOpen, setNavOpen] = useState(false);
   const [toolboxOpen, setToolboxOpen] = useState(false);
-  // UI edit mode: drag the shell chrome (top bar / wallet / assistant) to new
+  const [toolboxTab, setToolboxTab] = useState<ToolboxTab>("tools");
+  // UI edit mode: drag the shell chrome (title / wallet / toolbox) to new
   // places; offsets persist to localStorage and apply as CSS vars.
   const uiEdit = useUiEdit();
   // A mode that owns its engine can override the host-provided config.
@@ -120,10 +125,17 @@ export function AppShell({
   const surfaceApi = useMemo(() => ({ set: setOverride }), []);
   const current = activeNav(mode);
   const config = override ?? assistant;
+  const showAi = Boolean(config && !hideAssistant);
 
   const go = (next: ShellMode) => {
     setNavOpen(false);
     if (next !== mode) onNavigate(next);
+  };
+
+  const openToolbox = (tab: ToolboxTab = "tools") => {
+    setNavOpen(false);
+    setToolboxTab(tab);
+    setToolboxOpen(true);
   };
 
   return (
@@ -148,6 +160,7 @@ export function AppShell({
         );
       })()}
 
+      {/* Top-left mode title — click opens the system switcher. */}
       {(() => {
         const b = uiEdit.bind("topbar");
         return (
@@ -159,33 +172,21 @@ export function AppShell({
           >
             <button
               className="shell-launcher"
-              onClick={() => setNavOpen((v) => !v)}
+              onClick={() => {
+                setToolboxOpen(false);
+                setNavOpen((v) => !v);
+              }}
               aria-haspopup="menu"
               aria-expanded={navOpen}
               data-tip="Switch system — jump to any room"
               data-cursor="interact"
             >
               <span className="shell-launcher-icon" style={{ color: current.tone }}>
-                {navOpen ? <X size={18} /> : <Grid3x3 size={18} />}
+                {navOpen ? <X size={18} /> : current.icon}
               </span>
               <span className="shell-launcher-label">{current.label}</span>
               <ChevronDown size={15} className={`shell-launcher-chev ${navOpen ? "open" : ""}`} />
             </button>
-            {onTool && (
-              <button
-                className="shell-toolbox"
-                onClick={() => {
-                  setNavOpen(false);
-                  setToolboxOpen((v) => !v);
-                }}
-                aria-haspopup="dialog"
-                aria-expanded={toolboxOpen}
-                data-tip="Open the Toolbox — tools, music & mixer"
-              >
-                <img className="shell-toolbox-art" src={toolboxArt} alt="" draggable={false} />
-                <span className="shell-toolbox-label">Toolbox</span>
-              </button>
-            )}
             <button
               className={`shell-uiedit-toggle ${uiEdit.editing ? "on" : ""}`}
               onClick={() => {
@@ -195,7 +196,7 @@ export function AppShell({
               }}
               aria-pressed={uiEdit.editing}
               aria-label="Edit UI layout"
-              data-tip="Edit UI — drag the bar, wallet & AI dock to new places"
+              data-tip="Edit UI — drag the title, wallet & toolbox to new places"
             >
               <Move size={15} />
             </button>
@@ -203,10 +204,33 @@ export function AppShell({
         );
       })()}
 
+      {/* Bottom-right Toolbox launcher (tools + music + AI tabs). */}
+      {onTool && (() => {
+        const b = uiEdit.bind("toolbox");
+        return (
+          <button
+            className={`shell-toolbox ${toolboxOpen ? "on" : ""} ${b.className}`}
+            style={b.style}
+            onPointerDownCapture={b.onPointerDownCapture}
+            onClickCapture={b.onClickCapture}
+            onClick={() => {
+              if (toolboxOpen) setToolboxOpen(false);
+              else openToolbox("tools");
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={toolboxOpen}
+            data-tip="Toolbox — tools, music & AI companion"
+          >
+            <img className="shell-toolbox-art" src={toolboxArt} alt="" draggable={false} />
+            <span className="shell-toolbox-label">Toolbox</span>
+          </button>
+        );
+      })()}
+
       {uiEdit.editing && (
         <div className="shell-uiedit-chip" role="toolbar" aria-label="UI edit controls">
           <span className="shell-uiedit-chip-text">
-            UI edit — drag the top bar, wallet or AI dock. Positions save automatically.
+            UI edit — drag the title, wallet or toolbox. Positions save automatically.
           </span>
           <button
             className="shell-uiedit-btn"
@@ -229,6 +253,20 @@ export function AppShell({
         {toolboxOpen && onTool && (
           <ToolboxOverlay
             music={toolboxMusic}
+            ai={
+              showAi && config ? (
+                <AiAssistant
+                  key={config.surface}
+                  embedded
+                  surface={config.surface}
+                  title={config.title}
+                  tools={config.tools}
+                  getSystemPrompt={config.getSystemPrompt}
+                  placeholder={config.placeholder}
+                />
+              ) : undefined
+            }
+            initialTab={toolboxTab}
             onClose={() => setToolboxOpen(false)}
             onLaunch={(tool) => {
               setToolboxOpen(false);
@@ -285,27 +323,6 @@ export function AppShell({
           </>
         )}
       </AnimatePresence>
-
-      {config && !hideAssistant && (() => {
-        const b = uiEdit.bind("assistant");
-        return (
-          <div
-            style={{ display: "contents", ...b.style }}
-            className={b.className}
-            onPointerDownCapture={b.onPointerDownCapture}
-            onClickCapture={b.onClickCapture}
-          >
-            <AiAssistant
-              key={config.surface}
-              surface={config.surface}
-              title={config.title}
-              tools={config.tools}
-              getSystemPrompt={config.getSystemPrompt}
-              placeholder={config.placeholder}
-            />
-          </div>
-        );
-      })()}
       </WalletProvider>
     </AssistantSurfaceContext.Provider>
     </CursorManager>

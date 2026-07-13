@@ -43,6 +43,7 @@ const NO_GESTURE_BREAK: ReadonlySet<WeaponClass> = new Set<WeaponClass>([
   "greatsword",
   "greataxe",
   "hammer2h",
+  "mace2h",
   "spear",
 ]);
 

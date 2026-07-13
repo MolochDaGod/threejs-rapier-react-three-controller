@@ -32,27 +32,26 @@ export function hairTexSize(units: number): number {
 }
 
 /** Shade-factor bounds every texel stays inside (matches paintHair range). */
-export const HAIR_SHADE_DARK = 0.55;
-export const HAIR_SHADE_LITE = 1.16;
+export const HAIR_SHADE_DARK = 0.52;
+export const HAIR_SHADE_LITE = 1.22;
 
-/** Lane divisor for the standard strand look (~24 strands across a box). */
-export const LANE_DIV = 24;
+/** Lane divisor for the standard strand look (~32 strands across a box). */
+export const LANE_DIV = 32;
 /**
- * Lane divisor for the FINE strand look (~96 strands): side hair and beards
- * render with 4× finer filaments grouped into thick rounded clumps.
+ * Lane divisor for the FINE strand look (~128 strands): hair and beards
+ * render with denser filaments grouped into thick rounded clumps.
  */
-export const FINE_LANE_DIV = 96;
+export const FINE_LANE_DIV = 128;
 /** Fine lanes per clump — one clump reads as a thick lock of fine strands. */
-export const FINE_CLUMP_LANES = 7;
+export const FINE_CLUMP_LANES = 6;
 
 const clampShade = (f: number) =>
   Math.min(HAIR_SHADE_LITE, Math.max(HAIR_SHADE_DARK, f));
 
 /**
  * Should this hair/beard box use the FINE strand material (extra-fine
- * filaments in thick clumps)? True for all beard volume and for side hair —
- * boxes hugging the head's left/right faces (curtains, slicked panels,
- * shaggy locks; the head is a unit cube so its sides sit at |x| ≈ 0.5).
+ * filaments in thick clumps)? True for every non-braided hair and beard
+ * box — crown, curtains, fringe, and facial hair all get the dense look.
  * Braided volume keeps its weave texture instead. Pure so it's testable.
  */
 export function isFineHairBox(box: {
@@ -63,7 +62,7 @@ export function isFineHairBox(box: {
 }): boolean {
   if (box.braided) return false;
   if (box.slot === "facialHair") return true;
-  return box.hair === true && Math.abs(box.x) > 0.45;
+  return box.hair === true;
 }
 
 /**
@@ -120,7 +119,7 @@ export function buildHairTexturePixels(
   }
 
   if (fine) {
-    // Extra-fine filaments in thick clumps: each lane is a 4×-thinner strand,
+    // Extra-fine filaments in thick clumps: each lane is a thinner strand,
     // FINE_CLUMP_LANES neighbouring lanes share a clump with its own base
     // shade and a rounded macro "lock" profile (bright crown, shadowed
     // edges), and the first lane of every clump darkens into a separation
@@ -129,30 +128,32 @@ export function buildHairTexturePixels(
     for (let x = 0; x < cols; x++) {
       const lane = Math.floor(x / laneW);
       const clump = Math.floor(lane / FINE_CLUMP_LANES);
-      const clumpShade = 0.74 + hash01(clump, 11, seed) * 0.26;
+      const clumpShade = 0.72 + hash01(clump, 11, seed) * 0.3;
       // Macro cylinder across the whole clump (thick rounded lock).
       const cu =
         ((lane % FINE_CLUMP_LANES) + ((x % laneW) + 0.5) / laneW) / FINE_CLUMP_LANES;
-      const clumpCyl = 0.8 + Math.sin(cu * Math.PI) * 0.3;
+      const clumpCyl = 0.78 + Math.sin(cu * Math.PI) * 0.34;
       const boundary = lane % FINE_CLUMP_LANES === 0;
-      const laneShade = clumpShade * (0.86 + hash01(lane, 0, seed) * 0.24);
-      const sheenLane = hash01(lane, 1, seed) < 0.06;
+      const laneShade = clumpShade * (0.84 + hash01(lane, 0, seed) * 0.28);
+      const sheenLane = hash01(lane, 1, seed) < 0.09;
       // Micro cylinder inside each fine strand (needs ≥3 texels to matter).
       const u = ((x % laneW) + 0.5) / laneW;
-      const cyl = laneW > 2 ? 0.85 + Math.sin(u * Math.PI) * 0.24 : 1;
+      const cyl = laneW > 2 ? 0.82 + Math.sin(u * Math.PI) * 0.3 : 1;
       for (let y = 0; y < rows; y++) {
-        const tip = 1 - (y / Math.max(1, rows - 1)) * 0.16; // root→tip gradient
+        // Stronger root→tip darkening + slight mid-shaft lift for volume.
+        const t = y / Math.max(1, rows - 1);
+        const tip = 1 - t * 0.2 + Math.sin(t * Math.PI) * 0.04;
         const n = hash01(x, y, seed + 4);
         let f = laneShade * cyl * clumpCyl;
-        if (boundary) f *= 0.58; // groove between thick locks
+        if (boundary) f *= 0.52; // groove between thick locks
         const base = shade(color, clampShade(f * tip));
         out[y * cols + x] = sheenLane
-          ? n > 0.55
+          ? n > 0.48
             ? base
             : lite
-          : n > 0.92
+          : n > 0.9
             ? lite
-            : n < 0.07
+            : n < 0.06
               ? dark
               : base;
       }
@@ -168,31 +169,32 @@ export function buildHairTexturePixels(
   for (let x = 0; x < cols; x++) {
     const lane = Math.floor(x / laneW);
     // Per-lane character: base shade jitter + rare groove / sheen lanes.
-    const laneShade = 0.66 + hash01(lane, 0, seed) * 0.3;
+    const laneShade = 0.64 + hash01(lane, 0, seed) * 0.34;
     const laneKind = hash01(lane, 1, seed);
-    const groove = laneKind > 0.9;
-    const sheen = laneKind < 0.08;
+    const groove = laneKind > 0.88;
+    const sheen = laneKind < 0.1;
     // Cross-strand cylinder profile: bright at the lane centre, shadowed at
     // the edges (only meaningful when lanes span multiple texels).
     const u = ((x % laneW) + 0.5) / laneW;
-    const cyl = laneW > 2 ? 0.87 + Math.sin(u * Math.PI) * 0.2 : 1;
+    const cyl = laneW > 2 ? 0.84 + Math.sin(u * Math.PI) * 0.26 : 1;
     for (let y = 0; y < rows; y++) {
       // Lane meander: sample the neighbouring lane's shade partway down so
       // strands drift sideways like combed hair instead of ruler stripes.
       const drift = hash01(lane + (y >> 2), 3, seed) > 0.5 ? 1 : -1;
-      const meander = hash01(lane, y >> 1, seed + 9) > 0.72;
+      const meander = hash01(lane, y >> 1, seed + 9) > 0.68;
       const laneF =
-        (meander ? 0.66 + hash01(lane + drift, 0, seed) * 0.3 : laneShade) * cyl;
-      const tip = 1 - (y / Math.max(1, rows - 1)) * 0.12; // root→tip gradient
+        (meander ? 0.64 + hash01(lane + drift, 0, seed) * 0.34 : laneShade) * cyl;
+      const t = y / Math.max(1, rows - 1);
+      const tip = 1 - t * 0.16 + Math.sin(t * Math.PI) * 0.03;
       const n = hash01(x, y, seed + 2);
       let c: number;
-      if (groove) c = n > 0.82 ? shade(color, clampShade(laneF * tip)) : dark;
-      else if (sheen) c = n > 0.7 ? shade(color, clampShade(laneF * tip)) : lite;
+      if (groove) c = n > 0.8 ? shade(color, clampShade(laneF * tip)) : dark;
+      else if (sheen) c = n > 0.62 ? shade(color, clampShade(laneF * tip)) : lite;
       else
         c =
-          n > 0.85
+          n > 0.82
             ? lite
-            : n < 0.12
+            : n < 0.1
               ? dark
               : shade(color, clampShade(laneF * tip));
       out[y * cols + x] = c;

@@ -39,6 +39,7 @@ export const WEAPON_ICON: Record<WeaponId, IconName> = {
   spear: "patrol",
   hammer: "build",
   mace: "charge",
+  mace2h: "charge",
   greataxe: "siege",
   hammer2h: "build",
   bow: "scout",

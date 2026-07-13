@@ -71,6 +71,9 @@ import { StatusDock } from "./components/StatusDock";
 import { DoorSelect } from "./components/DoorSelect";
 import { EditorMode } from "./components/editor/EditorMode";
 import { Lobby } from "./components/Lobby";
+import { LobbyWorldMode } from "./components/LobbyWorldMode";
+import { CharactersGrudoxMode } from "./components/CharactersGrudoxMode";
+import { MineGrudgeEditorMode } from "./components/MineGrudgeEditorMode";
 import { LedMaskMode } from "./components/LedMaskMode";
 import { RoomGallery } from "./components/RoomGallery";
 import { AvatarEditMode } from "./components/AvatarEditMode";
@@ -108,13 +111,14 @@ type Mode =
   | "play"
   | "editor"
   | "lobby"
+  | "lobbyWorld"
+  | "characters"
+  | "minegrudge"
   | "ledmask"
   | "avatar";
 
-// Optional deep-link: `?door=editor|danger|voxel|lobby|doors|…` opens that
-// surface on load (handy for sharing a direct link and for testing a single
-// surface). The default entry is the landing page (Grudge ID sign-in); the
-// doors hall is the home surface behind it.
+// Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|minegrudge|…`
+// surface on load. Default entry is landing (Grudge ID); doors hall is home.
 function initialMode(): Mode {
   try {
     const d = new URLSearchParams(window.location.search).get("door");
@@ -123,11 +127,19 @@ function initialMode(): Mode {
       d === "danger" ||
       d === "voxel" ||
       d === "lobby" ||
+      d === "lobbyWorld" ||
+      d === "characters" ||
+      d === "charactersgrudox" ||
+      d === "minegrudge" ||
+      d === "grudoxEditor" ||
       d === "ledmask" ||
       d === "avatar" ||
       d === "doors"
-    )
+    ) {
+      if (d === "charactersgrudox") return "characters";
+      if (d === "grudoxEditor") return "minegrudge";
       return d;
+    }
   } catch {
     /* no-op */
   }
@@ -1157,7 +1169,15 @@ export default function App() {
         placeholder: "Spawn 3 sword enemies, set difficulty hard…",
       };
     }
-    if (mode === "doors" || mode === "voxel" || mode === "lobby" || mode === "avatar") {
+    if (
+      mode === "doors" ||
+      mode === "voxel" ||
+      mode === "lobby" ||
+      mode === "lobbyWorld" ||
+      mode === "characters" ||
+      mode === "minegrudge" ||
+      mode === "avatar"
+    ) {
       return {
         surface: "guide",
         title: "Companion",
@@ -1271,6 +1291,41 @@ export default function App() {
     return shell(<AvatarEditMode onExit={() => setMode("doors")} />);
   }
 
+  if (mode === "lobbyWorld") {
+    return shell(
+      withScreenTheme(
+        <LobbyWorldMode
+          onExit={() => setMode("lobby")}
+          net={getNet()}
+          enablePvp
+        />,
+      ),
+    );
+  }
+
+  if (mode === "characters") {
+    return shell(
+      withScreenTheme(
+        <CharactersGrudoxMode
+          onExit={() => setMode("doors")}
+          onNavigate={(m) => setMode(m)}
+        />,
+      ),
+    );
+  }
+
+  if (mode === "minegrudge") {
+    return shell(
+      withScreenTheme(
+        <MineGrudgeEditorMode
+          onExit={() => setMode("characters")}
+          surface="lobby"
+          preferLive
+        />,
+      ),
+    );
+  }
+
   if (mode === "lobby") {
     return shell(
       withScreenTheme(
@@ -1279,6 +1334,7 @@ export default function App() {
         onPlay={onPlayPost}
         onLoadScene={onLoadScenePost}
         onExit={() => setMode("doors")}
+        onEnterWorld={() => setMode("lobbyWorld")}
         net={getNet()}
         onEnterRoom={onEnterRoom}
       />,

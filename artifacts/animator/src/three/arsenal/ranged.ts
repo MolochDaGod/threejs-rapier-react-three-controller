@@ -1,5 +1,6 @@
 import type { WeaponDef } from "./types";
 import { PI2 } from "./types";
+import { PISTOL_SKILL_KIT, RIFLE_SKILL_KIT } from "./weaponSkillKits";
 
 /**
  * Ranged weapon prefabs (bow + firearms). Not eligible for the melee duel, but
@@ -44,6 +45,8 @@ export const RANGED_WEAPONS: WeaponDef[] = [
     skillName: "Quick Draw",
     skillDuration: 0.5,
     cooldown: 0.9,
+    /** Slot 2 (Digit2) = Earth Wall via skillKit.signatures[1]. */
+    skillKit: PISTOL_SKILL_KIT,
     combat: { intensity: 28, direction: 100, range: [0.5, 1.2] },
     animSet: "pistol",
     group: "ranged",
@@ -67,6 +70,8 @@ export const RANGED_WEAPONS: WeaponDef[] = [
     skillName: "Burst Fire",
     skillDuration: 0.8,
     cooldown: 1.6,
+    /** Slot 2 (Digit2) = Earth Wall via skillKit.signatures[1]. */
+    skillKit: RIFLE_SKILL_KIT,
     combat: { intensity: 40, direction: 100, range: [0.6, 1.4] },
     animSet: "ranged",
     group: "ranged",

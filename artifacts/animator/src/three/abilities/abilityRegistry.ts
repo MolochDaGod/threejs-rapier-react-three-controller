@@ -83,12 +83,27 @@ const snareFieldDeploy: AbilityDef = deployAbility("snareField", "nova", COLOR_S
   tail: 0.4,
 });
 
+/**
+ * Bear trap — one-shot deployable. Host polls proximity each tick; on trip it
+ * stuns enemies in a 2 m radius and tears the entity down via onExpire. Life is
+ * long so an untriggered trap can wait for prey; ticks are frequent for snappy
+ * trigger response. Pure shape only — gameplay is host-owned.
+ */
+const COLOR_BEAR_TRAP = 0xc4a574;
+const bearTrapDeploy: AbilityDef = deployAbility("bearTrap", "nova", COLOR_BEAR_TRAP, {
+  life: 40.0,
+  firstTick: 0.05,
+  interval: 0.08,
+  tail: 0.2,
+});
+
 /** Static, id-addressable abilities (projectile + melee + deploy archetypes). */
 export const ABILITIES: Record<string, AbilityDef> = {
   [fireDragonSig.id]: fireDragonSig,
   [bowSlash.id]: bowSlash,
   [dashSkill.id]: dashSkill,
   [snareFieldDeploy.id]: snareFieldDeploy,
+  [bearTrapDeploy.id]: bearTrapDeploy,
 };
 
 /** Look up a static ability definition by id. */

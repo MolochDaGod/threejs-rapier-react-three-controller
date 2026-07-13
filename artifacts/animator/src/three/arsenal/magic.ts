@@ -1,6 +1,20 @@
 import type { SkillKind, StaffElement, WeaponModelPiece } from "../types";
 import type { WeaponDef, WeaponTier } from "./types";
 import { PI2 } from "./types";
+import {
+  STAFF_FIRE_SKILL_KIT,
+  STAFF_HOLY_SKILL_KIT,
+  STAFF_ICE_SKILL_KIT,
+  STAFF_NATURE_SKILL_KIT,
+  STAFF_STORM_SKILL_KIT,
+} from "./weaponSkillKits";
+import {
+  PRESET_ARCANE_TURRET,
+  PRESET_MOONBEAM,
+  PRESET_NATURE_BLINK,
+  PRESET_RAPID_FIRE,
+  getSkillPreset,
+} from "../cast/skillPresets";
 
 /**
  * Magic weapon prefabs. Not eligible for the melee duel, but a full
@@ -88,10 +102,71 @@ export const MAGIC_WEAPONS: WeaponDef[] = [
     grip: { main: { rot: [PI2, 0, 0], pos: [0, 0.05, 0] } },
     model: { main: { file: "models/weapons/staff.glb", length: 1.4, forward: "y+", align: "y", anchor: "base" } },
   },
-  elementalStaff("staffFire", "fire", "Fire Staff", "Flame Cast", "fireDragon", "wand-fire.glb"),
-  elementalStaff("staffIce", "ice", "Frost Staff", "Frost Cast", "bolt", "wand-frost.glb"),
-  elementalStaff("staffStorm", "storm", "Lightning Staff", "Shock Cast", "laser", "wand-lightning.glb"),
-  elementalStaff("staffNature", "nature", "Nature Staff", "Bloom Cast", "soul", "wand-nature.glb"),
-  elementalStaff("staffHoly", "holy", "Holy Staff", "Radiant Cast", "nova", "wand-holy.glb"),
-  elementalStaff("staffArcane", "arcane", "Arcane Staff", "Ethereal Cast", "soul", "wand-arcane.glb"),
+  {
+    ...elementalStaff("staffFire", "fire", "Fire Staff", "Flame Shockwave", "fireDragon", "wand-fire.glb"),
+    skillKit: STAFF_FIRE_SKILL_KIT,
+  },
+  {
+    ...elementalStaff("staffIce", "ice", "Frost Staff", "Blizzard", "bolt", "wand-frost.glb"),
+    skillKit: STAFF_ICE_SKILL_KIT,
+  },
+  {
+    ...elementalStaff("staffStorm", "storm", "Lightning Staff", "Storm Viper", "laser", "wand-lightning.glb"),
+    skillKit: STAFF_STORM_SKILL_KIT,
+  },
+  {
+    ...elementalStaff("staffNature", "nature", "Nature Staff", "Nature's Healing", "soul", "wand-nature.glb"),
+    skillKit: STAFF_NATURE_SKILL_KIT,
+  },
+  {
+    ...elementalStaff("staffHoly", "holy", "Holy Staff", "Radiant Python", "nova", "wand-holy.glb"),
+    skillKit: STAFF_HOLY_SKILL_KIT,
+  },
+  // Arcane staff: Nature Blink (no frost gate) + turret + void snake + rapid fire.
+  {
+    ...elementalStaff("staffArcane", "arcane", "Arcane Staff", "Nature Blink", "soul", "wand-arcane.glb"),
+    skillKit: {
+      primaryLabels: ["Ethereal Cast"],
+      ability: {
+        id: "nature_blink",
+        label: "Nature Blink",
+        kind: "soul",
+        clip: "skill",
+        strategy: "Instant green blink — no frost window required",
+        preset: PRESET_NATURE_BLINK,
+      },
+      signatures: [
+        {
+          id: "snake_void",
+          label: "Void Cobra",
+          kind: "soul",
+          clip: "skill",
+          strategy: "Violet snake — hex + slow + AOE",
+          preset: getSkillPreset("ice_snake_void")!,
+        },
+        {
+          id: "arcane_turret",
+          label: "Arcane Turret",
+          kind: "turret",
+          clip: "skill",
+          preset: PRESET_ARCANE_TURRET,
+        },
+        {
+          id: "rapid_fire",
+          label: "Rapid Fire",
+          kind: "muzzle",
+          clip: "skill",
+          strategy: "Arcane bolt stream — keep pushing",
+          preset: { ...PRESET_RAPID_FIRE, color: 0xb15cff, label: "Arcane Barrage" },
+        },
+        {
+          id: "moonbeam",
+          label: "Moonbeam",
+          kind: "soul",
+          clip: "skill",
+          preset: PRESET_MOONBEAM,
+        },
+      ],
+    },
+  },
 ];

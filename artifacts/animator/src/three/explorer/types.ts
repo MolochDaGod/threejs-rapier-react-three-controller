@@ -15,6 +15,7 @@ export type WeaponClass =
   | "greatsword"
   | "axe"
   | "mace"
+  | "mace2h"
   | "spear"
   | "hammer"
   | "greataxe"

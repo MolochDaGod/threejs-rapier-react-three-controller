@@ -521,6 +521,50 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
     strafe: false,
   },
 
+  // -------------------------------------------------------------- mace2h (2h guardian maul)
+  // Warlords SSOT: Smite (F), Whirlwind Slash (dash), 2H GS combo (LMB).
+  // GLB Hippolin plays native walk/attack; Explorer uses this Mixamo set.
+  mace2h: {
+    loco: {
+      idle: "animations/greatsword/great-sword-idle",
+      walkF: "animations/greatsword/great-sword-walk",
+      walkB: "animations/greatsword/great-sword-walk-2",
+      walkL: "animations/greatsword/great-sword-strafe",
+      walkR: "animations/greatsword/great-sword-strafe-2",
+      runF: "animations/greatsword/great-sword-run",
+      runB: "animations/greatsword/great-sword-run-2",
+      runL: "animations/greatsword/great-sword-strafe-3",
+      runR: "animations/greatsword/great-sword-strafe-4",
+    },
+    actions: {
+      // LMB: same 2H combo structure as greatsword (flowing multi-swing → heavy cleave).
+      attack1: "animations/greatsword/great-sword-combo",
+      attack2: "animations/greatsword/heavy-weapon-swing",
+      attack3: "animations/greatsword/great-sword-slash-3",
+      attack4: "animations/greatsword/great-sword-slash-4",
+      attack5: "animations/greatsword/great-sword-slash-5",
+      // F skill "Smite" (MACE ability) — cast flourish → impact.
+      skill: "animations/sword/sword-and-shield-casting",
+      // Whirlwind Slash body: high-spin (secondary GS).
+      stab: "animations/greatsword/great-sword-high-spin-attack",
+      // Slide into range for Whirlwind Slash.
+      dashAttack: "animations/sword/great-sword-slide-attack",
+      blockStart: "animations/greatsword/great-sword-blocking-2",
+      blockIdle: "animations/greatsword/great-sword-blocking-2",
+      draw: "animations/greatsword/draw-great-sword-1",
+      sheath: "animations/greatsword/draw-great-sword-1",
+      death: "animations/greatsword/two-handed-sword-death",
+      hit: "animations/greatsword/great-sword-impact",
+      jumpAir: "animations/extra/jump-up",
+      dodgeB: "animations/extra/jump-away",
+      dash: "animations/extra/crouch-to-sprint",
+      turnL: "animations/greatsword/great-sword-turn",
+      turnR: "animations/greatsword/great-sword-turn-2",
+    },
+    combo: ["attack1", "attack2"],
+    strafe: false,
+  },
+
   // -------------------------------------------------------------- ranged (rifle)
   ranged: {
     loco: {

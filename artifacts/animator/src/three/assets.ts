@@ -33,6 +33,8 @@ export const CHARACTERS: CharacterDef[] = [
       { label: "Freeze Dash", clip: "dash", kind: "slam", mode: "dash" },
       { label: "Power Throw", clip: "throw", kind: "muzzle" },
     ],
+    // F-skill deploys a bear trap: owner-only mesh, 2 m trigger, stuns enemies.
+    gadget: "bearTrap",
     handBone: "hand",
     modelYaw: 0,
     procedural: true,
@@ -473,10 +475,48 @@ export const CHARACTERS: CharacterDef[] = [
       idle: "stand1",
       walk: "walk",
       run: "run",
+      // No native combat clip in this GLB — pin attack to stand1 so the catalog
+      // is red-clean; autoMap cannot invent a strike. Replace when Bip01 combat
+      // packs are retargeted onto this rig.
+      attack: "stand1",
     },
     signatureSkills: [],
     handBone: "R[ _]Hand",
     modelYaw: Math.PI,
+  },
+  {
+    // Rigid-hierarchy Sketchfab guard with a baked spiked 2H maul (`guardian_*`).
+    // Native clips: walk cycle + attack; combat kit is the mace2h weapon
+    // (2H GS combo on Explorer; SSOT skills: Smite / Whirlwind Slash / Crushing Blow).
+    id: "hippolin-guard",
+    name: "Hippolin Guard",
+    file: "models/hippolin-guard.glb",
+    scale: 1,
+    clips: {
+      // stop walking settles into a ready stance; walking is the main loco loop.
+      idle: "stop walking",
+      walk: "walking",
+      run: "walking",
+      attack: "attack",
+    },
+    // Labels from ObjectStore master-weaponSkills (GREATSWORD + MACE pools).
+    signatureSkills: [
+      // GREATSWORD secondary: Whirlwind Slash — slide gap-closer + spin AoE.
+      { label: "Whirlwind Slash", clip: "attack", kind: "nova", mode: "dash" },
+      // MACE ability: Smite — holy cast slam (weapon F skill on Explorer).
+      { label: "Smite", clip: "attack", kind: "nova" },
+      // MACE primary: Crushing Blow.
+      { label: "Crushing Blow", clip: "attack", kind: "slam" },
+      // GREATSWORD primary: Overhead Slash.
+      { label: "Overhead Slash", clip: "attack", kind: "slash" },
+    ],
+    handBone: "righthand|lefthand",
+    modelYaw: Math.PI,
+    defaultWeapon: "mace2h",
+    // Maul is part of the mesh hierarchy — do not mount a second library hammer.
+    bakedWeapon: true,
+    directionAssist: 45,
+    dashRating: 55,
   },
 ];
 

@@ -3,11 +3,26 @@ import { MELEE_WEAPONS } from "./melee";
 import { RANGED_WEAPONS } from "./ranged";
 import { MAGIC_WEAPONS } from "./magic";
 import { resolveGrip } from "./holdStyle";
+import { MELEE_EARTH_WALL_SKILL_KIT } from "./weaponSkillKits";
 
 export type { WeaponDef, WeaponGripDef, WeaponGripTransform, WeaponGroup, WeaponTier } from "./types";
 export { MELEE_WEAPONS } from "./melee";
 export { RANGED_WEAPONS } from "./ranged";
 export { MAGIC_WEAPONS } from "./magic";
+export {
+  MACE2H_SKILL_KIT,
+  MELEE_EARTH_WALL_SKILL_KIT,
+  PISTOL_SKILL_KIT,
+  RIFLE_SKILL_KIT,
+  EARTH_WALL_ABILITY,
+  STAFF_FIRE_SKILL_KIT,
+  STAFF_ICE_SKILL_KIT,
+  STAFF_NATURE_SKILL_KIT,
+  STAFF_STORM_SKILL_KIT,
+  STAFF_HOLY_SKILL_KIT,
+  type WeaponSkillKit,
+  type WeaponSkillEntry,
+} from "./weaponSkillKits";
 
 /** The "no weapon" prefab — a pure unarmed loadout (no model, no grip). */
 export const NONE: WeaponDef = {
@@ -15,13 +30,14 @@ export const NONE: WeaponDef = {
   label: "Unarmed",
   hand: "right",
   kind: "slash",
-  skillName: "Palm Strike",
+  skillName: "Earth Wall",
   skillDuration: 0.7,
-  cooldown: 1.2,
+  cooldown: 8,
   combat: { intensity: 22, direction: 85, range: [0.8, 1.6] },
   animSet: "unarmed",
   group: "unarmed",
   duelEligible: false,
+  skillKit: MELEE_EARTH_WALL_SKILL_KIT,
 };
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Shell UI edit mode — drag the movable chrome (top bar, wallet, assistant)
+ * Shell UI edit mode — drag the movable chrome (mode title, wallet, toolbox)
  * to new places and persist the offsets. While editing, pointer input on a
  * movable element drags it instead of activating it (clicks are swallowed).
  */

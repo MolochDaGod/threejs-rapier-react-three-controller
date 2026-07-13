@@ -361,6 +361,7 @@ const BUILDERS: Partial<Record<WeaponId, (m: MountedWeapon) => THREE.Group>> = {
   hammer: buildHammer,
   // Recombined melee roster reuses the closest primitive for the GLB fallback.
   mace: buildHammer,
+  mace2h: buildHammer,
   greataxe: buildAxe,
   hammer2h: buildHammer,
   bow: buildBow,

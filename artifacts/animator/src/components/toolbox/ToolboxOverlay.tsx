@@ -1,29 +1,38 @@
 /**
- * Toolbox overlay: a tabbed workbench. The Tools tab is the 5×5 gold tool
- * grid — every icon is a live launcher (clicking one closes the overlay and
- * runs the tool's action: mode switch, dock panel, HUD editor, loadout…).
- * The Music tab hosts the CPT RAC Station player + settings and the volume
- * mixer (content injected by the host via the `music` prop). Rendered by the
- * AppShell so it's reachable from every mode.
+ * Toolbox overlay: a tabbed workbench anchored bottom-right. The Tools tab is
+ * the 5×5 gold tool grid — every icon is a live launcher. The Music tab hosts
+ * the CPT RAC Station + volume mixer. The AI tab hosts the agentic companion
+ * (editor / creator / skill helper) so there is no separate floating chat UI.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { X } from "lucide-react";
+import { Bot, Music2, Wrench, X } from "lucide-react";
 import { iconUrl } from "../../three/icons";
 import { TOOLBOX_TOOLS, type ToolDef } from "./tools";
 import "./toolbox.css";
 
-type Tab = "tools" | "music";
+export type ToolboxTab = "tools" | "music" | "ai";
 
 interface Props {
   onLaunch: (tool: ToolDef) => void;
   onClose: () => void;
   /** Music tab content (RAC Station + volume mixer); omit to hide the tab. */
   music?: ReactNode;
+  /** AI companion tab content (embedded AiAssistant); omit to hide the tab. */
+  ai?: ReactNode;
+  /** Which tab to show when the overlay opens. */
+  initialTab?: ToolboxTab;
 }
 
-export function ToolboxOverlay({ onLaunch, onClose, music }: Props) {
-  const [tab, setTab] = useState<Tab>("tools");
+export function ToolboxOverlay({ onLaunch, onClose, music, ai, initialTab = "tools" }: Props) {
+  const [tab, setTab] = useState<ToolboxTab>(initialTab);
+
+  // If the requested initial tab is unavailable, fall back to tools.
+  useEffect(() => {
+    if (initialTab === "music" && !music) setTab("tools");
+    else if (initialTab === "ai" && !ai) setTab("tools");
+    else setTab(initialTab);
+  }, [initialTab, music, ai]);
 
   // Esc closes, same as the scrim / X button.
   useEffect(() => {
@@ -37,6 +46,8 @@ export function ToolboxOverlay({ onLaunch, onClose, music }: Props) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
+  const showTabs = Boolean(music || ai);
+
   return (
     <motion.div
       className="toolbox-scrim"
@@ -46,19 +57,19 @@ export function ToolboxOverlay({ onLaunch, onClose, music }: Props) {
       onClick={onClose}
     >
       <motion.div
-        className="toolbox"
+        className={`toolbox ${tab === "ai" ? "toolbox-ai-open" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Toolbox"
-        initial={{ opacity: 0, y: 14, scale: 0.97 }}
+        initial={{ opacity: 0, y: 18, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 10, scale: 0.98 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={{ type: "spring", stiffness: 380, damping: 32 }}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="toolbox-head">
           <span className="toolbox-title">Toolbox</span>
-          {music ? (
+          {showTabs ? (
             <div className="toolbox-tabs" role="tablist" aria-label="Toolbox sections">
               <button
                 className={`toolbox-tab ${tab === "tools" ? "on" : ""}`}
@@ -67,17 +78,33 @@ export function ToolboxOverlay({ onLaunch, onClose, music }: Props) {
                 onClick={() => setTab("tools")}
                 data-tip="Tool launchers — every icon opens where it lives"
               >
+                <Wrench size={12} />
                 Tools
               </button>
-              <button
-                className={`toolbox-tab ${tab === "music" ? "on" : ""}`}
-                role="tab"
-                aria-selected={tab === "music"}
-                onClick={() => setTab("music")}
-                data-tip="CPT RAC Station player & volume mixer"
-              >
-                Music
-              </button>
+              {music && (
+                <button
+                  className={`toolbox-tab ${tab === "music" ? "on" : ""}`}
+                  role="tab"
+                  aria-selected={tab === "music"}
+                  onClick={() => setTab("music")}
+                  data-tip="CPT RAC Station player & volume mixer"
+                >
+                  <Music2 size={12} />
+                  Music
+                </button>
+              )}
+              {ai && (
+                <button
+                  className={`toolbox-tab ${tab === "ai" ? "on" : ""}`}
+                  role="tab"
+                  aria-selected={tab === "ai"}
+                  onClick={() => setTab("ai")}
+                  data-tip="Agentic AI — editor, creator & animation / weapon / skill helper"
+                >
+                  <Bot size={12} />
+                  AI
+                </button>
+              )}
             </div>
           ) : (
             <span className="toolbox-sub">Pick a tool — it opens where it lives</span>
@@ -93,6 +120,8 @@ export function ToolboxOverlay({ onLaunch, onClose, music }: Props) {
         </header>
         {tab === "music" && music ? (
           <div className="toolbox-music">{music}</div>
+        ) : tab === "ai" && ai ? (
+          <div className="toolbox-ai">{ai}</div>
         ) : (
           <div className="toolbox-grid">
             {TOOLBOX_TOOLS.map((tool) => (

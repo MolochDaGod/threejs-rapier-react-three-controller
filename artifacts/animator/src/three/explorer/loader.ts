@@ -327,6 +327,7 @@ export async function createAnimatedCharacter(
       "greatsword",
       "axe",
       "mace",
+      "mace2h",
       "spear",
       "hammer",
       "greataxe",

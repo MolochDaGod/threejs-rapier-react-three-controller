@@ -17,6 +17,18 @@ from an in-app editor.
 - **Minecraft-style armor loadout** (`I` equipment) — four slots (head / chest /
   legs / feet) plus full-set equip from the realistic armor stand pack. See
   [`docs/minecraft-armor-equipment.md`](./docs/minecraft-armor-equipment.md).
+- **Weapon skill kits (one at a time)** — only **Guardian Maul** (`mace2h`) has a
+  full F+1–4 kit so far; other weapons untouched. Pipeline:
+  [`docs/weapon-skill-kit-pipeline.md`](./docs/weapon-skill-kit-pipeline.md).
+- **Wildlife** — Quirky free animals pack (8 species), navmesh wander/flee AI,
+  death tip-to-side, **2 min corpse** for skin/butcher (**KeyN**). See
+  [`docs/wildlife-system.md`](./docs/wildlife-system.md).
+- **Skillwrite casting** — target lock + ground AOE circle (LMB place, RMB/Esc
+  cancel): Meteor, Blizzard, Ice Snake (stops 2 m short), Moonbeam, Nature's
+  Healing, Earth Wall/Wave, turrets, Flame Body. See
+  [`docs/skillwrite-casting.md`](./docs/skillwrite-casting.md).
+- **Avatar hats** — 3D horns (`horns.glb`) replace box horns; **Adventurer Hood**
+  from Hooded Adventurer head mesh. Crown attach at head top (y≈0.5).
 - **Tune everything live** — move speed, jump, gravity, camera distance/height,
   FOV, dash distance, AoE radius, knockback, and per-character **attack
   direction-assist + dash rating**.

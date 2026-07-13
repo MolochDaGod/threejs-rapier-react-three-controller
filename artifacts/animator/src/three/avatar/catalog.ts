@@ -42,6 +42,10 @@ export type TuskStyle =
   | "broken"; // battle-worn: one full tusk, one snapped stub
 export type ExtraStyle = "none" | "scar" | "warpaint" | "freckles" | "stitches";
 export type MouthStyle = "neutral" | "smile" | "frown" | "grim";
+/**
+ * Painted headgear on the cube face, except `horns` which now mounts the 3D
+ * `horns.glb` accessory via {@link resolveMountedHatId} (no more box spikes).
+ */
 export type HeadgearStyle = "none" | "headband" | "circlet" | "horns";
 export type HatId =
   | "none"
@@ -51,7 +55,7 @@ export type HatId =
   | "witch"
   | "tophat"
   | "princess"
-  | "astronaut"
+  | "horns"
   | "hood";
 export type ExpressionId = "normal" | "happy" | "talking" | "angry" | "sad" | "hurt";
 
@@ -484,19 +488,17 @@ export const HEADGEAR_STYLES: { id: HeadgearStyle; label: string }[] = [
   { id: "none", label: "None" },
   { id: "headband", label: "Headband" },
   { id: "circlet", label: "Circlet" },
-  { id: "horns", label: "Horns" },
+  { id: "horns", label: "Horns (3D)" },
 ];
 
 /**
- * Enclosing hats swallow the 3D parts that would otherwise mesh through
- * them: the hood wraps the top / sides / back (face stays open), and the
- * astronaut helmet fully encloses the head, so anything protruding off the
- * head cube gets hidden. Painted pixels stay — they lie on the head surface
- * inside the hat.
+ * Enclosing hats swallow 3D parts that would mesh through them.
+ * Painted pixels always stay (they sit on the head surface under the hat).
  */
 export const HAT_COVERED_SLOTS: Partial<Record<HatId, readonly AdjustSlot[]>> = {
-  hood: ["hair", "ears", "headgear"],
-  astronaut: ["hair", "ears", "headgear", "nose", "tusks", "facialHair"],
+  // Full hood covers hair / ears / painted bands so they don't poke through.
+  hood: ["hair", "ears", "headgear", "facialHair"],
+  // Horns only occupy the crown — leave hair free under them.
 };
 
 /** Slots whose protrusion boxes the current hat swallows (empty when none). */
@@ -515,8 +517,8 @@ export const HAT_STYLES: { id: HatId; label: string }[] = [
   { id: "witch", label: "Witch" },
   { id: "tophat", label: "Top Hat" },
   { id: "princess", label: "Princess" },
-  { id: "astronaut", label: "Astronaut" },
-  { id: "hood", label: "Hood" },
+  { id: "horns", label: "Horns" },
+  { id: "hood", label: "Adventurer Hood" },
 ];
 
 export const EXPRESSIONS: { id: ExpressionId; label: string }[] = [

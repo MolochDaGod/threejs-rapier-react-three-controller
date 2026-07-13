@@ -7,13 +7,38 @@
   justify-content: center;
   overflow-y: auto;
   padding: 40px 20px;
+  /* Dark base under the WebGL stage (stage is a transparent canvas on top) */
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(58, 160, 255, 0.14), transparent 60%),
-    linear-gradient(180deg, #060a12, #03060c);
+    radial-gradient(1200px 700px at 50% 40%, rgba(30, 80, 160, 0.16), transparent 55%),
+    linear-gradient(180deg, #040812 0%, #02040a 100%);
   user-select: none;
 }
 
+/* Cinematic 3D hero stage — fixed behind the sign-in UI */
+.landing-hero-stage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  display: block;
+}
+
+/* Soft vignette so the form stays readable over the 3D scene */
+.landing-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 85% 65% at 50% 48%, transparent 18%, rgba(2, 4, 10, 0.5) 68%, rgba(2, 4, 10, 0.88) 100%),
+    linear-gradient(180deg, rgba(4, 8, 16, 0.5) 0%, transparent 30%, transparent 58%, rgba(2, 4, 10, 0.78) 100%);
+}
+
 .landing-inner {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -21,6 +46,14 @@
   text-align: center;
   max-width: 420px;
   width: 100%;
+  /* Glass panel so brand + buttons stay legible on the moving camera */
+  padding: 28px 26px 30px;
+  border-radius: 18px;
+  border: 1px solid rgba(120, 160, 220, 0.18);
+  background: rgba(6, 10, 18, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
 .landing-emblem {

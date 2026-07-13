@@ -66,3 +66,7 @@ node_modules/
 # Logs / deploy scratch
 *.log
 *.tmp
+
+# Local-only huge world map (use breeze-island fallback on deploy)
+artifacts/animator/public/models/worlds/island-life.glb
+

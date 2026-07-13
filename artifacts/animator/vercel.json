@@ -4,7 +4,141 @@
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist/public",
   "rewrites": [
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+    { "source": "/auth/callback", "destination": "/index.html" },
+    { "source": "/sign-in", "destination": "/index.html" },
+    { "source": "/sign-in/:path*", "destination": "/index.html" },
+    { "source": "/sign-up", "destination": "/index.html" },
+    { "source": "/sign-up/:path*", "destination": "/index.html" },
+
+    { "source": "/api/auth/:path*", "destination": "https://id.grudge-studio.com/api/auth/:path*" },
+    { "source": "/auth/:path*", "destination": "https://id.grudge-studio.com/auth/:path*" },
+    { "source": "/login", "destination": "https://id.grudge-studio.com/login" },
+
+    {
+      "source": "/api/characters/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/characters/:path*"
+    },
+    {
+      "source": "/api/characters",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/characters"
+    },
+    {
+      "source": "/api/account/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/account/:path*"
+    },
+    {
+      "source": "/api/wallet",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/wallet"
+    },
+    {
+      "source": "/api/wallet/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/wallet/:path*"
+    },
+    {
+      "source": "/api/nfts",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/nfts"
+    },
+    {
+      "source": "/api/nfts/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/nfts/:path*"
+    },
+    {
+      "source": "/api/inventory/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/inventory/:path*"
+    },
+    {
+      "source": "/api/island/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/island/:path*"
+    },
+    {
+      "source": "/api/objectstore/:path*",
+      "destination": "https://objectstore.grudge-studio.com/api/:path*"
+    },
+    {
+      "source": "/api/space",
+      "destination": "https://voxgrudge-grudox-room-production.up.railway.app/api/space"
+    },
+    {
+      "source": "/api/brawl",
+      "destination": "https://voxgrudge-grudox-room-production.up.railway.app/api/brawl"
+    },
+    {
+      "source": "/api/carrier",
+      "destination": "https://voxgrudge-grudox-room-production.up.railway.app/api/carrier"
+    },
+    {
+      "source": "/api/danger",
+      "destination": "https://gameopen-production.up.railway.app/api/danger"
+    },
+    {
+      "source": "/api/blocks",
+      "destination": "https://mine-loader.replit.app/api/blocks"
+    },
+    {
+      "source": "/api/blocks/:path*",
+      "destination": "https://mine-loader.replit.app/api/blocks/:path*"
+    },
+    {
+      "source": "/api/assets",
+      "destination": "https://mine-loader.replit.app/api/assets"
+    },
+    {
+      "source": "/api/assets/:path*",
+      "destination": "https://mine-loader.replit.app/api/assets/:path*"
+    },
+    {
+      "source": "/api/definitions",
+      "destination": "https://mine-loader.replit.app/api/definitions"
+    },
+    {
+      "source": "/api/definitions/:path*",
+      "destination": "https://mine-loader.replit.app/api/definitions/:path*"
+    },
+    {
+      "source": "/api/worlds",
+      "destination": "https://mine-loader.replit.app/api/worlds"
+    },
+    {
+      "source": "/api/worlds/:path*",
+      "destination": "https://mine-loader.replit.app/api/worlds/:path*"
+    },
+    {
+      "source": "/api/lobby/:path*",
+      "destination": "https://mine-loader.replit.app/api/lobby/:path*"
+    },
+    {
+      "source": "/api/me",
+      "destination": "https://mine-loader.replit.app/api/me"
+    },
+    {
+      "source": "/api/npc/:path*",
+      "destination": "https://mine-loader.replit.app/api/npc/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://gameopen-production.up.railway.app/api/:path*"
+    },
+
+    {
+      "source": "/charactersgrudox",
+      "destination": "/charactersgrudox/index.html"
+    },
+    {
+      "source": "/charactersgrudox/",
+      "destination": "/charactersgrudox/index.html"
+    },
+    {
+      "source": "/minegrudge",
+      "destination": "/minegrudge/index.html"
+    },
+    {
+      "source": "/minegrudge/",
+      "destination": "/minegrudge/index.html"
+    },
+    {
+      "source": "/((?!assets/|models/|anim/|icons/|ui/|rooms/|frames/|grudox/|charactersgrudox/|minegrudge/|favicon|logo|opengraph|robots|.*\\..*).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
@@ -15,21 +149,19 @@
     },
     {
       "source": "/index.html",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     },
     {
       "source": "/favicon.png",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
     },
     {
       "source": "/favicon.svg",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
     }
   ]
 }

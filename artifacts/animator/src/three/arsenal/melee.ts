@@ -1,5 +1,6 @@
 import type { WeaponDef } from "./types";
 import { PI2 } from "./types";
+import { MACE2H_SKILL_KIT, MELEE_EARTH_WALL_SKILL_KIT } from "./weaponSkillKits";
 
 /**
  * Melee weapon prefabs. The roster is intentionally DISTINCT in feel: each
@@ -24,9 +25,10 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     label: "Sword & Knife",
     hand: "right",
     kind: "slash",
-    skillName: "Blade Arc",
+    skillName: "Earth Wall",
     skillDuration: 0.8,
-    cooldown: 1.5,
+    cooldown: 7.5,
+    skillKit: MELEE_EARTH_WALL_SKILL_KIT,
     combat: { intensity: 30, direction: 100, range: [1, 2] },
     animSet: "sword",
     group: "melee-1h",
@@ -73,9 +75,10 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     label: "Dagger",
     hand: "right",
     kind: "slash",
-    skillName: "Flurry",
-    skillDuration: 0.6,
-    cooldown: 1.1,
+    skillName: "Earth Wall",
+    skillDuration: 0.7,
+    cooldown: 7.0,
+    skillKit: MELEE_EARTH_WALL_SKILL_KIT,
     combat: { intensity: 24, direction: 95, range: [0.9, 2.2] },
     animSet: "knife",
     group: "melee-1h",
@@ -215,6 +218,38 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     grip: { main: { rot: [PI2, 0, 0], pos: [0, 0.02, 0] } },
     model: {
       main: { file: "models/weapons/hammer.glb", length: 1.5, forward: "y+", align: "y", anchor: "base" },
+      twoHanded: true,
+    },
+  },
+  /**
+   * EXEMPLAR — fully kitted 2H maul (do not mass-edit other weapons to match yet).
+   * Complete skill kit in {@link MACE2H_SKILL_KIT}; animSet `mace2h`; unique F + 1–4.
+   * SSOT: ObjectStore master-weaponSkills (MACE + GREATSWORD pools).
+   */
+  {
+    id: "mace2h",
+    label: "Guardian Maul",
+    hand: "right",
+    kind: "slam",
+    skillName: "Smite",
+    skillDuration: 1.15,
+    cooldown: 2.5,
+    combat: { intensity: 85, direction: 40, range: [1.5, 3.1] },
+    animSet: "mace2h",
+    group: "melee-2h",
+    duelEligible: true,
+    skillKit: MACE2H_SKILL_KIT,
+    tiers: [
+      { name: "Hippolin Guard", power: 1 },
+      { name: "Spiked Oath", power: 1.2 },
+      { name: "Bastion Maul", power: 1.35 },
+      { name: "Wardenspire", power: 1.5 },
+      { name: "Fortress Crush", power: 1.65 },
+      { name: "Eternal Vigil", power: 1.8 },
+    ],
+    grip: { main: { rot: [PI2, 0, 0], pos: [0, 0.02, 0] } },
+    model: {
+      main: { file: "models/weapons/hammer.glb", length: 1.55, forward: "y+", align: "y", anchor: "base" },
       twoHanded: true,
     },
   },

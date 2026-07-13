@@ -14,7 +14,7 @@ import type { AvatarConfig } from "./catalog";
 import { composeHead, composeTalkFrames, type FaceName } from "./composeHead";
 import { createHairBoxMaterial, createHairFx, type HairBoxMaterial, type HairFx } from "./hairStrands";
 import { createHairMotionRig, type HairMotionRig } from "./hairMotion";
-import { mountHat, type HatMount } from "./hats";
+import { mountHat, resolveMountedHatId, type HatMount } from "./hats";
 
 /** BoxGeometry material index order: +x, -x, +y, -y, +z, -z. */
 const FACE_ORDER: FaceName[] = ["right", "left", "top", "bottom", "front", "back"];
@@ -72,6 +72,9 @@ export class HeadStage {
     const { mount } = this;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // ACES keeps hair clearcoat/sheen from blowing out into chalky white.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     mount.appendChild(this.renderer.domElement);
     this.renderer.domElement.style.touchAction = "none";
 
@@ -79,13 +82,17 @@ export class HeadStage {
     this.camera.position.set(0, 0.12, 2.6);
     this.camera.lookAt(0, 0, 0);
 
-    // studio lights: warm key, cool rim, soft fill
-    const key = new THREE.DirectionalLight(0xfff1dc, 1.9);
-    key.position.set(2.2, 2.6, 3);
-    const rim = new THREE.DirectionalLight(0x7fb0ff, 1.1);
-    rim.position.set(-2.6, 1.2, -2.4);
-    const fill = new THREE.AmbientLight(0x8090a8, 0.85);
-    this.scene.add(key, rim, fill);
+    // Studio lights tuned for hair sheen: warm key, cool rim, soft hemi fill
+    // so strand clearcoat/sheen lobes actually catch light without flat ambient.
+    const key = new THREE.DirectionalLight(0xfff1dc, 2.15);
+    key.position.set(2.2, 2.8, 3.1);
+    const rim = new THREE.DirectionalLight(0x9ec4ff, 1.35);
+    rim.position.set(-2.8, 1.4, -2.5);
+    const kick = new THREE.DirectionalLight(0xffe8d2, 0.55);
+    kick.position.set(0.4, -0.8, 2.4);
+    const hemi = new THREE.HemisphereLight(0xdde6f5, 0x2a2430, 0.55);
+    const fill = new THREE.AmbientLight(0x6a7588, 0.35);
+    this.scene.add(key, rim, kick, hemi, fill);
 
     // pedestal disc so the head doesn't float in a void
     this.pedestal = new THREE.Mesh(
@@ -245,14 +252,15 @@ export class HeadStage {
     );
     if (this.hairFx) this.headGroup.add(this.hairFx.object);
 
-    // 3D GLB hat — remount only when the pick OR its placement adjust changes
-    // (async, token-guarded inside the mount handle; disposing cancels a
-    // pending attach).
-    const hatKey = `${cfg.hat}|${JSON.stringify(cfg.adjust?.hat ?? null)}`;
+    // 3D GLB hat — remount when hat/headgear-horns OR placement adjust changes.
+    // resolveMountedHatId: explicit hat wins; headgear "horns" → horns.glb.
+    const mountedHat = resolveMountedHatId(cfg);
+    const hatAdjust = mountedHat === "horns" && cfg.hat === "none" ? cfg.adjust?.headgear : cfg.adjust?.hat;
+    const hatKey = `${mountedHat}|${JSON.stringify(hatAdjust ?? null)}|hg:${cfg.headgear}`;
     if (hatKey !== this.hatKey) {
       this.hatKey = hatKey;
       this.hatMount?.dispose();
-      this.hatMount = mountHat(this.headGroup, cfg.hat, cfg.adjust?.hat);
+      this.hatMount = mountHat(this.headGroup, mountedHat, hatAdjust);
     }
   }
 

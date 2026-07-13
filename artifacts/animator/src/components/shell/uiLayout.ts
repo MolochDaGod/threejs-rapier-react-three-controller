@@ -1,6 +1,6 @@
 /**
- * Shell UI layout persistence — user-movable chrome (top bar, wallet pill,
- * AI assistant dock). Each element stores a {dx, dy} pixel offset from its
+ * Shell UI layout persistence — user-movable chrome (mode title, wallet pill,
+ * bottom-right Toolbox). Each element stores a {dx, dy} pixel offset from its
  * CSS-anchored home position; offsets are applied as CSS vars so the stock
  * layout (all zeros) renders byte-identically.
  *
@@ -8,7 +8,7 @@
  */
 
 /** Every shell element the UI edit mode can move. */
-export const UI_ELEMENT_IDS = ["topbar", "wallet", "assistant"] as const;
+export const UI_ELEMENT_IDS = ["topbar", "wallet", "toolbox"] as const;
 export type UiElementId = (typeof UI_ELEMENT_IDS)[number];
 
 export interface UiOffset {
@@ -22,7 +22,7 @@ const STORAGE_KEY = "dangerroom:uilayout";
 
 /** Stock layout — everything at its CSS-anchored home. */
 export function defaultUiLayout(): UiLayout {
-  return { topbar: { dx: 0, dy: 0 }, wallet: { dx: 0, dy: 0 }, assistant: { dx: 0, dy: 0 } };
+  return { topbar: { dx: 0, dy: 0 }, wallet: { dx: 0, dy: 0 }, toolbox: { dx: 0, dy: 0 } };
 }
 
 /**

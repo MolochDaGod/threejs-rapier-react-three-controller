@@ -14,6 +14,8 @@ import { addStudioLights, STUDIO_FOG, STUDIO_TONE_MAPPING_EXPOSURE } from "./stu
 import { DjBooth } from "./DjBooth";
 import { Character } from "./Character";
 import { ExplorerCharacter } from "./ExplorerCharacter";
+import { GrudgeAvatar } from "./grudge/GrudgeAvatar";
+import type { PresetId, RaceId } from "./grudge";
 import { Controller } from "./Controller";
 import { Recoil, fovKick, screenCenterRay } from "./aim/AimSystem";
 import { leadTarget } from "./anim/predictiveLead";
@@ -22,6 +24,15 @@ import { AbilityOrchestrator } from "./abilities/abilityOrchestrator";
 import { deployAbility, getAbility, kitAbility, statusAbility, vfxSkill } from "./abilities/abilityRegistry";
 import { dispatchStatusRouting, routeStatusScope } from "./abilities/statusScopeRouting";
 import type { AbilityDef, StatusScope } from "./abilities/abilityTypes";
+import {
+  BEAR_TRAP_COOLDOWN,
+  BEAR_TRAP_LIFE_SEC,
+  BEAR_TRAP_MODEL,
+  BEAR_TRAP_RADIUS_M,
+  BEAR_TRAP_STUN_SEC,
+  canSeeBearTrap,
+  enemyInBearTrapZone,
+} from "./combat/bearTrap";
 import { CombatSfx } from "./audio/CombatSfx";
 import { assetUrl } from "./assetHost";
 import { assertStation } from "./audio/radioStations";
@@ -44,6 +55,9 @@ import { Dungeon } from "./dungeon/Dungeon";
 import { DungeonEnemies } from "./dungeon/DungeonEnemies";
 import { isInWaterBand, traversalModeFor } from "./dungeon/water";
 import { groundProbeAt, type NavGrid } from "./dungeon/navmesh";
+import { WildlifeSystem, type HarvestDrop } from "./wildlife";
+import { CastController, type SkillPreset } from "./cast";
+import { iceSnakeById, iceSnakeForWeapon } from "./vfx/iceSnakeVariants";
 import type { GroundSampler } from "./anim/legIk";
 import { VoxelArena } from "./voxel/VoxelArena";
 import type { VoxelMap } from "./voxel/types";
@@ -265,6 +279,9 @@ const SNARE_FIELD_SLOW_SECONDS = 1.2; // > the 0.8s pulse gap, so the snare is c
 const SNARE_FIELD_CHIP_DAMAGE = 4;
 const SNARE_FIELD_COOLDOWN = 9;
 
+/** Local player id for owner-only trap visibility (Danger Room solo). */
+const LOCAL_PLAYER_ID = "local";
+
 /** Themed colors for dash skills (mirrors the Vfx THEME palette). */
 const SKILL_COLOR: Record<SkillKind, number> = {
   slash: 0x9fe8ff,
@@ -394,6 +411,17 @@ export class Studio {
   private djBooth: DjBooth | null = null;
   private vfx: Vfx;
   private targets: CombatTargets;
+  /** Quirky animals pack — fauna with pathfinding, AI, corpses, butcher. */
+  private wildlife: WildlifeSystem | null = null;
+  /** Skillwrite cast aiming (target lock / ground AOE ring). */
+  private castCtrl = new CastController();
+  /** Flame Body remaining time (s); 0 = inactive. */
+  private flameBodyT = 0;
+  /**
+   * After Frost Field (ice staff), re-pressing that skill within this window
+   * performs Frost Blink forward instead of another field.
+   */
+  private frostBlinkWindow = 0;
   /** The Danger Room sparring population, stashed while inside the dungeon. */
   private dangerTargets: Targets | null = null;
   /** AI-vs-AI duel orchestrator (drives `targets`); null until first started. */
@@ -479,6 +507,21 @@ export class Studio {
   private readonly maceFrom = new THREE.Vector3();
   private readonly maceTo = new THREE.Vector3();
   private readonly maceImpactPoint = new THREE.Vector3();
+  /**
+   * Live bear traps (owner-only mesh, 2 m stun trigger). Cleared on dispose.
+   * Template mesh is loaded once and cloned per deploy.
+   */
+  private bearTraps: {
+    id: number;
+    ownerId: string;
+    pos: THREE.Vector3;
+    root: THREE.Group;
+    armed: boolean;
+    life: number;
+  }[] = [];
+  private bearTrapSeq = 0;
+  private bearTrapTemplate: THREE.Object3D | null = null;
+  private bearTrapTemplatePromise: Promise<THREE.Object3D | null> | null = null;
 
   /** Delayed actions (e.g. dash endpoint blast) run from the loop. */
   private pending: { t: number; fn: () => void }[] = [];
@@ -713,13 +756,25 @@ export class Studio {
   private onMouseDown = (e: MouseEvent) => {
     this.sfx?.resume();
     if (!this.input.locked) return;
-    if (e.button === 0) this.attack();
-    else if (e.button === 1) {
+    if (e.button === 0) {
+      // Ground AOE / target cast: LMB confirms placement instead of attacking.
+      if (this.castCtrl.isActive()) {
+        this.confirmSkillCast();
+        return;
+      }
+      this.attack();
+    } else if (e.button === 1) {
       // Middle mouse (M3): the relocated motion-attack (formerly KeyT). Sits in
       // place as the knock-up / stagger combo-starter slot.
       e.preventDefault();
       this.motionAttack(ATTACK3_MOTION);
-    } else if (e.button === 2) this.toggleLock();
+    } else if (e.button === 2) {
+      if (this.castCtrl.isActive()) {
+        this.castCtrl.cancel();
+        return;
+      }
+      this.toggleLock();
+    }
   };
   private onMouseUp = (_e: MouseEvent) => {};
   private onContextMenu = (e: MouseEvent) => e.preventDefault();
@@ -801,6 +856,17 @@ export class Studio {
       },
     });
     this.targets = new Targets(this.scene);
+    this.scene.add(this.castCtrl.ring);
+    // Wildlife pack (Quirky animals): additive fauna — pathfind when nav bound,
+    // corpse + butcher. Load async; never blocks player boot.
+    this.wildlife = new WildlifeSystem(this.scene);
+    void this.wildlife
+      .load()
+      .then(() => {
+        if (this.disposed) return;
+        this.wildlife?.spawnDefault(10);
+      })
+      .catch((err) => console.warn("[Studio] wildlife load failed", err));
     this.status = new StatusController(this.scene);
     this.indicators = new TargetIndicators(this.scene);
     this.telegraphs = new TelegraphField(this.scene);
@@ -1123,17 +1189,62 @@ export class Studio {
     addStudioLights(this.scene, { shadows: true });
   }
 
+  /**
+   * Parse fleet / catalog ids into a Grudge modular avatar when possible.
+   * Accepts:
+   *   grudge-barbarians-knight  (catalog)
+   *   grudge:barbarians:knight  (GrudgeAvatar internal)
+   *   fleet warlords race+class via the same catalog ids
+   */
+  private parseGrudgeAvatarId(id: string): { raceId: RaceId; presetId: PresetId } | null {
+    const colon = id.match(/^grudge:([a-z0-9-]+):([a-z]+)$/i);
+    if (colon) {
+      return { raceId: colon[1] as RaceId, presetId: colon[2] as PresetId };
+    }
+    const dash = id.match(
+      /^grudge-(barbarians|dwarves|high-elves|orcs|undead|western-kingdoms)-(knight|warrior|ranger|mage|unarmed)$/i,
+    );
+    if (dash) {
+      const preset = (dash[2].toLowerCase() === "unarmed" ? "unarmed" : dash[2].toLowerCase()) as PresetId;
+      // mage kit maps to GrudgeAvatar "mage" preset; others share names
+      return { raceId: dash[1].toLowerCase() as RaceId, presetId: preset };
+    }
+    return null;
+  }
+
   private async spawnCharacter(id: string) {
     const token = ++this.loadToken;
-    const def = getCharacter(id);
-    const next: Avatar = def.procedural ? new ExplorerCharacter(def) : new Character(def);
+    const grudge = this.parseGrudgeAvatarId(id);
+    let next: Avatar;
+    if (grudge) {
+      // Modular race FBX + gear preset from assets.grudge-studio.com (same kit as GRUDOX / Warlords).
+      next = new GrudgeAvatar(grudge.raceId, grudge.presetId);
+    } else {
+      const def = getCharacter(id);
+      next = def.procedural ? new ExplorerCharacter(def) : new Character(def);
+    }
     try {
       await next.load();
     } catch (err) {
       console.error("[Studio] character load failed", err);
-      this.markFailed("character", "Fighter model failed to load.");
-      this.markFailed("requiredClips", "Required animation clips failed to load.");
-      return;
+      // Fleet grudge avatars: fall back to catalog GLB Character if modular load fails
+      if (grudge) {
+        try {
+          const def = getCharacter(id);
+          const fallback: Avatar = def.procedural ? new ExplorerCharacter(def) : new Character(def);
+          await fallback.load();
+          next = fallback;
+        } catch (err2) {
+          console.error("[Studio] grudge fallback also failed", err2);
+          this.markFailed("character", "Fighter model failed to load.");
+          this.markFailed("requiredClips", "Required animation clips failed to load.");
+          return;
+        }
+      } else {
+        this.markFailed("character", "Fighter model failed to load.");
+        this.markFailed("requiredClips", "Required animation clips failed to load.");
+        return;
+      }
     }
     // Discard stale loads — only the most recent selection may commit.
     if (this.disposed || token !== this.loadToken) {
@@ -1203,6 +1314,7 @@ export class Studio {
     // otherwise block the same slot on the next character, e.g. the Striker).
     this.pending.length = 0;
     this.abilities.cancelAll();
+    this.clearBearTraps();
     this.cancelMaceThrow();
     this.aerialSlashPending = false;
     this.aerialSlashPendingTimer = 0;
@@ -1285,11 +1397,19 @@ export class Studio {
         return { label: def.fskillKind === "turret" ? "Deploy Turret" : "Cast Spell", clip: def.clips.attack ?? "" };
       if (def.weaponless) return { label: "Diable Jambe", clip: def.clips.attack ?? "" };
       const w = getWeapon(this.weaponId);
-      return { label: w.skillName, clip: def.clips.attack ?? "" };
+      const kitAbility = w.skillKit?.ability;
+      return {
+        label: kitAbility?.label ?? w.skillName,
+        clip: kitAbility?.clip ?? def.clips.attack ?? "",
+      };
     }
     const i = Number(slot.slice(3)) - 1;
+    const kitSig = getWeapon(this.weaponId).skillKit?.signatures[i];
     const sig = def.signatureSkills[i];
-    return { label: sig?.label ?? `Signature ${i + 1}`, clip: sig?.clip ?? "" };
+    return {
+      label: kitSig?.label ?? sig?.label ?? `Signature ${i + 1}`,
+      clip: kitSig?.clip ?? sig?.clip ?? "",
+    };
   }
 
   /** Resolved bindings (override or default) for every action slot. */
@@ -1361,8 +1481,10 @@ export class Studio {
       this.markReady("weapon");
       return;
     }
-    if (getCharacter(this.characterId).weaponless) {
-      this.markReady("weapon"); // martial artist: no weapon, but the step is done
+    const charDef = getCharacter(this.characterId);
+    if (charDef.weaponless || charDef.bakedWeapon) {
+      // Martial artist, or rig with a baked-in weapon mesh (e.g. Hippolin Guard).
+      this.markReady("weapon");
       return;
     }
 
@@ -1672,6 +1794,10 @@ export class Studio {
   attack() {
     if (!this.character) return;
     if (this.spectating) return;
+    if (this.castCtrl.isActive()) {
+      this.confirmSkillCast();
+      return;
+    }
     // Piloting the exo-armour: a scaled-up mech strike replaces the normal combo.
     if (this.mech.isPiloted) {
       this.doMechPunch();
@@ -2044,6 +2170,8 @@ export class Studio {
       // connected (so whiffs into empty air don't fire cinematics).
       if (verdict && landed) this.applyRangeConsequence(verdict, center, color);
       this.hitBags(center, strike.radius, strike.force, payload.damage);
+      // Wildlife take melee too (additive; doesn't replace fighter hits).
+      this.wildlife?.damageNear(center, strike.radius, Math.max(8, Math.round(payload.damage * 0.85)));
       // Forward the strike to networked combatants (PvP players / coop NPCs).
       this.netStrike(center, strike.radius, payload.damage);
     });
@@ -3092,6 +3220,186 @@ export class Studio {
     this.vfx.burst(base.clone().setY(0.3), color, 14, SNARE_FIELD_RADIUS);
   }
 
+  // ---- Bear trap (owner-only mesh, 2 m stun trigger) ----
+
+  /** Lazy-load the shared bear-trap GLB template (cloned per deploy). */
+  private loadBearTrapTemplate(): Promise<THREE.Object3D | null> {
+    if (this.bearTrapTemplate) return Promise.resolve(this.bearTrapTemplate);
+    if (this.bearTrapTemplatePromise) return this.bearTrapTemplatePromise;
+    this.bearTrapTemplatePromise = (async () => {
+      try {
+        const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+        const loader = new GLTFLoader();
+        const gltf = await loader.loadAsync(assetUrl(BEAR_TRAP_MODEL));
+        const root = gltf.scene;
+        // Normalize: ~1 m across, jaws on the ground.
+        const box = new THREE.Box3().setFromObject(root);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxXZ = Math.max(size.x, size.z, 1e-3);
+        const s = 1.05 / maxXZ;
+        root.scale.multiplyScalar(s);
+        root.updateMatrixWorld(true);
+        const box2 = new THREE.Box3().setFromObject(root);
+        root.position.y -= box2.min.y;
+        root.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh) {
+            m.castShadow = true;
+            m.receiveShadow = true;
+            m.frustumCulled = false;
+          }
+        });
+        this.bearTrapTemplate = root;
+        return root;
+      } catch (err) {
+        console.warn("[Studio] bear trap model failed to load", err);
+        return null;
+      }
+    })();
+    return this.bearTrapTemplatePromise;
+  }
+
+  /**
+   * Deploy a bear trap at `at`. Mesh is visible ONLY to the owner (local player).
+   * Armed after a short settle; any enemy entering the 2 m horizontal cylinder
+   * is stunned and the trap one-shots (removed). Untriggered traps expire after
+   * {@link BEAR_TRAP_LIFE_SEC}. Used by Explorer F-skill (`gadget: bearTrap`).
+   */
+  private deployBearTrap(at: THREE.Vector3, ownerId: string = LOCAL_PLAYER_ID) {
+    if (!this.character || this.disposed) return;
+    const base = at.clone();
+    base.y = 0;
+    const root = new THREE.Group();
+    root.name = "BearTrap";
+    root.position.copy(base);
+    // Owner-only visibility: enemies / other players never see the mesh.
+    root.visible = canSeeBearTrap(ownerId, LOCAL_PLAYER_ID);
+    this.scene.add(root);
+
+    // Placeholder ring while the GLB loads (owner-only, same visibility).
+    const placeGeo = new THREE.RingGeometry(0.25, 0.45, 24);
+    const placeMat = new THREE.MeshBasicMaterial({
+      color: 0xc4a574,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const place = new THREE.Mesh(placeGeo, placeMat);
+    place.rotation.x = -Math.PI / 2;
+    place.position.y = 0.02;
+    root.add(place);
+
+    const trap = {
+      id: ++this.bearTrapSeq,
+      ownerId,
+      pos: base.clone(),
+      root,
+      armed: false,
+      life: BEAR_TRAP_LIFE_SEC,
+    };
+    this.bearTraps.push(trap);
+
+    // Arm after a brief settle so the caster doesn't instantly trip their own trap.
+    this.schedule(0.45, () => {
+      if (this.disposed) return;
+      const live = this.bearTraps.find((t) => t.id === trap.id);
+      if (live) live.armed = true;
+    });
+
+    void this.loadBearTrapTemplate().then((tpl) => {
+      if (this.disposed || !tpl) return;
+      const live = this.bearTraps.find((t) => t.id === trap.id);
+      if (!live) return;
+      place.removeFromParent();
+      placeGeo.dispose();
+      placeMat.dispose();
+      const clone = tpl.clone(true);
+      live.root.add(clone);
+    });
+
+    // Soft owner-only deploy cue (shockwave only the owner sees alongside mesh).
+    if (canSeeBearTrap(ownerId, LOCAL_PLAYER_ID)) {
+      this.vfx.shockwave(new THREE.Vector3(base.x, 0.04, base.z), 0xc4a574, 0.9, 0.35);
+    }
+
+    // Lifecycle: poll proximity via deploy ticks; cleanup on expire.
+    const def =
+      getAbility("deploy:bearTrap") ??
+      deployAbility("bearTrap", "nova", 0xc4a574, {
+        life: BEAR_TRAP_LIFE_SEC,
+        firstTick: 0.05,
+        interval: 0.08,
+        tail: 0.2,
+      });
+    this.abilities.cast(def, {
+      onTick: () => this.pollBearTrap(trap.id),
+      onExpire: () => this.removeBearTrap(trap.id, false),
+    });
+  }
+
+  /** Proximity poll: if any living enemy is in the 2 m zone, stun and snap shut. */
+  private pollBearTrap(id: number) {
+    if (this.disposed) return;
+    const trap = this.bearTraps.find((t) => t.id === id);
+    if (!trap || !trap.armed) return;
+    const enemies = this.targets.nearest(trap.pos, 32);
+    let tripped = false;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      if (enemyInBearTrapZone(trap.pos.x, trap.pos.z, e.position.x, e.position.z, BEAR_TRAP_RADIUS_M)) {
+        tripped = true;
+        break;
+      }
+    }
+    if (!tripped) return;
+    // Stun every enemy inside the 2 m AOE; play a short ground snap VFX.
+    const hits = this.targets.stun(trap.pos, BEAR_TRAP_RADIUS_M, BEAR_TRAP_STUN_SEC);
+    this.targets.reactAt(trap.pos, "stunned");
+    this.vfx.shockwave(new THREE.Vector3(trap.pos.x, 0.05, trap.pos.z), 0xff7050, BEAR_TRAP_RADIUS_M * 0.85, 0.45);
+    this.vfx.burst(trap.pos.clone().setY(0.35), 0xffa070, 18, 1.2);
+    if (hits > 0) {
+      // Small chip so the snap reads as a hit, not only CC.
+      this.targets.blast(trap.pos, BEAR_TRAP_RADIUS_M * 0.6, 6, this.params.skillForce * 0.2);
+    }
+    this.removeBearTrap(id, true);
+  }
+
+  /** Remove a trap mesh; `snapped` chooses a hard pop vs quiet despawn. */
+  private removeBearTrap(id: number, snapped: boolean) {
+    const idx = this.bearTraps.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    const [trap] = this.bearTraps.splice(idx, 1);
+    trap.armed = false;
+    // Clones share the template's geometry/materials — only detach from the
+    // scene; never dispose shared GPU resources.
+    if (snapped && canSeeBearTrap(trap.ownerId, LOCAL_PLAYER_ID)) {
+      // Brief scale-down so the jaws "close" before removal.
+      const start = performance.now();
+      const root = trap.root;
+      const tick = () => {
+        if (this.disposed) {
+          root.removeFromParent();
+          return;
+        }
+        const u = Math.min(1, (performance.now() - start) / 180);
+        root.scale.setScalar(1 - u * 0.85);
+        if (u < 1) requestAnimationFrame(tick);
+        else root.removeFromParent();
+      };
+      requestAnimationFrame(tick);
+    } else {
+      trap.root.removeFromParent();
+    }
+  }
+
+  /** Drop every live bear trap (scene reset / dispose). */
+  private clearBearTraps() {
+    for (const t of [...this.bearTraps]) this.removeBearTrap(t.id, false);
+    this.bearTraps.length = 0;
+  }
+
   /**
    * Aerial crash-down. From the air, lunge toward the soft-locked enemy then drop
    * hard; the on-land hook (consumeSlamLanded) detonates a ground explosion that
@@ -3202,23 +3510,39 @@ export class Studio {
       return this.doFireCombo();
     }
 
-    // Staff ranged AOE kit (every staff EXCEPT the bespoke Arcane Soulbinder,
-    // handled above): signature slot 2 fires the scatter spline barrage and slot
-    // 3 the caster-centred pushback+stun nova. Other slots fall through to the
-    // element cast below (elemental staffs) or the generic signature path.
-    if (this.isStaffEquipped() && !(def.arcane && this.weaponId === "staff")) {
+    // Skillwrite presets on weapon skillKit (staffs): arm target / ground AOE
+    // cast mode, or fire instant presets immediately.
+    {
+      const w = getWeapon(this.weaponId);
+      const entry = isSig ? w.skillKit?.signatures[signatureIndex!] : w.skillKit?.ability;
+      if (entry?.preset) {
+        // Frost blink re-press must ignore skillCd while the 2s window is open.
+        const frostBlinkReady =
+          this.frostBlinkWindow > 0 &&
+          this.weaponId === "staffIce" &&
+          (entry.preset.id === "frost_aoe_blink" || entry.preset.vfx === "frostAoe");
+        if (this.skillCooldown > 0 && !frostBlinkReady) return false;
+        return this.armOrCastPreset(entry.preset);
+      }
+      if (entry && entry.kind === "fireDragon" && w.element === "fire") {
+        return this.doElementalCast("fire");
+      }
+    }
+
+    // Staff scatter/nova only when the weapon has NO skillKit (storm/holy).
+    if (
+      this.isStaffEquipped() &&
+      !(def.arcane && this.weaponId === "staff") &&
+      !getWeapon(this.weaponId).skillKit
+    ) {
       if (isSig && signatureIndex === 1) return this.doStaffScatter();
       if (isSig && signatureIndex === 2) return this.doStaffNova();
     }
 
-    // Elemental Staff (fire / ice / storm / nature / holy): every signature slot
-    // AND the F key cast the equipped staff's element — its own themed homing
-    // projectile + matching status — driven by the WEAPON's `element` data, so
-    // any character wielding the staff casts it. Bypasses the per-character sig
-    // kits above and the shared skillCooldown gate (it owns its own cooldown).
+    // Elemental staffs without a skillKit (storm / holy): themed homing bolt.
     {
-      const wElement = getWeapon(this.weaponId).element;
-      if (wElement) return this.doElementalCast(wElement);
+      const w = getWeapon(this.weaponId);
+      if (w.element && !w.skillKit) return this.doElementalCast(w.element);
     }
 
     if (this.skillCooldown > 0) return false;
@@ -3230,14 +3554,24 @@ export class Studio {
     const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, this.character.root.rotation.y, 0));
 
     // Signature slot (1-4): play its clip (override or character default) + VFX.
+    // Weapon skillKit (exemplar: mace2h) supplies labels/kinds when present —
+    // other weapons keep character signatureSkills only (no behaviour change).
     if (isSig) {
+      const kitSkill = getWeapon(this.weaponId).skillKit?.signatures[signatureIndex!];
       const sig = def.signatureSkills[signatureIndex!];
-      const clip = override ?? sig?.clip;
-      // Nothing assigned to this slot and no native signature — no-op.
-      if (!clip && !sig) return false;
-      const dur = clip && this.character.hasClip(clip) ? this.character.playClipOnce(clip, 0.12) : 0;
-      const kind = sig?.kind ?? "slash";
-      if (sig?.mode === "dash") {
+      const clip = override ?? sig?.clip ?? kitSkill?.clip;
+      // Nothing assigned to this slot and no kit/native signature — no-op.
+      if (!clip && !sig && !kitSkill) return false;
+      let dur = 0;
+      if (clip && this.character.hasClip(clip)) {
+        dur = this.character.playClipOnce(clip, 0.12);
+      } else if (this.character.hasRole("attack")) {
+        // Kit may name Explorer verbs (skill/dashAttack) the GLB lacks — still VFX.
+        dur = this.character.playRoleOnce("attack", 0.12);
+      }
+      const kind = kitSkill?.kind ?? sig?.kind ?? "slash";
+      const dashMode = kitSkill?.mode === "dash" || sig?.mode === "dash";
+      if (dashMode) {
         this.doDashSkill(kind, origin, fwd, dur);
       } else {
         // Aimed spells: home onto a locked/front target so the projectile arcs
@@ -3286,18 +3620,23 @@ export class Studio {
     // phase rather than the cosmetic-only Vfx path.
     if (def.gadget && !override) {
       if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
+      // Aim gadget where the casting hand POINTS (ground-projected) when the rig
+      // is collider-bound, else flat body facing — matching the turret deploy —
+      // and stand it a fixed distance ahead so it never drops on top of the caster.
+      const pose = this.colliderPose();
+      const ground = (pose ? pose.aim : fwd).clone().setY(0);
+      if (ground.lengthSq() < 1e-4) ground.set(0, 0, 1);
+      ground.normalize();
+      const baseAt = origin.clone().addScaledVector(ground, 2.2);
       if (def.gadget === "snareField") {
-        // Aim it where the casting hand POINTS (ground-projected) when the rig is
-        // collider-bound, else flat body facing — matching the turret deploy — and
-        // stand it a fixed distance ahead so it never drops on top of the caster.
-        const pose = this.colliderPose();
-        const ground = (pose ? pose.aim : fwd).clone().setY(0);
-        if (ground.lengthSq() < 1e-4) ground.set(0, 0, 1);
-        ground.normalize();
-        const baseAt = origin.clone().addScaledVector(ground, 2.2);
         this.deploySnareField(baseAt);
+        this.skillCooldownMax = SNARE_FIELD_COOLDOWN;
+      } else if (def.gadget === "bearTrap") {
+        this.deployBearTrap(baseAt, LOCAL_PLAYER_ID);
+        this.skillCooldownMax = BEAR_TRAP_COOLDOWN;
+      } else {
+        this.skillCooldownMax = SNARE_FIELD_COOLDOWN;
       }
-      this.skillCooldownMax = SNARE_FIELD_COOLDOWN;
       this.skillCooldown = this.skillCooldownMax;
       this.stamina = Math.max(0, this.stamina - 18);
       return true;
@@ -3353,13 +3692,15 @@ export class Studio {
     if (this.weaponId === "javelin" && !override) {
       return this.doJavelinThrow(origin, fwd);
     }
-    if (override && this.character.hasClip(override)) this.character.playClipOnce(override, 0.1);
+    // Kit ability (mace2h Smite) can name Explorer verbs; GLB falls back to attack.
+    const kitAbility = w.skillKit?.ability;
+    const fClip = override ?? kitAbility?.clip;
+    if (fClip && this.character.hasClip(fClip)) this.character.playClipOnce(fClip, 0.1);
     else if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
-    // Data-driven path: the generic weapon F-skill is a pure-VFX instant cast,
-    // routed through the orchestrator (shared lifecycle + cancelAll teardown).
-    // playSkill fires synchronously inside cast(), identical to the inline call.
-    this.abilities.cast(vfxSkill(w.kind, SKILL_COLOR[w.kind]), {
-      onCast: () => this.vfx.playSkill(w.kind, origin, fwd, quat, undefined, undefined, this.colliderPose() ?? undefined),
+    // VFX kind: kit ability when present, else weapon.kind (unchanged for non-kit weapons).
+    const fKind = kitAbility?.kind ?? w.kind;
+    this.abilities.cast(vfxSkill(fKind, SKILL_COLOR[fKind]), {
+      onCast: () => this.vfx.playSkill(fKind, origin, fwd, quat, undefined, undefined, this.colliderPose() ?? undefined),
     });
     this.skillCooldownMax = w.cooldown;
     this.skillCooldown = w.cooldown;
@@ -5425,6 +5766,19 @@ export class Studio {
       this.duel.update(dt);
     }
     this.targets.update(dt, this.sparCtx);
+    // Wildlife AI + corpses (additive; independent of combat Targets).
+    if (this.wildlife && this.character) {
+      this.wildlife.update(dt, this.character.root.position);
+    }
+    // Skillwrite cast aim ring + Flame Body trail.
+    this.updateCastAim(dt);
+    if (this.flameBodyT > 0 && this.character) {
+      this.flameBodyT = Math.max(0, this.flameBodyT - dt);
+      this.vfx.flameBodyPulse(this.character.root.position, 0xff6a1e);
+    }
+    if (this.frostBlinkWindow > 0) {
+      this.frostBlinkWindow = Math.max(0, this.frostBlinkWindow - dt);
+    }
     // A.L.E. Bot polls fighter state AFTER the AI tick so it reads this frame's
     // outcomes (cameras, highlights, diagnostics, telemetry).
     if (this.duel?.isActive && this.targets instanceof Targets) {
@@ -5859,6 +6213,8 @@ export class Studio {
       this.dungeonGround = makeNavGroundSampler(dungeon.nav);
       this.character?.setGroundSampler?.(this.dungeonGround);
       this.character?.setFootIk?.(true);
+      // Wildlife A* on the same surface nav as dungeon enemies.
+      this.wildlife?.setNav(dungeon.nav);
     } catch (err) {
       console.error("[Studio] dungeon load failed", err);
       dungeon?.dispose();
@@ -5884,6 +6240,8 @@ export class Studio {
     this.targets.dispose();
     this.dungeon?.dispose();
     this.dungeon = null;
+    // Back to flat Danger Room — wildlife wander without grid.
+    this.wildlife?.setNav(null);
     this.inDungeon = false;
     this.locked = false;
     this.controller?.setLockTarget(null);
@@ -6136,6 +6494,9 @@ export class Studio {
     // KeyJ = drink a heal potion (quick-draw use → restore HP). No-op at full HP.
     else if (code === "KeyJ") this.healPotion();
     else if (code === "KeyC") this.headbutt();
+    // KeyN = skin/butcher nearest wildlife corpse (meat + leather; 2 min window).
+    else if (code === "KeyN") this.butcherWildlife();
+    else if (code === "Escape" && this.castCtrl.isActive()) this.castCtrl.cancel();
     else if (code === "KeyB") this.toggleView();
     else if (code === "Digit1") this.useSkill(0);
     else if (code === "Digit2") this.useSkill(1);
@@ -7099,6 +7460,15 @@ export class Studio {
   }
 
   signatureSkills(): { label: string; icon: string }[] {
+    // Prefer the equipped weapon's complete kit (mace2h only today) so HUD
+    // shows weapon skills when you swap weapons — not the character's defaults.
+    const kit = getWeapon(this.weaponId).skillKit;
+    if (kit) {
+      return kit.signatures.map((s) => ({
+        label: s.label,
+        icon: SKILL_KIND_ICON[s.kind],
+      }));
+    }
     return getCharacter(this.characterId).signatureSkills.map((s) => ({
       label: s.label,
       icon: SKILL_KIND_ICON[s.kind],
@@ -7379,8 +7749,311 @@ export class Studio {
     for (const a of this.mirrorNpcs.values()) a.update(dt);
   }
 
+  // ── Skillwrite cast modes (target / ground AOE) ───────────────────────────
+
+  /** Arm a preset (target/ground) or cast immediately if instant. */
+  private armOrCastPreset(preset: SkillPreset): boolean {
+    // Ice staff: second press of Frost Field within 2s → Frost Blink forward.
+    if (
+      (preset.id === "frost_aoe_blink" || preset.vfx === "frostAoe") &&
+      this.frostBlinkWindow > 0 &&
+      this.weaponId === "staffIce"
+    ) {
+      return this.executeSkillPreset(
+        {
+          id: "frost_blink",
+          label: "Frost Blink",
+          acquire: "instant",
+          duration: 0.35,
+          vfx: "frostBlink",
+          color: 0x9fdcff,
+          cooldown: 0.35,
+          stamina: 8,
+        },
+        {
+          ground: this.character?.root.position.clone() ?? new THREE.Vector3(),
+          targetPos: null,
+          targetFriendly: true,
+        },
+      );
+    }
+    if (preset.acquire === "instant") {
+      return this.executeSkillPreset(preset, {
+        ground: this.character?.root.position.clone() ?? new THREE.Vector3(),
+        targetPos: null,
+        targetFriendly: true,
+      });
+    }
+    const armed = this.castCtrl.begin(preset);
+    if (armed) this.setCombatFlash(preset.label.toUpperCase(), 0.9);
+    return armed;
+  }
+
+  private updateCastAim(_dt: number): void {
+    if (!this.castCtrl.isActive() || !this.character || !this.controller) return;
+    const ray = this.crosshairRay();
+    const hostile = this.targets.selectedHostileGroup?.() ?? null;
+    const ally = this.targets.selectedAllyGroup?.() ?? null;
+    this.castCtrl.updateAim({
+      ray,
+      hostilePos: hostile?.position ?? null,
+      allyPos: ally?.position ?? null,
+      casterPos: this.character.root.position,
+      preferFriendly: this.castCtrl.getPreset()?.vfx === "naturesHealing",
+    });
+  }
+
+  private confirmSkillCast(): void {
+    const snap = this.castCtrl.confirm();
+    if (!snap?.preset) return;
+    this.executeSkillPreset(snap.preset, {
+      ground: snap.ground,
+      targetPos: snap.targetPos,
+      targetFriendly: snap.targetFriendly,
+    });
+  }
+
+  /**
+   * Fire a skillwrite preset at the confirmed aim. Damage/status use existing
+   * sparringBlast + applyStatusScoped so combat stays consistent.
+   */
+  private executeSkillPreset(
+    preset: SkillPreset,
+    aim: { ground: THREE.Vector3 | null; targetPos: THREE.Vector3 | null; targetFriendly: boolean },
+  ): boolean {
+    if (!this.character) return false;
+    const origin = this.character.root.position.clone();
+    const fwd = this.facing();
+    const at = aim.targetPos?.clone() ?? aim.ground?.clone() ?? origin.clone().addScaledVector(fwd, 6);
+    at.y = Math.max(0.05, at.y);
+
+    if (this.character.hasClip("skill")) this.character.playClipOnce("skill", 0.1);
+    else if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
+
+    const color = preset.color;
+    const dmg = preset.damage ?? 20;
+    const radius = preset.aoeRadius ?? 2.5;
+
+    switch (preset.vfx) {
+      case "meteor":
+        this.vfx.castMeteor(origin, fwd, color, (p) => {
+          this.sparringBlast(p, radius, dmg, this.params.skillForce);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        }, at);
+        break;
+      case "blizzard":
+        this.vfx.castBlizzard(at, color, radius, preset.duration ?? 4, (p) => {
+          this.sparringBlast(p, radius, dmg * 0.35, this.params.skillForce * 0.4);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        });
+        break;
+      case "iceSnake": {
+        const from = this.staffMuzzle();
+        const to = at.clone().setY(at.y + 0.9);
+        // Prefer explicit variant on preset, else weapon's snake, else glacial.
+        const variant =
+          (preset.iceSnakeVariantId ? iceSnakeById(preset.iceSnakeVariantId) : undefined) ??
+          iceSnakeForWeapon(this.weaponId) ??
+          iceSnakeById("snake_glacial")!;
+        this.vfx.castIceSnake(
+          from,
+          to,
+          {
+            color: variant.color,
+            color2: variant.color2,
+            radius: variant.radius,
+            trailWidth: variant.trailWidth,
+            lengthScale: variant.lengthScale,
+            speed: variant.speed,
+            sway: variant.sway,
+            swayFreq: variant.swayFreq,
+            stopDistance: variant.stopDistance,
+            aoeRadius: variant.aoeRadius,
+          },
+          variant.stopDistance,
+          (p) => {
+            // Impact at stop point — dodge the last gap. AOE uses variant radius.
+            this.sparringBlast(p, variant.aoeRadius, variant.damage, this.params.skillForce * 0.7);
+            this.applyStatusScoped(variant.status, "hostile");
+            // Secondary tags: stun already via stunned; slow via slowed if present.
+            if (variant.tags.includes("slow") && variant.status !== "slowed" && variant.status !== "frozen") {
+              this.applyStatusScoped("slowed", "hostile");
+            }
+          },
+        );
+        break;
+      }
+      case "moonbeam":
+        this.vfx.castMoonbeam(at, color, preset.duration ?? 3.5, false, (p) => {
+          this.sparringBlast(p, radius, dmg * 0.4, this.params.skillForce * 0.3);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        });
+        break;
+      case "naturesHealing":
+        this.vfx.castMoonbeam(at, color, preset.duration ?? 10, true, (p) => {
+          if (aim.targetFriendly) {
+            if (preset.heal) this.health = Math.min(this.maxHealth, this.health + preset.heal * 0.15);
+            if (preset.statusOnFriendly) this.applyStatusScoped(preset.statusOnFriendly, "ally");
+          } else {
+            this.sparringBlast(p, radius, dmg * 0.25, this.params.skillForce * 0.25);
+            if (preset.statusOnHostile) this.applyStatusScoped(preset.statusOnHostile, "hostile");
+          }
+        });
+        break;
+      case "earthWall":
+        this.vfx.castEarthWall(at, color, radius, preset.duration ?? 6);
+        if (preset.status) this.applyStatusScoped(preset.status, "self");
+        break;
+      case "earthWave":
+        this.vfx.castEarthWave(at, color, radius, preset.duration ?? 0.9, (p, r) => {
+          this.sparringBlast(p, r, dmg * 0.5, this.params.skillForce * 0.8);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        });
+        break;
+      case "turret":
+        this.deployTurret(at, fwd);
+        break;
+      case "flameBody":
+        this.flameBodyT = preset.duration ?? 6;
+        this.vfx.flameBodyFlash(origin, color);
+        if (preset.status) this.applyStatusScoped(preset.status, "self");
+        break;
+      case "muzzleFlash":
+        this.vfx.muzzleFlash(this.staffMuzzle(), fwd, color, 1.2);
+        break;
+      case "portal": {
+        const dest = at.clone().setY(0);
+        this.vfx.castPortal(origin.clone().setY(0.1), dest, color, preset.duration ?? 1.2);
+        // Flame Body ghost at both ends for teleport readability.
+        this.vfx.flameBodyFlash(origin, color);
+        this.vfx.flameBodyFlash(dest.clone().setY(origin.y), color);
+        break;
+      }
+      case "flameSlash":
+        this.vfx.flameSlash(this.staffMuzzle(), fwd, (p) => {
+          this.sparringBlast(p, 2.0, dmg, this.params.skillForce * 0.6);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        });
+        break;
+      case "frostSlash":
+        this.vfx.frostSlash(this.staffMuzzle(), fwd, color, (p) => {
+          this.sparringBlast(p, 2.0, dmg, this.params.skillForce * 0.6);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        });
+        break;
+      case "frostAoe":
+        this.vfx.castFrostAoe(at, color, radius, preset.duration ?? 2.8, (p, r) => {
+          this.sparringBlast(p, r, dmg * 0.4, this.params.skillForce * 0.35);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        });
+        // Ice staff: arm 2s Frost Blink window (re-press Frost Field).
+        if (this.weaponId === "staffIce" || preset.id === "frost_aoe_blink") {
+          this.frostBlinkWindow = 2.0;
+          this.setCombatFlash("BLINK READY", 1.2);
+        }
+        break;
+      case "roots":
+        this.vfx.castRoots(at, color, radius, preset.duration ?? 3.5, (p) => {
+          this.sparringBlast(p, radius, dmg, this.params.skillForce * 0.5);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+          this.applyStatusScoped("slowed", "hostile");
+        });
+        break;
+      case "polymorph": {
+        const host = aim.targetPos ?? at;
+        this.vfx.castPolymorph(host.clone().setY(host.y + 0.9), color, preset.duration ?? 1.2);
+        this.sparringBlast(host, radius, dmg, this.params.skillForce * 0.3);
+        this.applyStatusScoped("hexed", "hostile");
+        this.applyStatusScoped("stunned", "hostile");
+        break;
+      }
+      case "frostBlink": {
+        if (!this.controller) break;
+        const from = origin.clone();
+        const dest = from.clone().addScaledVector(fwd, 7.5);
+        dest.y = from.y;
+        this.vfx.castFrostBlink(from, dest, color);
+        this.controller.blinkTo(dest);
+        this.frostBlinkWindow = 0;
+        this.invuln = Math.max(this.invuln, 0.2);
+        break;
+      }
+      case "natureBlink": {
+        if (!this.controller) break;
+        const from = origin.clone();
+        const dest = from.clone().addScaledVector(fwd, 8.0);
+        dest.y = from.y;
+        this.vfx.castNatureBlink(from, dest, color);
+        this.controller.blinkTo(dest);
+        this.invuln = Math.max(this.invuln, 0.22);
+        break;
+      }
+      case "shockwavePush":
+        this.vfx.castShockwavePush(origin, fwd, color, radius, (center, dir, r) => {
+          // Push cone in front of caster.
+          const pushCenter = center.clone().addScaledVector(dir, r * 0.45);
+          pushCenter.y = center.y + 0.5;
+          this.sparringBlast(pushCenter, r * 0.85, dmg, this.params.skillForce * 1.35);
+          if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        });
+        break;
+      case "rapidFire": {
+        const muzzle = this.staffMuzzle();
+        this.vfx.castRapidFire(muzzle, fwd, color, 7, 0.09, (_from, dir) => {
+          // Each bolt: light damage along aim (end of short ray).
+          const hit = muzzle.clone().addScaledVector(dir, 14);
+          this.sparringBlast(hit, 1.1, dmg, this.params.skillForce * 0.35);
+        });
+        if (preset.status) this.applyStatusScoped(preset.status, "hostile");
+        break;
+      }
+      case "standing2h":
+        if (this.character.hasClip("skill")) this.character.playClipOnce("skill", 0.08);
+        this.vfx.castStanding2hMagic(origin, color, preset.duration ?? 1.35, radius, (p, r) => {
+          this.sparringBlast(p, r, dmg, this.params.skillForce * 0.55);
+        });
+        if (preset.status) this.applyStatusScoped(preset.status, "self");
+        break;
+      default:
+        this.vfx.nova(at.clone().setY(1), color);
+        this.sparringBlast(at, radius, dmg, this.params.skillForce);
+        break;
+    }
+
+    this.skillCooldownMax = preset.cooldown;
+    this.skillCooldown = preset.cooldown;
+    this.stamina = Math.max(0, this.stamina - preset.stamina);
+    this.setCombatFlash(preset.label.toUpperCase(), 0.7);
+    return true;
+  }
+
+  /**
+   * Skin & butcher the nearest dead animal within reach (KeyN).
+   * Drops meat/leather for up to 2 minutes after death.
+   */
+  butcherWildlife(): HarvestDrop[] | null {
+    if (!this.wildlife || !this.character) return null;
+    const drops = this.wildlife.tryHarvest(this.character.root.position);
+    if (drops?.length) {
+      this.setCombatFlash("BUTCHERED", 0.8);
+      this.vfx.burst(drops[0].position, 0xc9a27a, 18, 3);
+    }
+    return drops;
+  }
+
+  /** Bind dungeon/island nav so wildlife A* uses the same mesh as enemies. */
+  bindWildlifeNav(nav: NavGrid | null): void {
+    this.wildlife?.setNav(nav);
+  }
+
   dispose() {
     this.disposed = true;
+    this.clearBearTraps();
+    this.wildlife?.dispose();
+    this.wildlife = null;
+    this.castCtrl.dispose();
+    this.flameBodyT = 0;
+    this.frostBlinkWindow = 0;
     // Stop the boot stall watchdog so it can't fire against a torn-down session.
     this.bootGate?.stopWatchdog();
     // Drop the readiness callback so any late async load that resolves after

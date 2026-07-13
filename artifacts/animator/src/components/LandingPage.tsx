@@ -15,6 +15,7 @@ import {
   signOut,
   type GrudgeUser,
 } from "../auth/grudgeAuth";
+import { LandingHeroStage } from "./LandingHeroStage";
 import "./landing.css";
 
 interface Props {
@@ -73,6 +74,10 @@ export function LandingPage({ onEnter }: Props) {
 
   return (
     <div className="landing">
+      {/* Full-bleed 3D stage: AstroCreeper + helpers, camera orbiting hero */}
+      <LandingHeroStage />
+      <div className="landing-vignette" aria-hidden />
+
       <div className="landing-inner">
         <img className="landing-emblem" src={emblemArt} alt="" draggable={false} />
         <h1 className="landing-brand">

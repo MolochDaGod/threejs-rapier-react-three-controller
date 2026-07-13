@@ -202,6 +202,7 @@ export const WEAPON_COLOR: Record<WeaponId, number> = {
   spear: 0xffe08a,
   hammer: 0xff9d6b,
   mace: 0xffc27a,
+  mace2h: 0xe8a060,
   greataxe: 0xff8f5a,
   hammer2h: 0xff8a55,
   bow: 0x9affc0,

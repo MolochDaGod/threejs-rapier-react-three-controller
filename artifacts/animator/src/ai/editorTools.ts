@@ -83,10 +83,13 @@ const STATUS_IDS = [
   "frozen",
   "poisoned",
   "shocked",
+  "hexed",
   "regen",
   "empowered",
   "shielded",
   "haste",
+  "slowed",
+  "stunned",
 ] as const satisfies readonly StatusId[];
 const STATUS_KINDS = ["buff", "debuff"] as const satisfies readonly StatusKind[];
 const ABILITY_TARGETS = ["self", "aimed", "aoe"] as const satisfies readonly AbilityTargetShape[];

@@ -6,15 +6,25 @@ import type { TextureName } from "./textures.js";
 import {
   createBeam,
   createShockwave,
+  createNovaShell,
   createWeaponTrail,
   type BeamHandle,
   type BeamOptions,
   type LiveMesh,
   type ShockwaveOptions,
+  type NovaShellOptions,
   type TrailHandle,
   type TrailOptions,
 } from "./primitives.js";
 import { loadEffectJson } from "./urls.js";
+
+/**
+ * three.quarks bundles its own `three` typings whose `Object3D` identity differs
+ * from the app's `@types/three`, so its `BatchedRenderer`/`ParticleEmitter` are
+ * not structurally seen as `THREE.Object3D` even though they extend it at
+ * runtime. This bridges the two (identical-at-runtime) type identities.
+ */
+const asObject3D = (o: unknown): THREE.Object3D => o as unknown as THREE.Object3D;
 
 /** Per-spawn overrides for a one-shot effect. */
 export interface PlayOptions {
@@ -92,7 +102,7 @@ export class VfxManager {
     this.scene = scene;
     // The batch renderer must live under the Scene: three.quarks self-disposes
     // any system whose top-most ancestor is not a Scene.
-    this.scene.add(this.batch);
+    this.scene.add(asObject3D(this.batch));
   }
 
   /** True once at least one prototype has been parsed. */
@@ -107,7 +117,7 @@ export class VfxManager {
    */
   async load(keys: EffectKey[] = ALL_EFFECT_KEYS): Promise<void> {
     const loader = new QuarksLoader();
-    loader.setCrossOrigin("");
+    (loader as unknown as { setCrossOrigin(v: string): void }).setCrossOrigin("");
     await Promise.all(
       keys.map(async (key) => {
         if (this.prototypes.has(key)) return;
@@ -149,7 +159,7 @@ export class VfxManager {
     if (opts.color != null) {
       const col = new THREE.Color(opts.color);
       QuarksUtil.runOnAllParticleEmitters(root, (pe: ParticleEmitter) => {
-        const system = pe.system as ParticleSystem;
+        const system = pe.system as unknown as ParticleSystem;
         const mat = system.material.clone();
         const tintable = mat as THREE.Material & { color?: THREE.Color };
         if (tintable.color) tintable.color = col.clone();
@@ -183,7 +193,7 @@ export class VfxManager {
     if (opts.color != null) {
       const col = new THREE.Color(opts.color);
       QuarksUtil.runOnAllParticleEmitters(root, (pe: ParticleEmitter) => {
-        const system = pe.system as ParticleSystem;
+        const system = pe.system as unknown as ParticleSystem;
         const mat = system.material.clone();
         const tintable = mat as THREE.Material & { color?: THREE.Color };
         if (tintable.color) tintable.color = col.clone();
@@ -194,7 +204,7 @@ export class VfxManager {
 
     // Force continuous emission so the effect rides the projectile for its life.
     QuarksUtil.runOnAllParticleEmitters(root, (pe: ParticleEmitter) => {
-      (pe.system as ParticleSystem).looping = true;
+      (pe.system as unknown as ParticleSystem).looping = true;
     });
 
     this.scene.add(root);
@@ -278,6 +288,31 @@ export class VfxManager {
   }
 
   /**
+   * Per-target nova shell burst (`adv.play('nova_shell', …)`). Used when storm
+   * daggers land and apply a slow debuff. Self-cleans when finished.
+   */
+  novaShell(position: THREE.Vector3, opts: NovaShellOptions = {}): void {
+    if (this.disposed) return;
+    this.ensurePrimTextures();
+    const tex = this.primTextures.get("glow") ?? null;
+    const mesh = createNovaShell(tex, position, opts);
+    this.register(mesh, tex ? null : "glow");
+  }
+
+  /**
+   * Design-tool style dispatch: `adv.play('nova_shell', opts)` / shockwave keys.
+   * Unknown keys no-op so call sites can stay close to authored exports.
+   */
+  playAdv(
+    key: "nova_shell" | "shockwave",
+    position: THREE.Vector3,
+    opts: NovaShellOptions & ShockwaveOptions = {},
+  ): void {
+    if (key === "nova_shell") this.novaShell(position, opts);
+    else if (key === "shockwave") this.shockwave(position, opts);
+  }
+
+  /**
    * A swept melee weapon trail. Returns a {@link TrailHandle}: `push(tip, base)`
    * the blade's two ends each frame, then `stop()` on release. Returns null
    * after the manager is disposed.
@@ -316,9 +351,9 @@ export class VfxManager {
 
   private cleanupInstance(inst: LiveInstance): void {
     QuarksUtil.runOnAllParticleEmitters(inst.root, (pe: ParticleEmitter) => {
-      const system = pe.system as ParticleSystem;
+      const system = pe.system as unknown as ParticleSystem;
       try {
-        this.batch.deleteSystem(system);
+        this.batch.deleteSystem(pe.system);
       } catch {
         /* already removed */
       }
@@ -352,7 +387,7 @@ export class VfxManager {
     // base64-parsed textures, but `built` prototypes borrow from the shared cache.
     for (const proto of this.prototypes.values()) {
       QuarksUtil.runOnAllParticleEmitters(proto, (pe: ParticleEmitter) => {
-        const system = pe.system as ParticleSystem;
+        const system = pe.system as unknown as ParticleSystem;
         system.material.dispose();
         const tex = system.texture;
         if (tex && !this.sharedTextures.has(tex as unknown as THREE.Texture)) tex.dispose();
@@ -365,7 +400,7 @@ export class VfxManager {
     this.sharedTextures.clear();
 
     // Dispose the batch's own meshes (it clones materials internally) and detach.
-    this.batch.traverse((o) => {
+    asObject3D(this.batch).traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.geometry?.dispose();
@@ -373,6 +408,6 @@ export class VfxManager {
       if (Array.isArray(m)) m.forEach((x) => x.dispose());
       else m?.dispose();
     });
-    this.batch.parent?.remove(this.batch);
+    asObject3D(this.batch).parent?.remove(asObject3D(this.batch));
   }
 }

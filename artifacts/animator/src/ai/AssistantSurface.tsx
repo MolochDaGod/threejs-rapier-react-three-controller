@@ -1,12 +1,13 @@
 /**
  * Per-surface assistant registry.
  *
- * The unified app shell hosts ONE global AI companion dock. Most surfaces are
- * owned by `App` (it knows the Danger Room tools/prompt), but a few modes own
- * their own live engine — the Dressing Room (Scene Editor) builds tools bound to
- * an engine ref it alone holds. Rather than lifting that engine into `App`, a
- * mode can register its assistant config here while mounted; the shell prefers a
- * child-registered config over the base config `App` passes for the active mode.
+ * The unified app shell hosts ONE agentic AI companion as a Toolbox tab. Most
+ * surfaces are owned by `App` (it knows the Danger Room tools/prompt), but a
+ * few modes own their own live engine — the Dressing Room (Scene Editor) builds
+ * tools bound to an engine ref it alone holds. Rather than lifting that engine
+ * into `App`, a mode can register its assistant config here while mounted; the
+ * shell prefers a child-registered config over the base config `App` passes for
+ * the active mode.
  */
 import { createContext, useContext, useEffect, type DependencyList } from "react";
 import type { AiTool } from "./types";

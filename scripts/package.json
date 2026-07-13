@@ -9,6 +9,8 @@
     "prep-grudge": "node ./src/prep-grudge.mjs",
     "optimize-world": "node ./src/optimize-world.mjs",
     "retarget-gestures": "node ./src/retarget-gestures.mjs",
+    "audit-characters": "node ./src/audit-characters.mjs",
+    "repair-characters": "node ./src/repair-characters.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

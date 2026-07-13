@@ -1,14 +1,13 @@
 /**
- * Wallet connect + account-link state machine.
+ * Wallet connect + account-link state machine (in-app link status).
  *
- * Flow: connect Phantom (injected extension, mobile deeplink, or install
- * fallback) → ask the server for a one-time nonce → the user signs the exact
- * message in Phantom → the server verifies the ed25519 signature and stores the
- * address against the signed-in Clerk account.
+ * The chrome control opens the fleet-canonical account wallets page
+ * ({@link openGrudgeWallet} → wallet.grudge-studio.com). This provider still
+ * tracks server-side link status for the pill indicator and any game systems
+ * that need the linked address without leaving the app.
  *
- * The provider exposes both the browser-session connection (Phantom) and the
- * server-side link (which survives across devices/sessions independently of
- * whether Phantom is currently connected).
+ * Flow (when connectAndLink is called): connect Phantom → nonce → sign →
+ * server verifies ed25519 and stores the address on the signed-in account.
  */
 import {
   createContext,

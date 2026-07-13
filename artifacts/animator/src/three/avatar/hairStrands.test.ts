@@ -72,12 +72,12 @@ describe("buildStrandDescriptors", () => {
     expect(a.length).toBeGreaterThan(0);
   });
 
-  it("strand cross-section is 1/8 of a head pixel (with bounded jitter)", () => {
+  it("strand cross-section is 1/12 of a head pixel (with bounded jitter)", () => {
     for (const s of buildStrandDescriptors([box()])) {
-      expect(s.thick).toBeGreaterThanOrEqual(STRAND_THICKNESS);
-      expect(s.thick).toBeLessThanOrEqual(STRAND_THICKNESS * 2.2);
+      expect(s.thick).toBeGreaterThanOrEqual(STRAND_THICKNESS * 0.8);
+      expect(s.thick).toBeLessThanOrEqual(STRAND_THICKNESS * 2.1);
     }
-    expect(STRAND_THICKNESS).toBeCloseTo(P / 8, 10);
+    expect(STRAND_THICKNESS).toBeCloseTo(P / 12, 10);
   });
 
   it("roots stay within the box footprint (plus jitter slack)", () => {

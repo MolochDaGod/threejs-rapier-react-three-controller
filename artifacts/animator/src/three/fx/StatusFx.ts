@@ -41,6 +41,8 @@ export const STATUS_DEFS: Record<StatusId, StatusDef> = {
   empowered: { id: "empowered", name: "Empowered", kind: "buff", color: 0xffc24a, color2: 0xfff0c0, glyph: "✦", duration: 8, style: "rise" },
   shielded: { id: "shielded", name: "Shielded", kind: "buff", color: 0x5ad0ff, color2: 0xd6f4ff, glyph: "⬡", duration: 10, style: "orbit" },
   haste: { id: "haste", name: "Haste", kind: "buff", color: 0x9a7aff, color2: 0xe6dcff, glyph: "✱", duration: 8, style: "spark" },
+  slowed: { id: "slowed", name: "Slowed", kind: "debuff", color: 0x6a9aaa, color2: 0xc0e0ee, glyph: "◌", duration: 5, style: "orbit" },
+  stunned: { id: "stunned", name: "Stunned", kind: "debuff", color: 0xffe14d, color2: 0xffffff, glyph: "✶", duration: 2.5, style: "spark" },
 };
 
 export const STATUS_IDS = Object.keys(STATUS_DEFS) as StatusId[];

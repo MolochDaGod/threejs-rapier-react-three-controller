@@ -4,19 +4,18 @@
    reachable on phones, and respects device safe-areas.
    ========================================================================= */
 
-/* One top bar row holds the launcher pill, the Toolbox pill and the UI-edit
-   toggle, centered as a unit so nothing floats over mode text at the screen
-   edges. User-moved offsets ride the --ui-dx/--ui-dy vars (0 = stock). */
+/* Top-left mode title dropdown + UI-edit toggle. User-moved offsets ride the
+   --ui-dx/--ui-dy vars (0 = stock). Toolbox lives bottom-right, not here. */
 .shell-topbar {
   position: fixed;
   top: max(10px, env(safe-area-inset-top));
-  left: 50%;
-  transform: translate(calc(-50% + var(--ui-dx, 0px)), var(--ui-dy, 0px));
+  left: max(10px, env(safe-area-inset-left));
+  transform: translate(var(--ui-dx, 0px), var(--ui-dy, 0px));
   z-index: 710;
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: calc(100vw - 16px);
+  max-width: calc(100vw - 20px);
 }
 
 .shell-launcher {
@@ -83,7 +82,7 @@
   border-radius: 999px;
 }
 .ui-editable .wallet-root,
-.ui-editable .ai-assistant {
+.ui-editable .shell-toolbox {
   outline: 1.5px dashed rgba(126, 224, 160, 0.8);
   outline-offset: 5px;
   border-radius: 14px;
@@ -91,9 +90,6 @@
 
 /* Moved-offset transforms for the wrapped fixed elements (0/0 = stock). */
 .wallet-root {
-  transform: translate(var(--ui-dx, 0px), var(--ui-dy, 0px));
-}
-.ai-assistant {
   transform: translate(var(--ui-dx, 0px), var(--ui-dy, 0px));
 }
 
@@ -153,6 +149,13 @@
 .shell-launcher-icon {
   display: grid;
   place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+.shell-launcher-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .shell-launcher-label {
@@ -188,12 +191,12 @@
   overflow: hidden;
 }
 
-/* Desktop / tablet: a dropdown anchored under the launcher pill. */
+/* Desktop / tablet: a dropdown anchored under the top-left title pill. */
 .shell-nav.popover {
-  /* Follows the (possibly user-moved) top bar via the same offset vars. */
+  /* Follows the (possibly user-moved) title via the same offset vars. */
   top: calc(max(10px, env(safe-area-inset-top)) + 48px + var(--ui-dy, 0px));
-  left: calc(50% + var(--ui-dx, 0px));
-  transform: translateX(-50%);
+  left: calc(max(10px, env(safe-area-inset-left)) + var(--ui-dx, 0px));
+  transform: none;
   width: 320px;
   max-width: calc(100vw - 24px);
   border-radius: 16px;

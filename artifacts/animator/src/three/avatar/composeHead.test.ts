@@ -379,7 +379,7 @@ describe("composeHead", () => {
     }
   });
 
-  it("headband paints all four side faces; horns add mirrored protrusions instead", () => {
+  it("headband paints all four side faces; horns use 3D GLB (no box protrusions)", () => {
     const base = defaultConfig("human");
     const none = composeHead({ ...base, headgear: "none" });
     const band = composeHead({ ...base, headgear: "headband" });
@@ -387,14 +387,9 @@ describe("composeHead", () => {
       expect(band.faces[name]).not.toEqual(none.faces[name]);
     }
     const horns = composeHead({ ...base, headgear: "horns" });
-    // painted faces identical to none…
+    // painted faces identical to none — horns mount via mountHat("horns")
     expect(horns.faces.front).toEqual(none.faces.front);
-    // …but extra mirrored boxes appear high on the skull
-    const extra = horns.protrusions.length - none.protrusions.length;
-    expect(extra).toBeGreaterThanOrEqual(6);
-    const hornBoxes = horns.protrusions.filter((p) => p.y > 0.4);
-    expect(hornBoxes.some((p) => p.x < 0)).toBe(true);
-    expect(hornBoxes.some((p) => p.x > 0)).toBe(true);
+    expect(horns.protrusions.length).toBe(none.protrusions.length);
   });
 });
 
@@ -741,48 +736,29 @@ describe("catalog config helpers", () => {
     expect(talking.join(",")).not.toBe(base.join(","));
   });
 
-  it("hood swallows hair/ear/horn boxes but leaves the face open", () => {
-    const base: AvatarConfig = {
-      ...defaultConfig("elf"),
-      hair: "long",
-      headgear: "horns",
-      facialHair: "braided",
-    };
-    const open = composeHead(base).protrusions;
-    expect(open.some((p) => p.slot === "hair")).toBe(true);
-    expect(open.some((p) => p.slot === "ears")).toBe(true);
-    expect(open.some((p) => p.slot === "headgear")).toBe(true);
-    const hooded = composeHead({ ...base, hat: "hood" }).protrusions;
-    expect(hooded.some((p) => p.slot === "hair")).toBe(false);
-    expect(hooded.some((p) => p.slot === "ears")).toBe(false);
-    expect(hooded.some((p) => p.slot === "headgear")).toBe(false);
-    // face stays open: nose + beard survive under a hood
-    expect(hooded.some((p) => p.slot === "nose")).toBe(true);
-    expect(hooded.some((p) => p.slot === "facialHair")).toBe(true);
-  });
-
-  it("astronaut helmet swallows every face protrusion, and hiding the hat restores them", () => {
+  it("open hats keep face/ear/hair protrusions (no full-cover hoods/helmets)", () => {
     const base: AvatarConfig = {
       ...defaultConfig("orc"),
       hair: "dreads",
       facialHair: "braided",
+      ears: "round",
     };
     const bare = composeHead(base).protrusions;
     expect(bare.some((p) => p.slot === "tusks")).toBe(true);
     expect(bare.some((p) => p.slot === "nose")).toBe(true);
-    const helmeted = composeHead({ ...base, hat: "astronaut" }).protrusions;
-    expect(helmeted.length).toBe(0);
-    // hiding the helmet via its adjust brings the parts back
+    expect(bare.some((p) => p.slot === "hair")).toBe(true);
+    // non-enclosing hats keep protrusions (only crown hair volume is gated)
+    const capped = composeHead({ ...base, hat: "cowboy" }).protrusions;
+    expect(capped.some((p) => p.slot === "tusks")).toBe(true);
+    expect(capped.some((p) => p.slot === "ears")).toBe(true);
+    // hiding a hat via adjust is still a no-op for coverage
     const hidden = composeHead({
       ...base,
-      hat: "astronaut",
+      hat: "cowboy",
       adjust: { hat: { ...DEFAULT_ADJUST, hide: true } },
     }).protrusions;
     expect(hidden.some((p) => p.slot === "tusks")).toBe(true);
     expect(hidden.some((p) => p.slot === "nose")).toBe(true);
-    // non-enclosing hats keep protrusions (only crown hair volume is gated)
-    const capped = composeHead({ ...base, hat: "cowboy" }).protrusions;
-    expect(capped.some((p) => p.slot === "tusks")).toBe(true);
   });
 
   it("extra decal adjust moves, rotates and scales the painted pixels", () => {

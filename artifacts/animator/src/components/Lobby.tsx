@@ -28,6 +28,8 @@ interface Props {
   onLoadScene: (scene: SceneDescriptor) => void;
   /** Return to the door select. */
   onExit: () => void;
+  /** Enter the persistent GRUDOX island world (harvest/craft/build/combat). */
+  onEnterWorld?: () => void;
   /** The shared multiplayer relay client, created in App and reused by Studio. */
   net: DangerClient;
   /**
@@ -82,7 +84,7 @@ function timeAgo(iso: string): string {
  * (posted as "dungeon") can be loaded into the editor, played solo, or used as
  * the content for a multiplayer room.
  */
-export function Lobby({ onLoad, onPlay, onLoadScene, onExit, net, onEnterRoom }: Props) {
+export function Lobby({ onLoad, onPlay, onLoadScene, onExit, onEnterWorld, net, onEnterRoom }: Props) {
   const { user, isSignedIn } = useUser();
   const { data, isLoading, isError, refetch, isFetching } = useListPosts();
 
@@ -230,9 +232,16 @@ export function Lobby({ onLoad, onPlay, onLoadScene, onExit, net, onEnterRoom }:
           <span className="brand">
             THE<span className="brand-accent">LOBBY</span>
           </span>
-          <p className="lobby-sub">Join a multiplayer room — or grab a community map and jump in.</p>
+          <p className="lobby-sub">
+            Persistent island world, multiplayer rooms, or community maps.
+          </p>
         </div>
         <div className="lobby-actions">
+          {onEnterWorld && (
+            <button className="ve-btn ve-play lobby-world-enter" onClick={onEnterWorld}>
+              🌍 Enter GRUDOX World
+            </button>
+          )}
           <button className="ve-btn" onClick={() => void refetch()} disabled={isFetching}>
             {isFetching ? "Refreshing…" : "Refresh"}
           </button>
@@ -241,6 +250,22 @@ export function Lobby({ onLoad, onPlay, onLoadScene, onExit, net, onEnterRoom }:
           </button>
         </div>
       </div>
+
+      {onEnterWorld && (
+        <section className="lobby-world-banner">
+          <div className="lobby-world-banner-copy">
+            <h2>GRUDOX Persistent World</h2>
+            <p>
+              Play as your real Warlords / GRUDOX character (race kit + equipment). Harvest, craft,
+              build, vendors, day/night mobs — and <strong>PvP</strong> with other signed-in heroes.
+              <kbd>Q</kbd> swaps harvest ↔ combat.
+            </p>
+          </div>
+          <button type="button" className="ve-btn ve-play" onClick={onEnterWorld}>
+            Enter World
+          </button>
+        </section>
+      )}
 
       {/* ── Multiplayer rooms ─────────────────────────────────────────────── */}
       <section className="rooms">

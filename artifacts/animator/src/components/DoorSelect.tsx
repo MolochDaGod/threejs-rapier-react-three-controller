@@ -1,8 +1,20 @@
 import { assetUrl } from "../three/assetHost";
 import { PlayerBadge } from "./PlayerBadge";
+import { DoorsHeroStage } from "./DoorsHeroStage";
 
 interface Props {
-  onEnter: (mode: "danger" | "voxel" | "editor" | "lobby" | "ledmask" | "avatar") => void;
+  onEnter: (
+    mode:
+      | "danger"
+      | "voxel"
+      | "editor"
+      | "lobby"
+      | "lobbyWorld"
+      | "characters"
+      | "minegrudge"
+      | "ledmask"
+      | "avatar",
+  ) => void;
 }
 
 // Square room art (public/rooms/*-scene.png) — the same room art the LED-Mask
@@ -12,15 +24,16 @@ interface Props {
 const poster = (name: string) => assetUrl(`rooms/${name}-scene.png`);
 
 /**
- * The facility entrance: five poster doors. The first drops into the live Danger
- * Room combat sandbox; the second opens the Voxel Map Editor; the third opens the
- * Dressing Room (character models, weapons, animations & effects); the fourth
- * opens the multiplayer / community Lobby; the last opens the Voxel LED Mask
- * studio. Each door is its hand-made poster.
+ * The facility entrance: poster doors over a live 3D hero stage
+ * (introgamer on the Phyxt fight arena) with cinematic camera hover.
  */
 export function DoorSelect({ onEnter }: Props) {
   return (
     <div className="doors">
+      {/* Full-bleed cinematic stage — arena + intro gamer, orbit/hover cam */}
+      <DoorsHeroStage />
+      <div className="doors-vignette" aria-hidden />
+
       <div className="doors-head">
         <PlayerBadge onEditAvatar={() => onEnter("avatar")} />
         <div className="doors-title">
@@ -32,6 +45,22 @@ export function DoorSelect({ onEnter }: Props) {
       </div>
 
       <div className="doors-row">
+        <button
+          className="door door-characters"
+          onClick={() => onEnter("characters")}
+          aria-label="Characters GRUDOX — campfire roster from Fantasy Scene Creator"
+        >
+          <img className="door-art" src={poster("lobby")} alt="Characters" draggable={false} />
+        </button>
+
+        <button
+          className="door door-minegrudge"
+          onClick={() => onEnter("minegrudge")}
+          aria-label="GRUDOX Realms — networked survival multiplayer (Mine-Loader)"
+        >
+          <img className="door-art" src={poster("voxel")} alt="GRUDOX Realms" draggable={false} />
+        </button>
+
         <button
           className="door door-combat"
           onClick={() => onEnter("danger")}

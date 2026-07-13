@@ -905,6 +905,809 @@ export class Vfx {
     };
   }
 
+  /**
+   * Ice snake family: serpentine homing bolt that STOP short of the target
+   * so the defender can dodge the last gap. Pass a full style object for the
+   * 6 weapon variants (color / size / speed / sway / aoe flash).
+   */
+  castIceSnake(
+    from: THREE.Vector3,
+    to: THREE.Vector3,
+    colorOrStyle:
+      | number
+      | {
+          color: number;
+          color2?: number;
+          radius?: number;
+          trailWidth?: number;
+          lengthScale?: number;
+          speed?: number;
+          sway?: number;
+          swayFreq?: number;
+          stopDistance?: number;
+          aoeRadius?: number;
+        } = 0x7ad0ff,
+    stopDistanceLegacy = 2,
+    onArrive?: (p: THREE.Vector3) => void,
+  ) {
+    const style =
+      typeof colorOrStyle === "number"
+        ? {
+            color: colorOrStyle,
+            color2: colorOrStyle,
+            radius: 0.18,
+            trailWidth: 0.22,
+            lengthScale: 2.2,
+            speed: 1,
+            sway: 0.45,
+            swayFreq: 4,
+            stopDistance: stopDistanceLegacy,
+            aoeRadius: 1.6,
+          }
+        : {
+            color: colorOrStyle.color,
+            color2: colorOrStyle.color2 ?? colorOrStyle.color,
+            radius: colorOrStyle.radius ?? 0.18,
+            trailWidth: colorOrStyle.trailWidth ?? 0.22,
+            lengthScale: colorOrStyle.lengthScale ?? 2.2,
+            speed: colorOrStyle.speed ?? 1,
+            sway: colorOrStyle.sway ?? 0.45,
+            swayFreq: colorOrStyle.swayFreq ?? 4,
+            stopDistance: colorOrStyle.stopDistance ?? 2,
+            aoeRadius: colorOrStyle.aoeRadius ?? 1.6,
+          };
+
+    const start = from.clone();
+    const end = to.clone();
+    end.y = Math.max(0.4, end.y);
+    const delta = end.clone().sub(start);
+    const full = delta.length();
+    const travel = Math.max(0.5, full - style.stopDistance);
+    const dir = delta.clone().normalize();
+    const goal = start.clone().addScaledVector(dir, travel);
+    goal.y = end.y;
+
+    // Elongated head (capsule-like) — lengthScale stretches along flight.
+    const geo = new THREE.SphereGeometry(style.radius, 10, 10);
+    geo.scale(style.lengthScale, 1, 1);
+    const mat = new THREE.MeshBasicMaterial({
+      color: style.color,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    const head = new THREE.Mesh(geo, mat);
+    head.position.copy(start);
+    this.addTrail(head, style.color2, { width: style.trailWidth });
+    // Faster speed → shorter life for same distance.
+    const baseLife = 0.55 + travel * 0.04;
+    const life = baseLife / Math.max(0.4, style.speed);
+    let done = false;
+    this.add({
+      obj: head,
+      age: 0,
+      life,
+      geos: [geo],
+      mats: [mat],
+      update: (e, dt) => {
+        const t = Math.min(1, e.age / e.life);
+        const sway = Math.sin(t * Math.PI * style.swayFreq) * style.sway * (1 - t);
+        const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(sway);
+        head.position.lerpVectors(start, goal, t * t * (3 - 2 * t)).add(side);
+        head.position.y += Math.sin(t * Math.PI) * 0.35;
+        // Face travel direction.
+        head.lookAt(head.position.clone().add(dir));
+        if (!done && t >= 0.98) {
+          done = true;
+          this.burst(head.position.clone(), style.color, 22, 3.5);
+          this.shockwave(
+            new THREE.Vector3(goal.x, 0.05, goal.z),
+            style.color,
+            style.aoeRadius,
+            0.35,
+          );
+          onArrive?.(head.position.clone());
+        }
+      },
+    });
+  }
+
+  /** Brighter multi-layer muzzle flash (guns, staffs, turrets). */
+  muzzleFlash(pos: THREE.Vector3, dir: THREE.Vector3, color = 0xfff2a8, scale = 1) {
+    this.muzzle(pos, dir, color);
+    const d = dir.clone().normalize();
+    const flashGeo = new THREE.SphereGeometry(0.12 * scale, 8, 8);
+    const flashMat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const flash = new THREE.Mesh(flashGeo, flashMat);
+    flash.position.copy(pos).addScaledVector(d, 0.15 * scale);
+    this.add({
+      obj: flash,
+      age: 0,
+      life: 0.08,
+      geos: [flashGeo],
+      mats: [flashMat],
+      update: (e) => {
+        const t = e.age / e.life;
+        flash.scale.setScalar(1 + t * 2.2 * scale);
+        flashMat.opacity = 1 - t;
+      },
+    });
+    // Side sparks
+    this.burst(pos.clone().addScaledVector(d, 0.2), color, Math.round(10 * scale), 2.5 * scale);
+  }
+
+  /**
+   * Simple portal disc pair — open at `from`, optional second at `to` (teleport ghost).
+   * Useful with Flame Body for teleport reads.
+   */
+  castPortal(
+    from: THREE.Vector3,
+    to?: THREE.Vector3,
+    color = 0xb15cff,
+    duration = 1.2,
+  ) {
+    const spawnRing = (at: THREE.Vector3, delay: number) => {
+      const group = new THREE.Group();
+      group.position.copy(at);
+      group.position.y = Math.max(0.05, at.y);
+      const ringGeo = new THREE.TorusGeometry(0.55, 0.06, 8, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+      const discGeo = new THREE.CircleGeometry(0.48, 28);
+      const discMat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      const disc = new THREE.Mesh(discGeo, discMat);
+      disc.rotation.x = -Math.PI / 2;
+      group.add(disc);
+      this.add({
+        obj: group,
+        age: -delay,
+        life: duration + delay,
+        geos: [ringGeo, discGeo],
+        mats: [ringMat, discMat],
+        update: (e, dt) => {
+          if (e.age < 0) {
+            group.visible = false;
+            return;
+          }
+          group.visible = true;
+          const t = e.age / duration;
+          const pulse = 0.85 + Math.sin(e.age * 10) * 0.12;
+          group.scale.setScalar(pulse);
+          ring.rotation.z += dt * 3;
+          const fade = t < 0.15 ? t / 0.15 : t > 0.8 ? 1 - (t - 0.8) / 0.2 : 1;
+          ringMat.opacity = 0.85 * fade;
+          discMat.opacity = 0.35 * fade;
+        },
+      });
+    };
+    spawnRing(from, 0);
+    if (to) spawnRing(to, 0.08);
+    this.burst(from.clone().setY(from.y + 0.5), color, 16, 3);
+    if (to) this.burst(to.clone().setY(to.y + 0.5), color, 16, 3);
+  }
+
+  /** Frost slash crescent — cold counterpart to flame slash. */
+  frostSlash(
+    origin: THREE.Vector3,
+    dir: THREE.Vector3,
+    color = 0x9fdcff,
+    onHit?: (p: THREE.Vector3) => void,
+  ) {
+    const d = dir.clone().setY(0);
+    if (d.lengthSq() < 1e-6) d.set(0, 0, 1);
+    d.normalize();
+    const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), d);
+    this.slashArc(origin.clone().setY(origin.y + 1.0), quat, color);
+    this.burst(origin.clone().addScaledVector(d, 1.2).setY(origin.y + 1.0), color, 20, 3.5);
+    // Flying frost crescent
+    const geo = new THREE.TorusGeometry(0.55, 0.07, 6, 20, Math.PI * 1.1);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    const start = origin.clone().setY(origin.y + 1.05);
+    mesh.position.copy(start);
+    mesh.quaternion.copy(quat);
+    mesh.rotateX(Math.PI / 2);
+    this.addTrail(mesh, color, { width: 0.2 });
+    const life = 0.35;
+    const end = start.clone().addScaledVector(d, 5.5);
+    let hit = onHit;
+    this.add({
+      obj: mesh,
+      age: 0,
+      life,
+      geos: [geo],
+      mats: [mat],
+      update: (e) => {
+        const t = e.age / e.life;
+        mesh.position.lerpVectors(start, end, t);
+        mat.opacity = 0.9 * (1 - t);
+        if (t > 0.92 && hit) {
+          this.shockwave(new THREE.Vector3(mesh.position.x, 0.05, mesh.position.z), color, 2.2, 0.35);
+          hit(mesh.position.clone());
+          hit = undefined;
+        }
+      },
+    });
+  }
+
+  /** Extra frost AOE: ground ice field with chill pulses (smaller/faster than blizzard). */
+  castFrostAoe(
+    at: THREE.Vector3,
+    color = 0x9fdcff,
+    radius = 3.5,
+    duration = 2.8,
+    onPulse?: (p: THREE.Vector3, r: number) => void,
+  ) {
+    const base = at.clone();
+    base.y = 0.04;
+    this.auraRing(base.clone().setY(0.06), color, radius, 0.7);
+    // Ice crystal spikes around the rim
+    const group = new THREE.Group();
+    group.position.copy(base);
+    const geos: THREE.BufferGeometry[] = [];
+    const mats: THREE.Material[] = [];
+    for (let i = 0; i < 10; i++) {
+      const g = new THREE.ConeGeometry(0.12, 0.55 + Math.random() * 0.35, 5);
+      const m = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.75,
+        depthWrite: false,
+      });
+      const spike = new THREE.Mesh(g, m);
+      const ang = (i / 10) * Math.PI * 2;
+      spike.position.set(Math.cos(ang) * radius * 0.7, 0.28, Math.sin(ang) * radius * 0.7);
+      group.add(spike);
+      geos.push(g);
+      mats.push(m);
+    }
+    let pulse = 0;
+    this.add({
+      obj: group,
+      age: 0,
+      life: duration,
+      geos,
+      mats,
+      update: (e, dt) => {
+        const t = e.age / e.life;
+        group.rotation.y += dt * 0.6;
+        const fade = t > 0.8 ? 1 - (t - 0.8) / 0.2 : 1;
+        for (const m of mats) (m as THREE.MeshBasicMaterial).opacity = 0.75 * fade;
+        pulse += dt;
+        if (pulse >= 0.5) {
+          pulse = 0;
+          this.shockwave(base.clone().setY(0.05), color, radius * 0.9, 0.3);
+          onPulse?.(base.clone(), radius);
+        }
+      },
+    });
+  }
+
+  /**
+   * Polymorph flash: sparkles + animal-scale ghost that shrinks the read of the
+   * target (true mesh swap stays host-side if available).
+   */
+  castPolymorph(at: THREE.Vector3, color = 0xd4a0ff, duration = 1.2) {
+    const base = at.clone();
+    base.y = Math.max(0.5, at.y);
+    this.burst(base, color, 28, 4);
+    this.castAura(base.clone().setY(0), color);
+    // Sheep-like blob silhouette
+    const geo = new THREE.SphereGeometry(0.45, 12, 10);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+    });
+    const blob = new THREE.Mesh(geo, mat);
+    blob.position.copy(base);
+    blob.scale.set(1, 0.85, 1.15);
+    this.add({
+      obj: blob,
+      age: 0,
+      life: duration,
+      geos: [geo],
+      mats: [mat],
+      update: (e) => {
+        const t = e.age / e.life;
+        blob.position.y = base.y + Math.sin(e.age * 8) * 0.08;
+        mat.opacity = 0.75 * (1 - t * 0.85);
+        blob.scale.setScalar(1 + t * 0.2);
+      },
+    });
+  }
+
+  /**
+   * vfxgrudge-style shockwave then forward push cone (Key A pattern).
+   * Visual only for the push cone; host applies knockback via sparringBlast force.
+   */
+  castShockwavePush(
+    origin: THREE.Vector3,
+    dir: THREE.Vector3,
+    color = 0xff7a2e,
+    radius = 4.5,
+    onPush?: (center: THREE.Vector3, forward: THREE.Vector3, r: number) => void,
+  ) {
+    const d = dir.clone().setY(0);
+    if (d.lengthSq() < 1e-6) d.set(0, 0, 1);
+    d.normalize();
+    const ground = origin.clone();
+    ground.y = 0.05;
+    // Shock first
+    this.shockwave(ground, color, radius, 0.55);
+    this.burst(origin.clone().setY(origin.y + 1), color, 24, 4);
+    // Delayed push cone flash
+    const coneGeo = new THREE.ConeGeometry(radius * 0.55, radius * 0.9, 16, 1, true);
+    const coneMat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    const cone = new THREE.Mesh(coneGeo, coneMat);
+    const tip = origin.clone().addScaledVector(d, radius * 0.55);
+    tip.y = origin.y + 0.8;
+    cone.position.copy(tip);
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+    this.add({
+      obj: cone,
+      age: 0,
+      life: 0.35,
+      geos: [coneGeo],
+      mats: [coneMat],
+      update: (e) => {
+        const t = e.age / e.life;
+        cone.scale.set(1 + t, 1 + t * 0.5, 1 + t);
+        coneMat.opacity = 0.45 * (1 - t);
+        if (t > 0.15 && e.age < e.life * 0.2) {
+          onPush?.(origin.clone(), d.clone(), radius);
+        }
+      },
+    });
+    // Ensure push fires even if update edge is missed
+    onPush?.(origin.clone(), d.clone(), radius);
+  }
+
+  /**
+   * Rapid Fire (vfxgrudge Key P): burst of bolts with muzzle flashes.
+   * Host schedules damage via onBolt; visual only here.
+   */
+  castRapidFire(
+    from: THREE.Vector3,
+    dir: THREE.Vector3,
+    color = 0xffb24d,
+    bolts = 6,
+    interval = 0.1,
+    onBolt?: (from: THREE.Vector3, dir: THREE.Vector3, index: number) => void,
+  ) {
+    const d = dir.clone().normalize();
+    let fired = 0;
+    this.add({
+      obj: new THREE.Group(),
+      age: 0,
+      life: bolts * interval + 0.15,
+      geos: [],
+      mats: [],
+      update: (e) => {
+        const want = Math.min(bolts, Math.floor(e.age / interval) + 1);
+        while (fired < want) {
+          const spread = (Math.random() - 0.5) * 0.12;
+          const shotDir = d.clone();
+          shotDir.x += -d.z * spread;
+          shotDir.z += d.x * spread;
+          shotDir.normalize();
+          const muzzle = from.clone();
+          this.muzzleFlash(muzzle, shotDir, color, 0.85);
+          this.bolt(muzzle, shotDir, color, 32, 16, (p) => {
+            this.burst(p, color, 10, 2);
+          });
+          onBolt?.(muzzle, shotDir, fired);
+          fired++;
+        }
+      },
+    });
+  }
+
+  /**
+   * Standing 2H Magic channel (vfxgrudge standing-2h-magic): ground runes +
+   * rising columns so the caster can keep pushing while rooted in cast.
+   */
+  castStanding2hMagic(
+    origin: THREE.Vector3,
+    color = 0xb98cff,
+    duration = 1.35,
+    radius = 3.2,
+    onPulse?: (p: THREE.Vector3, r: number) => void,
+  ) {
+    const base = origin.clone();
+    base.y = 0.05;
+    this.auraRing(base, color, radius * 0.9, 0.6);
+    let pulse = 0;
+    this.add({
+      obj: new THREE.Group(),
+      age: 0,
+      life: duration,
+      geos: [],
+      mats: [],
+      update: (e, dt) => {
+        pulse += dt;
+        if (pulse >= 0.28) {
+          pulse = 0;
+          const r = radius * (0.55 + 0.45 * (e.age / e.life));
+          this.shockwave(base.clone(), color, r, 0.28);
+          this.burst(origin.clone().setY(origin.y + 1.2), color, 12, 2.2);
+          onPulse?.(base.clone(), r);
+        }
+      },
+    });
+  }
+
+  /** Frost blink: ice portal at feet + flash at destination. */
+  castFrostBlink(from: THREE.Vector3, to: THREE.Vector3, color = 0x9fdcff) {
+    this.castPortal(from.clone().setY(0.08), to.clone().setY(0.08), color, 0.7);
+    this.burst(from.clone().setY(from.y + 1), color, 18, 3);
+    this.burst(to.clone().setY(to.y + 1), color, 18, 3);
+    this.shockwave(to.clone().setY(0.05), color, 1.4, 0.25);
+  }
+
+  /** Nature blink: green portal + leaf burst (no frost field). */
+  castNatureBlink(from: THREE.Vector3, to: THREE.Vector3, color = 0x4dff88) {
+    this.castPortal(from.clone().setY(0.08), to.clone().setY(0.08), color, 0.65);
+    this.burst(from.clone().setY(from.y + 1), color, 16, 2.8);
+    this.burst(to.clone().setY(to.y + 1), color, 16, 2.8);
+    // Small root twinkle at landing
+    this.castRoots(to, 0x3a7a28, 0.9, 0.8);
+  }
+
+  /**
+   * Nature roots: vines erupt at a point, hold, then wither.
+   * Use for root/stun CC VFX (pair with slowed/stunned status).
+   */
+  castRoots(
+    at: THREE.Vector3,
+    color = 0x4a8a2a,
+    radius = 2.0,
+    duration = 3.5,
+    onPulse?: (p: THREE.Vector3) => void,
+  ) {
+    const base = at.clone();
+    base.y = 0;
+    this.shockwave(base.clone().setY(0.05), color, radius, 0.4);
+    const group = new THREE.Group();
+    group.position.copy(base);
+    const geos: THREE.BufferGeometry[] = [];
+    const mats: THREE.Material[] = [];
+    for (let i = 0; i < 8; i++) {
+      const g = new THREE.CylinderGeometry(0.06, 0.1, 1.1, 5);
+      const m = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.9,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const vine = new THREE.Mesh(g, m);
+      const ang = (i / 8) * Math.PI * 2 + Math.random() * 0.2;
+      const r = radius * (0.35 + Math.random() * 0.5);
+      vine.position.set(Math.cos(ang) * r, 0.55, Math.sin(ang) * r);
+      vine.rotation.z = (Math.random() - 0.5) * 0.6;
+      vine.rotation.x = (Math.random() - 0.5) * 0.5;
+      group.add(vine);
+      geos.push(g);
+      mats.push(m);
+    }
+    let pulsed = false;
+    this.add({
+      obj: group,
+      age: 0,
+      life: duration,
+      geos,
+      mats,
+      update: (e) => {
+        const t = e.age / e.life;
+        const grow = t < 0.15 ? t / 0.15 : 1;
+        group.scale.set(1, grow, 1);
+        if (!pulsed && t > 0.12) {
+          pulsed = true;
+          onPulse?.(base.clone().setY(0.5));
+        }
+        if (t > 0.75) {
+          const fade = 1 - (t - 0.75) / 0.25;
+          for (const m of mats) (m as THREE.MeshStandardMaterial).opacity = 0.95 * fade;
+        }
+      },
+    });
+  }
+
+  /**
+   * Moonbeam / Nature's Healing column from sky onto a target point.
+   * `opaqueGreen` makes a solid green pillar (Nature's Healing).
+   */
+  castMoonbeam(
+    at: THREE.Vector3,
+    color = 0xd8e8ff,
+    duration = 3.5,
+    opaqueGreen = false,
+    onPulse?: (p: THREE.Vector3, t: number) => void,
+  ) {
+    const base = at.clone();
+    base.y = 0.05;
+    this.auraRing(base.clone().setY(0.06), color, 1.8, Math.min(1.2, duration * 0.35));
+
+    const h = 12;
+    const geo = new THREE.CylinderGeometry(opaqueGreen ? 0.55 : 0.35, opaqueGreen ? 0.7 : 0.45, h, 20, 1, true);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: opaqueGreen ? 0.72 : 0.38,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: opaqueGreen ? THREE.NormalBlending : THREE.AdditiveBlending,
+    });
+    const col = new THREE.Mesh(geo, mat);
+    col.position.set(base.x, h * 0.5, base.z);
+    let pulse = 0;
+    this.add({
+      obj: col,
+      age: 0,
+      life: duration,
+      geos: [geo],
+      mats: [mat],
+      update: (e, dt) => {
+        const t = e.age / e.life;
+        const fade = t < 0.12 ? t / 0.12 : t > 0.85 ? 1 - (t - 0.85) / 0.15 : 1;
+        mat.opacity = (opaqueGreen ? 0.72 : 0.38) * fade;
+        col.rotation.y += dt * 0.8;
+        pulse += dt;
+        if (pulse >= 0.45) {
+          pulse = 0;
+          this.burst(base.clone().setY(0.6), color, 8, 1.2);
+          onPulse?.(base.clone().setY(1), t);
+        }
+      },
+    });
+  }
+
+  /** Ground blizzard: swirling frost discs + periodic chill pulses. */
+  castBlizzard(at: THREE.Vector3, color = 0x9fdcff, radius = 5.5, duration = 4, onPulse?: (p: THREE.Vector3) => void) {
+    const base = at.clone();
+    base.y = 0.04;
+    this.auraRing(base.clone().setY(0.06), color, radius, 0.9);
+    const group = new THREE.Group();
+    group.position.copy(base);
+    const flakes: THREE.Mesh[] = [];
+    const geos: THREE.BufferGeometry[] = [];
+    const mats: THREE.Material[] = [];
+    for (let i = 0; i < 14; i++) {
+      const g = new THREE.SphereGeometry(0.08 + Math.random() * 0.06, 6, 6);
+      const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false });
+      const mesh = new THREE.Mesh(g, m);
+      const ang = (i / 14) * Math.PI * 2;
+      mesh.position.set(Math.cos(ang) * radius * 0.55, 0.4 + Math.random() * 1.2, Math.sin(ang) * radius * 0.55);
+      group.add(mesh);
+      flakes.push(mesh);
+      geos.push(g);
+      mats.push(m);
+    }
+    let pulse = 0;
+    this.add({
+      obj: group,
+      age: 0,
+      life: duration,
+      geos,
+      mats,
+      update: (e, dt) => {
+        group.rotation.y += dt * 1.4;
+        for (const f of flakes) {
+          f.position.y += Math.sin(e.age * 4 + f.position.x) * dt * 0.4;
+        }
+        pulse += dt;
+        if (pulse >= 0.55) {
+          pulse = 0;
+          this.shockwave(base.clone().setY(0.05), color, radius * 0.85, 0.35);
+          onPulse?.(base.clone());
+        }
+      },
+    });
+  }
+
+  /**
+   * Voxel earth wall barrier (design: #6c6f78, voxel 0.42, w≈8, h≈7, hold≈7s).
+   * Drops in from above, holds, then crumbles. Used by PRESET_EARTH_WALL /
+   * melee F-skill + gun signature slot 2 — do not collide with GRUDOX lab
+   * WEAPON_SKILLS (anim clip labels only).
+   */
+  castEarthWall(
+    at: THREE.Vector3,
+    color = 0x6c6f78,
+    /** Treated as half-width / placement scale; design width is ~7.95. */
+    radius = 4.0,
+    duration = 6.95,
+  ) {
+    const voxelSize = 0.42;
+    const width = Math.max(radius * 2, 7.95);
+    const height = 7;
+    const dropHeight = 6;
+    const holdTime = duration;
+    const dropDur = 0.55;
+    const crumbleDur = 0.85;
+
+    const base = at.clone();
+    base.y = 0;
+    const root = new THREE.Group();
+    root.position.copy(base);
+
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.92,
+      metalness: 0.05,
+      flatShading: true,
+    });
+    const boxGeo = new THREE.BoxGeometry(voxelSize * 0.96, voxelSize * 0.96, voxelSize * 0.96);
+    const cols = Math.max(1, Math.round(width / voxelSize));
+    const rows = Math.max(1, Math.round(height / voxelSize));
+    const halfW = ((cols - 1) * voxelSize) * 0.5;
+
+    type Vox = { mesh: THREE.Mesh; targetY: number; startY: number; delay: number };
+    const voxels: Vox[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (r === rows - 1 && (c + r) % 3 === 0) continue;
+        if (r > rows * 0.7 && Math.random() < 0.12) continue;
+        const mesh = new THREE.Mesh(boxGeo, mat);
+        mesh.castShadow = true;
+        const ly = voxelSize * 0.5 + r * voxelSize;
+        mesh.position.set(
+          -halfW + c * voxelSize,
+          ly + dropHeight,
+          ((c + r) % 2 === 0 ? 0.02 : -0.02) * voxelSize,
+        );
+        root.add(mesh);
+        voxels.push({
+          mesh,
+          targetY: ly,
+          startY: ly + dropHeight,
+          delay: c * 0.012 + r * 0.018 + Math.random() * 0.04,
+        });
+      }
+    }
+
+    this.shockwave(base.clone().setY(0.05), color, Math.min(width * 0.35, 3.5), 0.4);
+    const tDropEnd = dropDur + 0.4;
+    const tHoldEnd = tDropEnd + holdTime;
+    const tCrumbleEnd = tHoldEnd + crumbleDur + 0.35;
+
+    this.add({
+      obj: root,
+      age: 0,
+      life: tCrumbleEnd,
+      geos: [boxGeo],
+      mats: [mat],
+      update: (e) => {
+        const a = e.age;
+        if (a < tDropEnd) {
+          for (const v of voxels) {
+            const local = Math.max(0, a - v.delay);
+            const t = Math.min(1, local / dropDur);
+            const ease = t * t;
+            v.mesh.position.y = v.startY + (v.targetY - v.startY) * ease;
+          }
+        } else if (a < tHoldEnd) {
+          for (const v of voxels) v.mesh.position.y = v.targetY;
+        } else {
+          const ca = a - tHoldEnd;
+          for (let i = 0; i < voxels.length; i++) {
+            const v = voxels[i];
+            const t = Math.max(0, ca - (i % 7) * 0.03) / crumbleDur;
+            const k = Math.min(1, t);
+            const fall = k * k * (dropHeight * 0.45 + 1.2);
+            v.mesh.position.y = v.targetY - fall;
+            v.mesh.scale.setScalar(Math.max(0.01, 1 - k));
+          }
+        }
+      },
+    });
+  }
+
+  /** Expanding earth wave ring that damages as it spreads. */
+  castEarthWave(
+    at: THREE.Vector3,
+    color = 0x6b9a3a,
+    maxRadius = 6,
+    duration = 0.9,
+    onExpand?: (center: THREE.Vector3, radius: number) => void,
+  ) {
+    const base = at.clone();
+    base.y = 0.05;
+    let lastR = 0;
+    this.add({
+      obj: new THREE.Group(),
+      age: 0,
+      life: duration,
+      geos: [],
+      mats: [],
+      update: (e) => {
+        const t = e.age / e.life;
+        const r = maxRadius * t;
+        if (r - lastR > 0.45) {
+          lastR = r;
+          this.shockwave(base.clone(), color, r, 0.25);
+          onExpand?.(base.clone(), r);
+        }
+      },
+    });
+  }
+
+  /**
+   * FlameBody: fire silhouette trail at the player for trails / teleport ghost.
+   * Call each frame while active via {@link flameBodyPulse}, or once for a flash.
+   */
+  flameBodyFlash(at: THREE.Vector3, color = 0xff6a1e, duration = 0.45) {
+    this.castAura(at.clone(), color);
+    this.burst(at.clone().setY(at.y + 1), color, 36, 5);
+    this.flameTrailPoint(at.clone().setY(at.y + 1));
+    const geo = new THREE.CapsuleGeometry(0.35, 1.1, 4, 8);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const ghost = new THREE.Mesh(geo, mat);
+    ghost.position.copy(at);
+    ghost.position.y += 1.0;
+    this.add({
+      obj: ghost,
+      age: 0,
+      life: duration,
+      geos: [geo],
+      mats: [mat],
+      update: (e) => {
+        const t = e.age / e.life;
+        mat.opacity = 0.55 * (1 - t);
+        ghost.position.y += 0.01;
+      },
+    });
+  }
+
+  /** Continuous FlameBody trail sample (call from update while buff active). */
+  flameBodyPulse(at: THREE.Vector3, color = 0xff6a1e) {
+    this.flameTrailPoint(at.clone().setY(at.y + 0.9));
+    if (Math.random() < 0.25) this.burst(at.clone().setY(at.y + 1.1), color, 4, 1.1);
+  }
+
   /** Rain an elemental-sword cluster down onto a point ahead of the caster. */
   castSwordVolley(
     from: THREE.Vector3,
@@ -2959,7 +3762,7 @@ export class Vfx {
         this.lightning(front, 1.4);
         break;
       case "muzzle":
-        this.muzzle(front, forward, color);
+        this.muzzleFlash(front, forward, color, 1);
         break;
       case "thrust":
         this.bolt(front, forward, color, 22, 6, (p) => this.burst(p, color, 16, 3));

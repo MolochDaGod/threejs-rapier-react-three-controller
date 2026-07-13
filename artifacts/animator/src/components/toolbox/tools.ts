@@ -14,6 +14,9 @@ export type ToolMode =
   | "play"
   | "editor"
   | "lobby"
+  | "lobbyWorld"
+  | "characters"
+  | "minegrudge"
   | "ledmask"
   | "avatar";
 

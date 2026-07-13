@@ -960,17 +960,10 @@ function buildProtrusions(cfg: AvatarConfig): ProtrusionBox[] {
 
   for (let i = noseStart; i < out.length; i++) out[i].slot = "nose";
 
-  // --- horns headgear (curved twin spikes off the upper skull) ---
+  // --- horns headgear ---
+  // Procedural box spikes removed: `horns` mounts `avatar/hats/horns.glb` via
+  // resolveMountedHatId / mountHat (same crown attach as other 3D hats).
   const gearStart = out.length;
-  if (cfg.headgear === "horns") {
-    const c = cfg.headgearColor;
-    for (const s of [-1, 1]) {
-      out.push({ x: s * 0.42, y: 0.42, z: 0.05, w: 2.4 * P, h: 2.4 * P, d: 2.8 * P, color: shade(c, 0.85) });
-      out.push({ x: s * 0.5, y: 0.52, z: 0.02, w: 2 * P, h: 2.6 * P, d: 2.2 * P, color: c });
-      out.push({ x: s * 0.54, y: 0.62, z: 0.06, w: 1.4 * P, h: 2.2 * P, d: 1.6 * P, color: shade(c, 1.2) });
-    }
-  }
-
   for (let i = gearStart; i < out.length; i++) out[i].slot = "headgear";
 
   // --- tusks (rise from the mouth corners on the front face) ---
@@ -1298,9 +1291,8 @@ function buildProtrusions(cfg: AvatarConfig): ProtrusionBox[] {
   for (let i = beardStart; i < out.length; i++) out[i].slot = "facialHair";
 
   const adjusted = applyAdjustments(out, cfg);
-  // Enclosing hats (hood / astronaut helmet) swallow parts that would mesh
-  // through them — cull AFTER adjustments so even moved/scaled parts can't
-  // poke out of the helmet.
+  // Enclosing hats swallow parts that would mesh through them — cull AFTER
+  // adjustments so even moved/scaled parts can't poke out of a full cover.
   const covered = hatCoveredSlots(cfg);
   return covered.size
     ? adjusted.filter((b) => !b.slot || !covered.has(b.slot))

@@ -28,6 +28,18 @@ const FILTER_OPEN = 20000;
 const FILTER_CLOSED = 320;
 /** Quick blend length (s) for user-driven skips (prev/next/select/reset). */
 const MANUAL_FADE = 0.5;
+/**
+ * Chance (0..1) that CPT RAC's producer tag rides a track transition blend.
+ * Only applies when a producer-tag URL is set (local CPT RAC station).
+ */
+const PRODUCER_TAG_BLEND_CHANCE = 0.48;
+/**
+ * Chance (0..1) that the producer tag drops near the top of a freshly started
+ * track (intro sting), when no blend tag just fired.
+ */
+const PRODUCER_TAG_INTRO_CHANCE = 0.18;
+/** Peak gain for the producer-tag sting relative to deck full (1.0). */
+const PRODUCER_TAG_GAIN = 0.92;
 
 /**
  * The mute-gain node's value from the two INDEPENDENT mute flags: the global
@@ -71,8 +83,9 @@ interface Deck {
  * reset from the UI.
  *
  * Routing (per deck): el → src → filter → deckGain → mixBus. A shared delay line
- * (fed by each deck's `send`) provides the "echo out" tail. The mix bus then runs
- * → analyser (beat pulse) → stationGain → levelGain (mixer) → muteGain →
+ * (fed by each deck's `send`) provides the "echo out" tail. A third "sting"
+ * voice carries CPT RAC's producer tag over blends / intros. The mix bus then
+ * runs → analyser (beat pulse) → stationGain → levelGain (mixer) → muteGain →
  * destination. Loudness rides the music/master mixer levels and is hard-zeroed by
  * mute, mirroring the rest of the mixer.
  */
@@ -86,6 +99,14 @@ class MusicStation {
   private levelGain: GainNode | null = null;
   private muteGain: GainNode | null = null;
   private freq: Uint8Array<ArrayBuffer> | null = null;
+  /** CPT RAC producer-tag sting (optional third voice on the mix bus). */
+  private stingEl: HTMLAudioElement | null = null;
+  private stingGain: GainNode | null = null;
+  /** Resolved producer-tag media URL (null = no drops / no blend tags). */
+  private producerTagUrl: string | null = null;
+  /** Skip intro-tag if we just used the tag on a blend into this track. */
+  private skipNextIntroTag = false;
+  private introTagTimer: number | null = null;
 
   private tracks: string[] = [];
   private titles: string[] = [];
@@ -199,10 +220,126 @@ class MusicStation {
       this.muteGain = muteGain;
       this.freq = new Uint8Array(analyser.frequencyBinCount);
       this.decks = [this.makeDeck(ctx, mixBus, delay), this.makeDeck(ctx, mixBus, delay)];
+      // Producer-tag sting: one-shot voice layered over blends / intros.
+      const stingEl = new Audio();
+      stingEl.preload = "auto";
+      stingEl.loop = false;
+      stingEl.crossOrigin = "anonymous";
+      const stingSrc = ctx.createMediaElementSource(stingEl);
+      const stingGain = ctx.createGain();
+      stingGain.gain.value = 0;
+      stingSrc.connect(stingGain);
+      stingGain.connect(mixBus);
+      this.stingEl = stingEl;
+      this.stingGain = stingGain;
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Attach CPT RAC's producer-tag media URL (or `null` to disable drops). Only
+   * the local CPT RAC station sets this; free stream channels clear it.
+   */
+  setProducerTag(url: string | null): void {
+    this.producerTagUrl = url && url.length > 0 ? url : null;
+    if (!this.producerTagUrl) this.stopProducerTag();
+  }
+
+  /** Whether a producer-tag file is currently configured. */
+  hasProducerTag(): boolean {
+    return this.producerTagUrl !== null;
+  }
+
+  /** Silence and reset the producer-tag sting voice. */
+  private stopProducerTag(): void {
+    if (this.introTagTimer !== null) {
+      window.clearTimeout(this.introTagTimer);
+      this.introTagTimer = null;
+    }
+    if (this.stingEl) {
+      try {
+        this.stingEl.pause();
+        this.stingEl.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (this.stingGain && this.ctx) {
+      this.stingGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.stingGain.gain.setValueAtTime(0, this.ctx.currentTime);
+    } else if (this.stingGain) {
+      this.stingGain.gain.value = 0;
+    }
+  }
+
+  /**
+   * Fire the producer tag over the mix. `mode: "blend"` rides a transition;
+   * `mode: "intro"` is a short drop near the top of a track.
+   */
+  private fireProducerTag(mode: "blend" | "intro"): void {
+    if (!this.producerTagUrl || !this.stingEl || !this.stingGain || !this.ctx) return;
+    if (this.userPaused) return;
+    const el = this.stingEl;
+    const gain = this.stingGain;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    // Always re-assign so a station switch / cache-bust is reflected.
+    if (el.getAttribute("data-tag-src") !== this.producerTagUrl) {
+      el.src = this.producerTagUrl;
+      el.setAttribute("data-tag-src", this.producerTagUrl);
+      el.load();
+    }
+    try {
+      el.currentTime = 0;
+    } catch {
+      /* not seekable yet */
+    }
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(0, t);
+    const peak = mode === "blend" ? PRODUCER_TAG_GAIN : PRODUCER_TAG_GAIN * 0.88;
+    gain.gain.linearRampToValueAtTime(peak, t + 0.06);
+    // Soft release if metadata never reports a duration (safety net).
+    const failSafeMs = mode === "blend" ? 6000 : 5000;
+    const release = () => {
+      if (!this.stingGain || !this.ctx) return;
+      const now = this.ctx.currentTime;
+      this.stingGain.gain.cancelScheduledValues(now);
+      this.stingGain.gain.setValueAtTime(this.stingGain.gain.value, now);
+      this.stingGain.gain.linearRampToValueAtTime(0, now + 0.12);
+    };
+    el.onended = () => release();
+    window.setTimeout(() => {
+      if (el.ended || el.paused) release();
+    }, failSafeMs);
+    const p = el.play();
+    if (p && typeof (p as Promise<void>).catch === "function") {
+      (p as Promise<void>).catch(() => {
+        /* autoplay blocked until resume() */
+      });
+    }
+  }
+
+  /** Maybe play the intro producer drop a moment after a track starts. */
+  private maybeScheduleIntroTag(): void {
+    if (this.introTagTimer !== null) {
+      window.clearTimeout(this.introTagTimer);
+      this.introTagTimer = null;
+    }
+    if (!this.producerTagUrl) return;
+    if (this.skipNextIntroTag) {
+      this.skipNextIntroTag = false;
+      return;
+    }
+    if (Math.random() >= PRODUCER_TAG_INTRO_CHANCE) return;
+    // Land the drop ~0.8–1.6s into the track so it sits on the groove.
+    const delayMs = 800 + Math.floor(Math.random() * 800);
+    this.introTagTimer = window.setTimeout(() => {
+      this.introTagTimer = null;
+      if (!this.enabled || this.userPaused || this.crossfading) return;
+      this.fireProducerTag("intro");
+    }, delayMs);
   }
 
   /**
@@ -234,6 +371,7 @@ class MusicStation {
       }
       this.crossfading = false;
       this.decks.forEach((d) => d.el.pause());
+      this.stopProducerTag();
       return;
     }
     // Already playing this set with a live graph — leave it be. The decks guard
@@ -274,6 +412,7 @@ class MusicStation {
     this.cueDeck(deck, this.index);
     this.playDeck(deck);
     this.onTrack?.(this.titles[this.index] ?? "", this.index);
+    this.maybeScheduleIntroTag();
   }
 
   /** Resume the audio context + (re)start playback (call from a user gesture). */
@@ -290,6 +429,7 @@ class MusicStation {
   pause(): void {
     this.userPaused = true;
     this.decks.forEach((d) => d.el.pause());
+    this.stingEl?.pause();
   }
 
   /** User-facing play: resume the active deck where it left off. */
@@ -494,6 +634,21 @@ class MusicStation {
     this.crossfading = true;
     this.onTrack?.(this.titles[this.index] ?? "", this.index);
 
+    // CPT RAC producer tag: sometimes ride the blend (DJ drop over the mix).
+    let usedTag = false;
+    if (
+      this.producerTagUrl &&
+      style !== "cut" &&
+      sec >= 0.4 &&
+      Math.random() < PRODUCER_TAG_BLEND_CHANCE
+    ) {
+      this.fireProducerTag("blend");
+      usedTag = true;
+      this.skipNextIntroTag = true; // don't double-drop on the incoming track
+    } else {
+      this.skipNextIntroTag = false;
+    }
+
     if (this.fadeTimer !== null) window.clearTimeout(this.fadeTimer);
     this.fadeTimer = window.setTimeout(
       () => {
@@ -506,6 +661,8 @@ class MusicStation {
         }
         this.crossfading = false;
         this.fadeTimer = null;
+        // Intro drop only when we didn't already tag the blend.
+        if (!usedTag) this.maybeScheduleIntroTag();
       },
       sec * 1000 + 80,
     );
@@ -536,6 +693,7 @@ class MusicStation {
     this.cueDeck(deck, nextIndex);
     this.playDeck(deck);
     this.onTrack?.(this.titles[this.index] ?? "", this.index);
+    this.maybeScheduleIntroTag();
   }
 
   /**

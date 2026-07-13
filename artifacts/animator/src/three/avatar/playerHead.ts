@@ -16,7 +16,7 @@ import { sanitizeConfig, type AvatarConfig } from "./catalog";
 import { composeHead, composeTalkFrames, type FaceName } from "./composeHead";
 import { createHairBoxMaterial, createHairFx, type HairBoxMaterial } from "./hairStrands";
 import { createHairMotionRig } from "./hairMotion";
-import { mountHat } from "./hats";
+import { mountHat, resolveMountedHatId } from "./hats";
 
 /** Talk-loop playback rate (frames per second). */
 const TALK_FPS = 8;
@@ -154,14 +154,17 @@ export function applyAvatarHead(
   // little leaner than the editor stage — this renders per character in-game.
   const hairFx = createHairFx(
     composed.protrusions.filter((p) => p.hair || p.slot === "facialHair"),
-    { maxStrands: 3000, castShadow: true },
+    { maxStrands: 5000, castShadow: true },
   );
   if (hairFx) group.add(hairFx.object);
   head.add(group);
 
   // 3D GLB hat rides in the same head-unit group (async; clones share the
   // cached template's geometry/materials — dispose only detaches).
-  const hat = mountHat(group, cfg.hat, cfg.adjust?.hat);
+  const mountedHat = resolveMountedHatId(cfg);
+  const hatAdjust =
+    mountedHat === "horns" && cfg.hat === "none" ? cfg.adjust?.headgear : cfg.adjust?.hat;
+  const hat = mountHat(group, mountedHat, hatAdjust);
 
   // --- talking loop: flip the front-face texture between talk frames ---
   const frontIdx = FACE_ORDER.indexOf("front");

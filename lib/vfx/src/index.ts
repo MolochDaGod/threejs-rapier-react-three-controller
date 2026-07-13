@@ -33,7 +33,18 @@ export type {
   BeamOptions,
   LiveMesh,
   ShockwaveOptions,
+  NovaShellOptions,
+  EarthWallOptions,
   TrailHandle,
   TrailOptions,
+} from "./primitives.js";
+export {
+  Shockwave,
+  SHOCKWAVE_ORANGE_IMPACT,
+  createShockwave,
+  createNovaShell,
+  NOVA_SHELL_STORM,
+  EarthWall,
+  EARTH_WALL_PRESET,
 } from "./primitives.js";
 export type { TextureName } from "./textures.js";

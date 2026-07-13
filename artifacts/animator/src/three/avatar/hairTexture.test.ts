@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   FINE_CLUMP_LANES,
   FINE_LANE_DIV,
+  HAIR_SHADE_DARK,
+  HAIR_SHADE_LITE,
   HAIR_TEX_MAX,
   HAIR_TEX_MIN,
   LANE_DIV,
@@ -56,8 +58,8 @@ describe("buildHairTexturePixels", () => {
 
   it("keeps every texel derived from the hair colour's shade range", () => {
     const px = buildHairTexturePixels(COLOR, 16, 16, 5);
-    const darkest = shade(COLOR, 0.55);
-    const lightest = shade(COLOR, 1.16);
+    const darkest = shade(COLOR, HAIR_SHADE_DARK);
+    const lightest = shade(COLOR, HAIR_SHADE_LITE);
     const lum = (c: number) =>
       ((c >> 16) & 0xff) * 0.299 + ((c >> 8) & 0xff) * 0.587 + (c & 0xff) * 0.114;
     for (const c of px) {
@@ -71,8 +73,8 @@ describe("buildHairTexturePixels", () => {
     const loose = buildHairTexturePixels(COLOR, 16, 16, 5, false);
     expect(braid).not.toEqual(loose);
     expect(braid).toHaveLength(16 * 16);
-    const darkest = shade(COLOR, 0.55);
-    const lightest = shade(COLOR, 1.16);
+    const darkest = shade(COLOR, HAIR_SHADE_DARK);
+    const lightest = shade(COLOR, HAIR_SHADE_LITE);
     const lum = (c: number) =>
       ((c >> 16) & 0xff) * 0.299 + ((c >> 8) & 0xff) * 0.587 + (c & 0xff) * 0.114;
     for (const c of braid) {
@@ -108,8 +110,8 @@ describe("buildHairTexturePixels", () => {
     const std = buildHairTexturePixels(COLOR, 96, 96, 5, false, false);
     expect(fine).not.toEqual(std);
     expect(fine).toHaveLength(96 * 96);
-    const darkest = shade(COLOR, 0.55);
-    const lightest = shade(COLOR, 1.16);
+    const darkest = shade(COLOR, HAIR_SHADE_DARK);
+    const lightest = shade(COLOR, HAIR_SHADE_LITE);
     const lum = (c: number) =>
       ((c >> 16) & 0xff) * 0.299 + ((c >> 8) & 0xff) * 0.587 + (c & 0xff) * 0.114;
     for (const c of fine) {
@@ -196,18 +198,12 @@ describe("isFineHairBox", () => {
     expect(isFineHairBox({ slot: "facialHair", x: 0.2, hair: undefined })).toBe(true);
   });
 
-  it("side hair boxes are fine (hair hugging the head's side faces)", () => {
-    // long-hair curtain at x = ±(0.5 + 0.022)
+  it("every non-braided hair box is fine (crown, sides, back, fringe)", () => {
     expect(isFineHairBox({ hair: true, slot: "hair", x: 0.522 })).toBe(true);
     expect(isFineHairBox({ hair: true, slot: "hair", x: -0.522 })).toBe(true);
-    // smooth slicked side panel at ±(0.5 + 0.016)
-    expect(isFineHairBox({ hair: true, slot: "hair", x: -0.516 })).toBe(true);
-  });
-
-  it("crown slabs, fringe and back sheets stay on the standard look", () => {
-    expect(isFineHairBox({ hair: true, slot: "hair", x: 0 })).toBe(false); // crown
-    expect(isFineHairBox({ hair: true, slot: "hair", x: 0.18 })).toBe(false); // back sheet
-    expect(isFineHairBox({ hair: true, slot: "hair", x: -0.42 })).toBe(false); // crown tuft
+    expect(isFineHairBox({ hair: true, slot: "hair", x: 0 })).toBe(true); // crown
+    expect(isFineHairBox({ hair: true, slot: "hair", x: 0.18 })).toBe(true); // back sheet
+    expect(isFineHairBox({ hair: true, slot: "hair", x: -0.42 })).toBe(true);
   });
 
   it("braided volume keeps the weave (never fine)", () => {
