@@ -294,10 +294,10 @@ export function EditorMode({ onExit, initialScene }: Props) {
   useRegisterAssistant(
     {
       surface: "editor",
-      title: "Dressing Room Assistant",
+      title: "AI Animation Creator",
       tools: aiTools,
       getSystemPrompt: () => editorSystemPrompt(snap),
-      placeholder: "Load a rig, recolor it red, play a clip…",
+      placeholder: "Describe a clip: “sword parry into counter”, “bow dodge-shot”, “staff frost cast”…",
     },
     [aiTools, snap],
   );

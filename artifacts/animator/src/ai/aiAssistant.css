@@ -10,8 +10,50 @@
   pointer-events: none;
 }
 
+.ai-assistant-editor-workbench .ai-panel {
+  width: min(760px, calc(100vw - 520px));
+  min-width: min(520px, calc(100vw - 28px));
+  height: min(360px, calc(100vh - 150px));
+  border-radius: 14px 14px 16px 16px;
+}
+
+.ai-assistant-editor-workbench .ai-fab {
+  width: auto;
+  min-width: 220px;
+  height: 42px;
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 9px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ai-assistant-editor-workbench .ai-fab::after {
+  content: "AI Clip Workbench";
+}
+
+@media (max-width: 1100px) {
+  .ai-assistant-editor-workbench .ai-panel {
+    width: min(620px, calc(100vw - 28px));
+    min-width: 0;
+  }
+}
+
 .ai-assistant > * {
   pointer-events: auto;
+}
+
+/* Animator/Dressing Room: AI is a bottom workflow workbench, not a side overlay.
+   This prevents covering the Animations / Arsenal / VFX library docks. */
+.ai-assistant.ai-assistant-editor-workbench {
+  left: 50%;
+  right: auto;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  align-items: center;
+  z-index: 690;
 }
 
 .ai-fab {

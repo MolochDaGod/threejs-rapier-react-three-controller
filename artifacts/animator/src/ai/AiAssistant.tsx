@@ -78,9 +78,10 @@ export function AiAssistant({ surface, title, tools, getSystemPrompt, placeholde
   }, [open, vc]);
 
   const showVoice = vc.sttSupported || vc.ttsSupported;
+  const isEditorSurface = surface === "editor";
 
   return (
-    <div className="ai-assistant">
+    <div className={`ai-assistant ${isEditorSurface ? "ai-assistant-editor-workbench" : ""}`}>
       <AnimatePresence>
         {open && (
           <motion.div
@@ -123,7 +124,11 @@ export function AiAssistant({ surface, title, tools, getSystemPrompt, placeholde
               {messages.length === 0 && (
                 <div className="ai-empty">
                   <Bot size={22} />
-                  <p>Ask a question, or tell me what to change in the scene.</p>
+                  <p>
+                    {isEditorSurface
+                      ? "Describe a movement, weapon skill, or clip you want. I can help pick clips, tune Skill Lab, preview, and bind it to weapon slots."
+                      : "Ask a question, or tell me what to change in the scene."}
+                  </p>
                 </div>
               )}
               {messages.map((m, i) => (

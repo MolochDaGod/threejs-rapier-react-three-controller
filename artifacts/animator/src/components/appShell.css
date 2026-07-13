@@ -97,6 +97,10 @@
   transform: translate(var(--ui-dx, 0px), var(--ui-dy, 0px));
 }
 
+.ai-assistant.ai-assistant-editor-workbench {
+  transform: translate(calc(-50% + var(--ui-dx, 0px)), var(--ui-dy, 0px));
+}
+
 /* Bottom-center chip with the edit instructions + Reset / Done. */
 .shell-uiedit-chip {
   position: fixed;
