@@ -317,9 +317,6 @@ importers:
       '@workspace/epicfight':
         specifier: workspace:*
         version: link:../../lib/epicfight
-      '@workspace/fleet-client':
-        specifier: workspace:*
-        version: link:../../lib/fleet-client
       bs58:
         specifier: ^6.0.0
         version: 6.0.0
