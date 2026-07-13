@@ -1,0 +1,245 @@
+.cg-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  background: #05070d;
+  overflow: hidden;
+}
+
+.cg-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #05070d;
+}
+
+.cg-frame-full {
+  /* full scene; side menu floats over */
+  z-index: 0;
+}
+
+.cg-float-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(5, 8, 14, 0.82), transparent);
+}
+
+.cg-float-bar > * {
+  pointer-events: auto;
+}
+
+.cg-brand {
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  font-size: 13px;
+  color: #eaf3ff;
+  text-shadow: 0 1px 8px #000;
+}
+
+.cg-brand span {
+  color: #4fc3ff;
+  margin-left: 2px;
+}
+
+.cg-brand em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.7;
+  margin-left: 10px;
+  font-size: 11px;
+  letter-spacing: 0;
+  color: #aef5c4;
+}
+
+.cg-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cg-btn {
+  border: 1px solid rgba(140, 180, 255, 0.35);
+  background: rgba(12, 22, 38, 0.88);
+  color: #d8e8ff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.cg-btn:hover {
+  background: rgba(40, 70, 110, 0.95);
+}
+
+.cg-btn.primary {
+  border-color: rgba(95, 212, 138, 0.5);
+  background: rgba(24, 70, 48, 0.9);
+  color: #c8ffd8;
+}
+
+/* ── Right launch rail ──────────────────────────────────────────────────── */
+
+.cg-side {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 25;
+  width: min(320px, 92vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  background:
+    linear-gradient(165deg, rgba(18, 28, 44, 0.94), rgba(8, 12, 20, 0.96)),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 11px,
+      rgba(80, 50, 20, 0.04) 11px,
+      rgba(80, 50, 20, 0.04) 12px
+    );
+  border: 1px solid rgba(160, 120, 70, 0.35);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 220, 160, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.cg-side-head {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(160, 120, 70, 0.25);
+  flex: 0 0 auto;
+}
+
+.cg-side-head h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffd89a;
+}
+
+.cg-side-head p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #9bb0c8;
+}
+
+.cg-side-group {
+  padding: 10px 10px 4px;
+  overflow: visible;
+}
+
+.cg-side-group h3 {
+  margin: 0 0 6px 4px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #7a90aa;
+}
+
+.cg-side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: none;
+}
+
+/* scroll whole aside */
+.cg-side {
+  overflow-y: auto;
+}
+
+.cg-dest {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 1px 8px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(100, 140, 200, 0.22);
+  background: rgba(16, 28, 48, 0.75);
+  color: #e8f0ff;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+
+.cg-dest:hover {
+  border-color: rgba(255, 200, 120, 0.45);
+  background: rgba(36, 52, 80, 0.9);
+  transform: translateX(-2px);
+}
+
+.cg-dest.local {
+  border-color: rgba(95, 212, 138, 0.28);
+}
+
+.cg-dest.ext {
+  border-color: rgba(79, 195, 255, 0.22);
+}
+
+.cg-dest strong {
+  grid-column: 1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cg-dest span {
+  grid-column: 1;
+  font-size: 10px;
+  opacity: 0.72;
+  line-height: 1.3;
+}
+
+.cg-dest i {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+.cg-side-foot {
+  margin-top: auto;
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(160, 120, 70, 0.2);
+}
+
+.cg-side-foot p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #6a8098;
+}
+
+@media (max-width: 720px) {
+  .cg-side {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 48vh;
+  }
+}
