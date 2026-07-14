@@ -8,6 +8,7 @@ import {
   sinkClampVertical,
   type WaterBand,
 } from "./dungeon/water";
+import { INPUT } from "./inputContract";
 
 /** Default third-person orbit pitch clamp (radians). The floor stays positive
  *  so the orbit camera never dips under the room floor in normal play. */
@@ -888,8 +889,11 @@ export class Controller {
     }
     const mag = Math.min(1, move.length());
 
+    // Sprint keys from inputContract SSOT (matches fleet grudge-control-ssot).
     const sprinting =
-      this.input.down("ShiftLeft") || this.input.down("ShiftRight") || this.input.touchSprint;
+      this.input.down(INPUT.sprint) ||
+      this.input.down(INPUT.sprintAlt) ||
+      this.input.touchSprint;
     const speed =
       this.params.moveSpeed * (sprinting ? this.params.sprintMultiplier : 1) * this.speedMult;
     // Keyboard moves at full speed; the joystick scales by how far it's pushed.
