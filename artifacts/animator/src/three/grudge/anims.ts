@@ -14,8 +14,11 @@ export interface LoadoutClips {
   attack: string;
 }
 
-// Paths are relative to `/anims/baked/`, WITHOUT the `.json` extension. Every
-// path below is verified to exist on disk (see character-viewer/public/anims/baked).
+/**
+ * Paths relative to `/anims/baked/`, WITHOUT `.json`.
+ * SSOT on CDN `assets.grudge-studio.com` uses **hyphenated** names
+ * (probed 2026-07-15). Space-separated Mixamo titles 404.
+ */
 export const ANIM_PACK_CLIPS: Record<AnimPack, LoadoutClips> = {
   unarmed: {
     idle: "unarmed/fight_idle",
@@ -24,23 +27,50 @@ export const ANIM_PACK_CLIPS: Record<AnimPack, LoadoutClips> = {
     attack: "unarmed/punching",
   },
   magic: {
-    idle: "magic/standing idle",
-    walk: "locomotion/walking",
-    run: "magic/Standing Run Forward",
-    attack: "magic/standing 1h cast spell 01",
+    idle: "magic/standing-idle",
+    walk: "magic/standing-walk-forward",
+    run: "magic/standing-run-forward",
+    // No dedicated cast clip on CDN yet — unarmed punch reads as cast strike
+    attack: "unarmed/punching",
   },
   sword_shield: {
-    idle: "sword_shield/sword and shield idle",
+    idle: "sword_shield/sword-and-shield-idle",
     walk: "locomotion/walking",
-    run: "sword_shield/sword and shield run",
-    attack: "sword_shield/sword and shield attack",
+    run: "sword_shield/sword-and-shield-run",
+    attack: "sword_shield/sword-and-shield-attack",
   },
   longbow: {
-    idle: "longbow/standing idle 01",
-    walk: "locomotion/walking",
-    run: "longbow/standing run forward",
-    attack: "longbow/standing aim recoil",
+    idle: "longbow/idle",
+    walk: "longbow/walk-forward",
+    run: "longbow/run-forward",
+    attack: "longbow/draw",
   },
+};
+
+/** Alternate rels to try when the primary path 404s (legacy space names, aliases). */
+export const CLIP_PATH_ALIASES: Record<string, string[]> = {
+  "sword_shield/sword-and-shield-idle": [
+    "sword_shield/sword and shield idle",
+    "sword_shield/sword_and_shield_idle",
+  ],
+  "sword_shield/sword-and-shield-run": [
+    "sword_shield/sword and shield run",
+  ],
+  "sword_shield/sword-and-shield-attack": [
+    "sword_shield/sword and shield attack",
+  ],
+  "magic/standing-idle": ["magic/standing idle", "magic/idle"],
+  "magic/standing-walk-forward": ["locomotion/walking", "magic/standing walk forward"],
+  "magic/standing-run-forward": ["magic/Standing Run Forward", "locomotion/running"],
+  "longbow/idle": ["longbow/standing idle 01", "longbow/standing-idle-01", "longbow/aim-idle"],
+  "longbow/walk-forward": ["locomotion/walking", "longbow/standing walk forward"],
+  "longbow/run-forward": ["longbow/standing run forward", "locomotion/running"],
+  "longbow/draw": ["longbow/recoil", "longbow/standing aim recoil", "longbow/aim-recoil"],
+  "unarmed/fight_idle": ["unarmed/fight-idle", "unarmed/idle"],
+  "unarmed/punching": ["unarmed/punch", "unarmed/fight_idle"],
+  "locomotion/walking": ["locomotion/walk"],
+  "locomotion/running": ["locomotion/run", "uploads_2026_06/locomotion/running"],
+  "uploads_2026_06/locomotion/running": ["locomotion/running"],
 };
 
 export function asAnimPack(value: string): AnimPack {
@@ -70,16 +100,40 @@ export function toRotationOnlyClip(clip: THREE.AnimationClip): THREE.AnimationCl
   return new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
+/** Build candidate rel paths: primary, hyphen/space swaps, aliases. */
+function clipRelCandidates(rel: string): string[] {
+  const clean = rel.replace(/\.json$/i, "").replace(/^\/+/, "");
+  const out: string[] = [clean];
+  // space ↔ hyphen ↔ underscore
+  out.push(clean.replace(/\s+/g, "-"));
+  out.push(clean.replace(/\s+/g, "_"));
+  out.push(clean.replace(/-/g, " "));
+  out.push(clean.replace(/_/g, "-"));
+  for (const alt of CLIP_PATH_ALIASES[clean] ?? []) out.push(alt);
+  // de-dupe preserve order
+  return [...new Set(out.filter(Boolean))];
+}
+
 // Fetch + parse a baked Bip001 clip as a rotation-only AnimationClip.
+// Tries hyphenated CDN names + legacy space names so idles never hard-fail.
 export async function loadBakedClip(rel: string, baseOverride?: string): Promise<THREE.AnimationClip> {
-  const url = bakedClipUrl(rel, baseOverride);
-  let res: Response;
-  try {
-    res = await fetch(url);
-  } catch (err) {
-    throw assetLoadError(url, err);
+  const candidates = clipRelCandidates(rel);
+  let lastErr: unknown;
+  for (const c of candidates) {
+    const url = bakedClipUrl(c, baseOverride);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        lastErr = assetLoadError(`${url} (HTTP ${res.status})`);
+        continue;
+      }
+      const json = (await res.json()) as THREE.AnimationClipJSON;
+      return toRotationOnlyClip(THREE.AnimationClip.parse(json));
+    } catch (err) {
+      lastErr = err;
+    }
   }
-  if (!res.ok) throw assetLoadError(`${url} (HTTP ${res.status})`);
-  const json = (await res.json()) as THREE.AnimationClipJSON;
-  return toRotationOnlyClip(THREE.AnimationClip.parse(json));
+  throw lastErr instanceof Error
+    ? lastErr
+    : assetLoadError(bakedClipUrl(rel, baseOverride), lastErr);
 }

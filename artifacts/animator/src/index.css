@@ -465,9 +465,11 @@ html, body, #root {
   --ch-color: #6fe0ff;
   position: absolute;
   top: 50%; left: 50%;
-  width: 26px; height: 26px;
+  width: 28px; height: 28px;
   transform: translate(-50%, -50%);
   pointer-events: none;
+  z-index: 40; /* above canvas / dock chrome, below modal dialogs */
+  opacity: 1;
 }
 .ch-dot {
   position: absolute; top: 50%; left: 50%;

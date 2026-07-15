@@ -110,21 +110,60 @@ export class Character {
       return;
     }
     this.model = gltf.scene;
+    // Textures + materials: sRGB maps, kill chrome metalness (no env map → grey).
     this.model.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (mesh.isMesh) {
-        mesh.castShadow = true;
-        mesh.frustumCulled = false;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = true;
+      mesh.frustumCulled = false;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        if (
+          mat instanceof THREE.MeshStandardMaterial ||
+          mat instanceof THREE.MeshPhysicalMaterial
+        ) {
+          if (mat.map) {
+            mat.map.colorSpace = THREE.SRGBColorSpace;
+            mat.map.needsUpdate = true;
+          }
+          if (mat.emissiveMap) {
+            mat.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+            mat.emissiveMap.needsUpdate = true;
+          }
+          // High metalness without IBL reads as black/grey chrome
+          if (mat.metalness > 0.05) {
+            mat.metalness = 0;
+            if (mat.roughness < 0.45) mat.roughness = 0.7;
+          }
+          mat.needsUpdate = true;
+        } else if (mat instanceof THREE.MeshBasicMaterial || mat instanceof THREE.MeshLambertMaterial || mat instanceof THREE.MeshPhongMaterial) {
+          if (mat.map) {
+            mat.map.colorSpace = THREE.SRGBColorSpace;
+            mat.map.needsUpdate = true;
+          }
+          mat.needsUpdate = true;
+        }
       }
     });
 
-    // Normalise to the canonical fighter height (~2m), feet on the floor.
-    const box = new THREE.Box3().setFromObject(this.model);
-    const size = new THREE.Vector3();
-    box.getSize(size);
+    // Normalise to canonical fighter height, feet on the floor (unit-safe).
     const targetHeight = CHARACTER_HEIGHT_M;
-    const s = size.y > 0.001 ? (targetHeight / size.y) * this.def.scale : this.def.scale;
-    this.model.scale.setScalar(s);
+    this.model.scale.setScalar(1);
+    this.model.updateMatrixWorld(true);
+    let h0 = new THREE.Box3().setFromObject(this.model).getSize(new THREE.Vector3()).y || 1;
+    // Decade unit fix (cm vs m) before height fit
+    if (h0 > 50 || h0 < 0.05) {
+      const unit = Math.pow(10, Math.round(Math.log10(targetHeight / h0)));
+      this.model.scale.setScalar(unit);
+      this.model.updateMatrixWorld(true);
+      h0 = new THREE.Box3().setFromObject(this.model).getSize(new THREE.Vector3()).y || targetHeight;
+    }
+    const fit = Math.min(
+      12,
+      Math.max(0.02, (targetHeight / Math.max(h0, 1e-4)) * (this.def.scale || 1)),
+    );
+    this.model.scale.multiplyScalar(fit);
     const box2 = new THREE.Box3().setFromObject(this.model);
     this.model.position.y -= box2.min.y;
     this.model.rotation.y = this.modelYaw;

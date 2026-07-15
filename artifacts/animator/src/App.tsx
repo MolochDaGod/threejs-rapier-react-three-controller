@@ -1599,7 +1599,8 @@ export default function App() {
       {mode === "play" && (
         <>
           <Crosshair
-            visible={!panelsOpen && !equipOpen}
+            visible={!equipOpen}
+            mode={hud?.locked ? "combat" : panelsOpen ? "ui" : "combat"}
             firstPerson={hud?.firstPerson ?? false}
             spread={hud?.aimSpread ?? 0}
             hitMarker={hud?.hitMarker ?? 0}
@@ -1678,7 +1679,8 @@ export default function App() {
       {mode === "danger" && (
         <>
           <Crosshair
-            visible={!panelsOpen && !equipOpen}
+            visible={!equipOpen}
+            mode={hud?.locked ? "combat" : panelsOpen ? "ui" : "combat"}
             firstPerson={hud?.firstPerson ?? false}
             spread={hud?.aimSpread ?? 0}
             hitMarker={hud?.hitMarker ?? 0}

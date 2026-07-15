@@ -1175,7 +1175,8 @@ export interface EditorParams {
  * "discovers" from real body size instead of frozen magic numbers. Bump this and
  * the character + the whole engagement envelope grow together.
  */
-export const CHARACTER_HEIGHT_M = 2.0;
+/** Human-scale height in metres (textures/anims authored for ~1.8–2 m fighters). */
+export const CHARACTER_HEIGHT_M = 1.8;
 
 export const DEFAULT_EDITOR: EditorParams = {
   moveSpeed: 4.2,

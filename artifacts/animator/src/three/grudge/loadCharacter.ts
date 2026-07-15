@@ -148,10 +148,24 @@ export function applyGearPreset(group: THREE.Object3D, visibleMeshes: string[]):
 // weapons use the same body atlas as the armour. Returns it so the owner can
 // dispose it (the shared texture is owned separately).
 export function applyBodyTexture(group: THREE.Object3D, texture: THREE.Texture): THREE.Material {
-  const material = new THREE.MeshLambertMaterial({ map: texture, color: 0xffffff });
+  // MeshStandard keeps lighting consistent with the Danger Room key light;
+  // metalness 0 avoids chrome-grey when no env map is present.
+  const material = new THREE.MeshStandardMaterial({
+    map: texture,
+    color: 0xffffff,
+    metalness: 0,
+    roughness: 0.72,
+    envMapIntensity: 0,
+  });
+  if (texture) {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+  }
   group.traverse((node) => {
     if (node instanceof THREE.Mesh || node instanceof THREE.SkinnedMesh) {
       node.material = material;
+      node.castShadow = true;
+      node.receiveShadow = true;
     }
   });
   return material;

@@ -345,6 +345,14 @@ export async function createAnimatedCharacter(
     : allReferencedClipIds();
 
   const [source, clips] = await Promise.all([loadSkeletonSource(), loadClips(ids)]);
+  // Layer A: Animated Base Character pack (loco/roll/attack/cast) as fallbacks.
+  // Registered under base/* — style packs above still win for weapon-specific ids.
+  try {
+    const { mergeBasePackIntoClips } = await import("./BaseClipPack");
+    await mergeBasePackIntoClips(clips, source);
+  } catch (e) {
+    console.warn("[loader] base character pack not merged", e);
+  }
   const look: CharacterLook = { ...DEFAULT_LOOK, ...opts.look };
   const character = new VoxelCharacter(source, look, opts.height ?? 2);
   const animator = new Animator(character, clips);

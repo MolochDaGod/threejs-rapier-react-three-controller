@@ -46,6 +46,30 @@ export const UNIVERSAL_MOVEMENT = {
   corkscrewEvade: "animations/extra/corkscrew-evade",
 } as const;
 
+/**
+ * Layer-A base pack semantic ids (Animated Base Character.glb).
+ * Loaded via BaseClipPack into the same clip Map under these keys.
+ * Style packs (Mixamo FBX) still win when present; use these for roll/cast/gaps
+ * and as AnimGraph resolve targets.
+ */
+export const BASE_PACK_FALLBACKS = {
+  idle: "base/idle",
+  walk: "base/walk",
+  jog: "base/jog",
+  sprint: "base/sprint",
+  roll: "base/roll",
+  attack: "base/attack_melee",
+  attackUpper: "base/attack_melee/upper",
+  castEnter: "base/cast_enter",
+  castLoop: "base/cast_loop",
+  castShoot: "base/cast_shoot",
+  castExit: "base/cast_exit",
+  hit: "base/hit",
+  death: "base/death",
+  jumpStart: "base/jump_start",
+  jumpLand: "base/jump_land",
+} as const;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared melee locomotion pools
 //
