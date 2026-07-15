@@ -1,4 +1,11 @@
-import { useMemo, useState, useCallback } from "react";
+/**
+ * Characters GRUDOX hub — native launch panel (no broken iframe).
+ *
+ * Production does not ship /charactersgrudox/index.html on Vercel (404).
+ * This mode is a fleet destination menu + active hero readout; create/edit
+ * characters on Account (gameopen) or Character Studio.
+ */
+import { useState, useCallback, useEffect } from "react";
 import { readFleetToken } from "../auth/fleetCore";
 import {
   HUB_DESTINATIONS,
@@ -12,17 +19,13 @@ import "./charactersGrudox.css";
 
 interface Props {
   onExit: () => void;
-  /** Navigate into a same-origin play-shell mode (danger, voxel, island, …). */
   onNavigate: (mode: LocalHubMode) => void;
 }
 
-/**
- * Characters GRUDOX hub — Fantasy-Scene-Creator campfire scene (4 slots + cool
- * imagery) with a right-side fleet menu that routes into voxel content, editors,
- * GRUDOX arcade cabinets, and fleet games with hero handoff.
- *
- * Scene SPA: `public/charactersgrudox/` (from charactersgrudox artifact).
- */
+const ACCOUNT_HUB =
+  "https://gameopen.vercel.app/account?open=1&from=charactersgrudox";
+const CHAR_STUDIO = "https://character.grudge-studio.com/?era=warlords";
+
 export function CharactersGrudoxMode({ onExit, onNavigate }: Props) {
   const [menuOpen, setMenuOpen] = useState(true);
   const [heroHint, setHeroHint] = useState(() => {
@@ -30,24 +33,9 @@ export function CharactersGrudoxMode({ onExit, onNavigate }: Props) {
     return c.name || c.characterId || null;
   });
 
-  const src = useMemo(() => {
-    const prefix = (import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
-    const path = `${prefix}charactersgrudox/index.html`.replace(/\/{2,}/g, "/");
-    const url = new URL(path, typeof window !== "undefined" ? window.location.origin : "http://localhost");
-    const token = readFleetToken();
-    if (token) {
-      url.searchParams.set("sso_token", token);
-      url.searchParams.set("grudge_token", token);
-    }
-    try {
-      const charId = localStorage.getItem("grudge.activeCharId");
-      if (charId) url.searchParams.set("characterId", charId);
-    } catch {
-      /* */
-    }
-    url.searchParams.set("from", "grudox-play");
-    url.searchParams.set("hub", "1");
-    return url.pathname + url.search;
+  useEffect(() => {
+    const c = readActiveHeroContext();
+    setHeroHint(c.name || c.characterId || null);
   }, []);
 
   const go = useCallback(
@@ -62,23 +50,42 @@ export function CharactersGrudoxMode({ onExit, onNavigate }: Props) {
     [onNavigate],
   );
 
-  return (
-    <div className="cg-root">
-      {/* Full-bleed campfire scene (4 slots, create/edit, wood signs inside SPA) */}
-      <iframe
-        className="cg-frame cg-frame-full"
-        title="Characters GRUDOX — campfire select"
-        src={src}
-        allow="fullscreen; autoplay; clipboard-read; clipboard-write"
-      />
+  const openAccount = () => {
+    const token = readFleetToken();
+    const ctx = readActiveHeroContext();
+    try {
+      const u = new URL(ACCOUNT_HUB);
+      if (token) {
+        u.searchParams.set("sso_token", token);
+        u.searchParams.set("grudge_token", token);
+      }
+      if (ctx.characterId) u.searchParams.set("characterId", ctx.characterId);
+      window.open(u.toString(), "_blank", "noopener,noreferrer");
+    } catch {
+      window.open(ACCOUNT_HUB, "_blank", "noopener,noreferrer");
+    }
+  };
 
-      {/* Floating chrome */}
+  return (
+    <div className="cg-root cg-root-native">
+      <div className="cg-hero-bg" aria-hidden />
+
       <div className="cg-float-bar">
         <div className="cg-brand">
           CHARACTERS<span>GRUDOX</span>
           {heroHint && <em>{heroHint}</em>}
         </div>
         <div className="cg-actions">
+          <button type="button" className="cg-btn primary" onClick={openAccount}>
+            Account hub ↗
+          </button>
+          <button
+            type="button"
+            className="cg-btn"
+            onClick={() => window.open(CHAR_STUDIO, "_blank", "noopener,noreferrer")}
+          >
+            Character Studio ↗
+          </button>
           <button type="button" className="cg-btn" onClick={() => setMenuOpen((v) => !v)}>
             {menuOpen ? "Hide routes" : "Show routes"}
           </button>
@@ -88,14 +95,48 @@ export function CharactersGrudoxMode({ onExit, onNavigate }: Props) {
         </div>
       </div>
 
-      {/* Right-side route menu → voxel / editors / GRUDOX deployments */}
+      <div className="cg-native-center">
+        <div className="cg-native-card">
+          <h1>Characters GRUDOX</h1>
+          <p>
+            Campfire SPA is not embedded here (avoids 404 on{" "}
+            <code>/charactersgrudox/index.html</code>). Use the fleet account hub to create/select
+            heroes, then launch a game from the routes menu.
+          </p>
+          <div className="cg-native-actions">
+            <button type="button" className="cg-btn primary" onClick={openAccount}>
+              Open Account Hub (create / equip)
+            </button>
+            <button
+              type="button"
+              className="cg-btn"
+              onClick={() => onNavigate("danger")}
+            >
+              Danger Room
+            </button>
+            <button
+              type="button"
+              className="cg-btn"
+              onClick={() => onNavigate("minegrudge")}
+            >
+              GRUDOX Realms
+            </button>
+          </div>
+          {heroHint && (
+            <p className="cg-active-hero">
+              Active: <strong>{heroHint}</strong>
+            </p>
+          )}
+        </div>
+      </div>
+
       {menuOpen && (
         <aside className="cg-side" aria-label="Play destinations">
           <header className="cg-side-head">
             <h2>Launch</h2>
             <p>
-              Pick a campfire hero (4 slots), then route into voxel games, editors, or
-              fleet titles. Your character id travels with the handoff.
+              Routes into voxel games, editors, and fleet titles. Character id travels with the
+              handoff.
             </p>
           </header>
 
@@ -129,11 +170,7 @@ export function CharactersGrudoxMode({ onExit, onNavigate }: Props) {
           })}
 
           <footer className="cg-side-foot">
-            <p>
-              Left: campfire · create free first hero · edit looks.
-              <br />
-              Right-click a route to force a new tab.
-            </p>
+            <p>Right-click a route to force a new tab. Auth = Grudge ID JWT (fleet).</p>
           </footer>
         </aside>
       )}

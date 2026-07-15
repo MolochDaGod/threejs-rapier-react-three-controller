@@ -1,25 +1,20 @@
 /**
- * Mine-Loader / Voxel Realms — live reference + product pillars.
+ * Mine-Loader / Voxel Realms — fleet-owned hosts only.
  *
- * Canonical networked game: https://mine-loader.replit.app/
- * Source monorepo: D:\GitHub\minegrudge\Mine-Loader (from minegrudge.zip)
+ * ALWAYS use the absolute production SPA. Never iframe /minegrudge/ on the
+ * play shell (that path 404s on Vercel and was injecting api=replit).
+ *
+ * Live: https://mine-loader.vercel.app/
+ * Auth: Grudge ID JWT query params
  */
 
-/** Live production reference (REST + world WS + full SPA). */
-export const MINE_LOADER_LIVE = "https://mine-loader.replit.app";
+export const MINE_LOADER_LIVE =
+  (typeof import.meta !== "undefined" &&
+    (import.meta.env?.VITE_MINELOADER_URL as string | undefined)?.replace(/\/+$/, "")) ||
+  "https://mine-loader.vercel.app";
 
-/** Local staged SPA under the play shell (offline / custom deploy fallback). */
+/** @deprecated Local staged SPA is not deployed on Vercel — do not iframe. */
 export const MINE_LOADER_LOCAL_PATH = "/minegrudge/";
-
-/**
- * Staged completeness checklist (after `pnpm stage:minegrudge`):
- * - assets/block-icons (box icons), item-icons, ui-icons
- * - assets models: animals, characters, creatures, props, tools, weapons, tvs, kit
- * - codex/*.md (wiki export from Mine-Loader .agents/memory)
- * - data/blocks.csv, definitions.json, assets.csv (from live API when online)
- * - MANIFEST.json + SOURCE.md
- * Camera: Mine-Loader third-person shoulder; play-shell Danger/Island use threejs-rapier Controller
- */
 
 export type MineLoaderSurface =
   | "home"
@@ -31,7 +26,6 @@ export type MineLoaderSurface =
   | "codex"
   | "join";
 
-/** Product pillars — Minecraft-like GRUDOX survival MMO loop. */
 export const MINE_LOADER_PILLARS = [
   {
     id: "survival",
@@ -65,16 +59,12 @@ export const MINE_LOADER_PILLARS = [
   },
 ] as const;
 
-/**
- * In-app hash routes on the Mine-Loader SPA (wouter).
- * Live app may map these; we always append as soft deep-links.
- */
 export const MINE_LOADER_HASH: Record<MineLoaderSurface, string> = {
   home: "#/",
   play: "#/play",
   lobby: "#/lobby",
   editor: "#/editor",
-  boss: "#/play", // boss arenas entered from play/setup maps
+  boss: "#/play",
   coop: "#/lobby",
   codex: "#/defs",
   join: "#/join",
@@ -82,50 +72,26 @@ export const MINE_LOADER_HASH: Record<MineLoaderSurface, string> = {
 
 export interface MineLoaderLaunchOpts {
   surface?: MineLoaderSurface;
-  /** Prefer live reference for multiplayer (default true). */
-  preferLive?: boolean;
-  /** Force local staged SPA even if live is preferred. */
-  forceLocal?: boolean;
   characterId?: string | null;
   characterName?: string | null;
   baseId?: string | null;
   token?: string | null;
-  /** Invite / join code for friend worlds. */
   joinCode?: string | null;
+  /**
+   * @deprecated Ignored. Always uses fleet live host — never /minegrudge or Replit.
+   */
+  preferLive?: boolean;
+  forceLocal?: boolean;
 }
 
 /**
- * Build the URL for the Mine-Loader experience.
- * Default: live https://mine-loader.replit.app with SSO + hero handoff.
+ * Absolute URL for Mine-Loader Realms (fleet Vercel only).
+ * Never returns same-origin /minegrudge or any replit host.
  */
 export function buildMineLoaderUrl(opts: MineLoaderLaunchOpts = {}): string {
-  const preferLive = opts.forceLocal ? false : opts.preferLive !== false;
   const surface = opts.surface ?? "lobby";
-
-  let base: string;
-  if (preferLive) {
-    base = MINE_LOADER_LIVE;
-  } else if (typeof window !== "undefined") {
-    const prefix = (import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
-    base = `${window.location.origin}${prefix}minegrudge/`.replace(
-      /([^:]\/)\/+/g,
-      "$1",
-    );
-  } else {
-    base = MINE_LOADER_LOCAL_PATH;
-  }
-
-  const url = new URL(base.endsWith("/") || base.includes(".html") ? base : `${base}/`);
-  // Live SPA is at /; local is /minegrudge/index.html
-  if (!preferLive && !url.pathname.endsWith(".html") && !url.pathname.endsWith("/")) {
-    url.pathname = `${url.pathname}/`;
-  }
-  if (!preferLive && !url.pathname.includes("index.html")) {
-    // Ensure we hit the staged index when on play-shell origin
-    if (url.pathname.endsWith("/minegrudge") || url.pathname.endsWith("/minegrudge/")) {
-      url.pathname = url.pathname.replace(/\/?$/, "/index.html");
-    }
-  }
+  const base = MINE_LOADER_LIVE.replace(/\/+$/, "");
+  const url = new URL(`${base}/`);
 
   url.searchParams.set("from", "grudox");
   url.searchParams.set("open", "1");
@@ -140,23 +106,28 @@ export function buildMineLoaderUrl(opts: MineLoaderLaunchOpts = {}): string {
   if (opts.baseId) url.searchParams.set("baseId", opts.baseId);
   if (opts.joinCode) url.searchParams.set("join", opts.joinCode);
 
-  // Always prefer live API for multiplayer when embedded local SPA
-  if (!preferLive) {
-    url.searchParams.set("api", MINE_LOADER_LIVE);
-  }
+  // Explicitly set API to fleet host so the SPA never falls back to replit defaults
+  url.searchParams.set("api", base);
 
   let hash = MINE_LOADER_HASH[surface] || "#/";
   if (opts.joinCode && surface === "join") {
     hash = `#/join/${encodeURIComponent(opts.joinCode)}`;
   }
-  url.hash = hash.replace(/^#/, "#");
+  url.hash = hash;
 
-  return url.toString();
+  let out = url.toString();
+  if (/replit/i.test(out) || /\/minegrudge\//i.test(out)) {
+    out = out
+      .replace(/https?:\/\/[^/"']*replit[^/"']*/gi, base)
+      .replace(/mine-loader\.replit\.app/gi, "mine-loader.vercel.app")
+      .replace(/https?:\/\/[^/"']+\/minegrudge\/?/gi, `${base}/`);
+    console.warn("[mineLoader] sanitized blocked host →", out);
+  }
+  return out;
 }
 
-/** Quick open of live lobby for friends / guilds / worlds. */
 export function openMineLoaderLive(
   opts: Omit<MineLoaderLaunchOpts, "preferLive" | "forceLocal"> = {},
 ): void {
-  window.open(buildMineLoaderUrl({ ...opts, preferLive: true }), "_blank", "noopener,noreferrer");
+  window.open(buildMineLoaderUrl(opts), "_blank", "noopener,noreferrer");
 }

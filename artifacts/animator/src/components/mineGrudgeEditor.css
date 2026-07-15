@@ -7,13 +7,60 @@
   overflow: hidden;
 }
 
-.mg-frame {
+.mg-root-native {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mg-hero-bg {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: #070a10;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 20%, rgba(46, 140, 90, 0.22), transparent 60%),
+    linear-gradient(180deg, #0a1210 0%, #070a10 100%);
+  pointer-events: none;
+}
+
+.mg-frame {
+  display: none; /* no broken embeds */
+}
+
+.mg-panel-center {
+  position: relative;
+  z-index: 5;
+  margin: 64px auto 32px;
+  max-width: 720px;
+  width: calc(100% - 28px);
+  max-height: none;
+  overflow: auto;
+}
+
+.mg-launch-row {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.mg-btn.primary {
+  border-color: rgba(126, 224, 160, 0.55);
+  background: linear-gradient(180deg, rgba(40, 100, 70, 0.95), rgba(16, 40, 28, 0.98));
+  color: #e8fff0;
+  font-weight: 700;
+}
+
+.mg-btn.large {
+  padding: 12px 20px;
+  font-size: 14px;
+}
+
+.mg-url {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  word-break: break-all;
+  opacity: 0.65;
 }
 
 .mg-float {
