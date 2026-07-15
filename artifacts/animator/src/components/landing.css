@@ -89,6 +89,56 @@
   color: #7fa0c8;
 }
 
+.landing-about {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #8aa4c4;
+  max-width: 34em;
+}
+
+.landing-mono {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 10px;
+  color: #a8c4e8;
+  word-break: break-all;
+}
+
+.landing-connections {
+  margin-top: 6px;
+  width: 100%;
+  max-width: 34em;
+  text-align: left;
+  font-size: 12px;
+  color: #8aa4c4;
+  border: 1px solid rgba(120, 160, 220, 0.14);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.landing-connections summary {
+  cursor: pointer;
+  color: #a9c4e8;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  list-style: none;
+}
+
+.landing-connections summary::-webkit-details-marker {
+  display: none;
+}
+
+.landing-connections ul {
+  margin: 10px 0 4px;
+  padding-left: 1.1em;
+  line-height: 1.55;
+}
+
+.landing-connections li {
+  margin-bottom: 4px;
+}
+
 .landing-actions {
   display: flex;
   flex-direction: column;

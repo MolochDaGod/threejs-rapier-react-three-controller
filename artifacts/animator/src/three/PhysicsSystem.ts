@@ -1,17 +1,21 @@
+import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
+import {
+  CAP_HALF,
+  CAP_RADIUS,
+  KCC_OFFSET,
+  configureCharacterController,
+  meshWorldTriangles,
+} from "./physics/capsuleKcc";
 
 /**
- * Renderer-agnostic Rapier physics core for the Danger Room.
+ * Renderer-agnostic Rapier physics core for play modes (Danger Room props,
+ * dungeon/arena trimesh, editor play colliders).
  *
- * Rapier is pure simulation — it has no dependency on three.js or the render
- * loop — so this layer is the foundation that survives intact into the planned
- * r3f rewrite. Today it owns one shared `World` that the punching bags (and,
- * later, the player character controller + dynamic props) live in.
- *
- * Rapier's wasm must be initialised once before any world is created; `init()`
- * awaits that, so callers create a `PhysicsSystem` synchronously and `await`
- * its `init()` before reading `world`. The fixed-step accumulator decouples the
- * simulation from the variable render dt for stable, deterministic stepping.
+ * Rapier is pure simulation — no dependency on the render loop. Callers create
+ * a `PhysicsSystem` synchronously and `await init()` before reading `world`.
+ * The fixed-step accumulator keeps dynamics stable when dynamic bodies exist;
+ * kinematic character motion is advanced by the KCC provider separately.
  */
 export class PhysicsSystem {
   world: RAPIER.World | null = null;
@@ -42,63 +46,147 @@ export class PhysicsSystem {
   }
 
   /**
-   * Add a static (fixed) triangle-mesh collider from raw geometry. Used for the
-   * dungeon's walls/stairs/floors so the player capsule collides with the actual
-   * Synty mesh. Returns the created collider.
+   * Add a static triangle-mesh collider from raw world-space geometry.
+   * Used for dungeon walls/stairs/floors and solid editor meshes so the player
+   * capsule collides with real platform geometry (not just XZ circles).
    */
-  addStaticTrimesh(vertices: Float32Array, indices: Uint32Array): RAPIER.Collider | null {
+  addStaticTrimesh(
+    vertices: Float32Array,
+    indices: Uint32Array,
+    opts: { friction?: number } = {},
+  ): RAPIER.Collider | null {
+    const world = this.world;
+    if (!world || vertices.length < 9 || indices.length < 3) return null;
+    const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    // Prefer FIX_INTERNAL_EDGES when available (reduces ghost collisions on edges).
+    const flags = (RAPIER as unknown as { TriMeshFlags?: { FIX_INTERNAL_EDGES?: number } })
+      .TriMeshFlags;
+    let desc: RAPIER.ColliderDesc;
+    try {
+      if (flags?.FIX_INTERNAL_EDGES !== undefined) {
+        desc = RAPIER.ColliderDesc.trimesh(vertices, indices, flags.FIX_INTERNAL_EDGES);
+      } else {
+        desc = RAPIER.ColliderDesc.trimesh(vertices, indices);
+      }
+    } catch {
+      desc = RAPIER.ColliderDesc.trimesh(vertices, indices);
+    }
+    desc.setFriction(opts.friction ?? 0.85);
+    desc.setRestitution(0);
+    return world.createCollider(desc, body);
+  }
+
+  /** Bake a THREE.Mesh into a static trimesh collider (world-space triangles). */
+  addStaticMesh(mesh: THREE.Mesh, opts: { friction?: number } = {}): RAPIER.Collider | null {
+    const tri = meshWorldTriangles(mesh);
+    if (!tri) return null;
+    return this.addStaticTrimesh(tri.vertices, tri.indices, opts);
+  }
+
+  /**
+   * Static cuboid at world centre with half-extents (Rapier convention).
+   * Preferred for editor box colliders and simple platforms.
+   */
+  addStaticCuboid(
+    center: { x: number; y: number; z: number },
+    halfExtents: { x: number; y: number; z: number },
+    rotation?: { x: number; y: number; z: number; w: number },
+    opts: { friction?: number } = {},
+  ): RAPIER.Collider | null {
     const world = this.world;
     if (!world) return null;
-    const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    const desc = RAPIER.ColliderDesc.trimesh(vertices, indices);
+    let bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
+    if (rotation) bodyDesc = bodyDesc.setRotation(rotation);
+    const body = world.createRigidBody(bodyDesc);
+    const desc = RAPIER.ColliderDesc.cuboid(
+      Math.max(0.01, halfExtents.x),
+      Math.max(0.01, halfExtents.y),
+      Math.max(0.01, halfExtents.z),
+    )
+      .setFriction(opts.friction ?? 0.9)
+      .setRestitution(0);
+    return world.createCollider(desc, body);
+  }
+
+  /** Static ball collider. */
+  addStaticBall(
+    center: { x: number; y: number; z: number },
+    radius: number,
+    opts: { friction?: number } = {},
+  ): RAPIER.Collider | null {
+    const world = this.world;
+    if (!world) return null;
+    const body = world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z),
+    );
+    const desc = RAPIER.ColliderDesc.ball(Math.max(0.01, radius))
+      .setFriction(opts.friction ?? 0.85)
+      .setRestitution(0);
+    return world.createCollider(desc, body);
+  }
+
+  /** Static capsule (Y-aligned) collider. */
+  addStaticCapsule(
+    center: { x: number; y: number; z: number },
+    halfHeight: number,
+    radius: number,
+    opts: { friction?: number } = {},
+  ): RAPIER.Collider | null {
+    const world = this.world;
+    if (!world) return null;
+    const body = world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z),
+    );
+    const desc = RAPIER.ColliderDesc.capsule(Math.max(0.01, halfHeight), Math.max(0.01, radius))
+      .setFriction(opts.friction ?? 0.85)
+      .setRestitution(0);
     return world.createCollider(desc, body);
   }
 
   /**
-   * Add a large flat static ground collider whose TOP face sits at `y`. Modelled
-   * as a thin cuboid (half-extents `half` × `thickness` × `half`) so the player
-   * capsule and any dynamic props rest on solid ground instead of hovering over
-   * the Danger Room's purely-visual floor plane. Returns the created collider.
+   * Large flat static ground whose TOP face sits at `y`.
+   * Cuboid half-extents so capsules rest on solid ground.
    */
   addGroundPlane(y = 0, half = 60, thickness = 0.5): RAPIER.Collider | null {
     const world = this.world;
     if (!world) return null;
-    const body = world.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed().setTranslation(0, y - thickness, 0),
+    return this.addStaticCuboid(
+      { x: 0, y: y - thickness, z: 0 },
+      { x: half, y: thickness, z: half },
+      undefined,
+      { friction: 0.95 },
     );
-    const desc = RAPIER.ColliderDesc.cuboid(half, thickness, half).setFriction(0.9);
-    return world.createCollider(desc, body);
   }
 
   /**
-   * Create a kinematic capsule rigid body + collider for the player character at
-   * `center` (capsule centre, not feet). `radius` + `halfHeight` describe the
-   * capsule (total height = 2*radius + 2*halfHeight).
+   * Kinematic capsule body for the player at `center` (capsule centre, not feet).
    */
   makeCapsuleBody(
     center: { x: number; y: number; z: number },
-    radius: number,
-    halfHeight: number,
+    radius: number = CAP_RADIUS,
+    halfHeight: number = CAP_HALF,
   ): { body: RAPIER.RigidBody; collider: RAPIER.Collider } | null {
     const world = this.world;
     if (!world) return null;
     const body = world.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(center.x, center.y, center.z),
     );
-    const collider = world.createCollider(RAPIER.ColliderDesc.capsule(halfHeight, radius), body);
+    const collider = world.createCollider(
+      RAPIER.ColliderDesc.capsule(halfHeight, radius)
+        .setFriction(0.6)
+        .setRestitution(0)
+        .setDensity(0),
+      body,
+    );
     return { body, collider };
   }
 
-  /** Create + configure a kinematic-character controller (autostep + ground snap). */
-  makeCharacterController(offset = 0.08): RAPIER.KinematicCharacterController | null {
+  /** Create + configure a kinematic character controller (autostep + ground snap + slide). */
+  makeCharacterController(offset = KCC_OFFSET): RAPIER.KinematicCharacterController | null {
     const world = this.world;
     if (!world) return null;
     const c = world.createCharacterController(offset);
-    c.enableAutostep(0.5, 0.2, true);
-    c.enableSnapToGround(0.5);
-    c.setMaxSlopeClimbAngle((55 * Math.PI) / 180);
-    c.setMinSlopeSlideAngle((40 * Math.PI) / 180);
-    c.setApplyImpulsesToDynamicBodies(false);
+    configureCharacterController(c, { offset });
     return c;
   }
 

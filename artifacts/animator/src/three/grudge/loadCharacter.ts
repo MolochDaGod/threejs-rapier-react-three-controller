@@ -112,14 +112,34 @@ export function normalizeCharacterGroup(fbx: THREE.Object3D): THREE.Skeleton | n
   return skeleton;
 }
 
-// Show only the preset's meshes (armour + weapon). Every other mesh in the parts
-// catalog is hidden.
+// Show only the preset's meshes (armour + weapon) with fuzzy meshKey matching
+// (D1 ids often omit Units_ / change case vs FBX names).
 export function applyGearPreset(group: THREE.Object3D, visibleMeshes: string[]): void {
-  const want = new Set(visibleMeshes);
+  const meshKey = (name: string) =>
+    String(name || "")
+      .toLowerCase()
+      .replace(/^wk_|^brb_|^orc_|^elf_|^ud_|^dwf_/, "")
+      .replace(/units_/g, "")
+      .replace(/xtra_/g, "")
+      .replace(/weapon_/g, "weapon")
+      .replace(/[^a-z0-9]/g, "");
+  const want = visibleMeshes.map(meshKey).filter(Boolean);
+  const isEquip = (n: string) =>
+    /body|arms|legs|head|shoulder|weapon|shield|sword|axe|bow|staff|quiver|bag|helm|armor|xtra/i.test(
+      n,
+    );
   group.traverse((node) => {
-    if (node instanceof THREE.Mesh || node instanceof THREE.SkinnedMesh) {
-      node.visible = want.has(node.name);
+    if (!(node instanceof THREE.Mesh || node instanceof THREE.SkinnedMesh)) return;
+    if (!node.name || !isEquip(node.name)) return;
+    const k = meshKey(node.name);
+    let show = false;
+    for (const w of want) {
+      if (k === w || k.endsWith(w) || w.endsWith(k) || k.includes(w) || w.includes(k)) {
+        show = true;
+        break;
+      }
     }
+    node.visible = show;
   });
 }
 

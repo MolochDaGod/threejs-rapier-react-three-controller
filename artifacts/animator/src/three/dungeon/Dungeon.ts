@@ -4,6 +4,13 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 import { asset } from "../assets";
 import { PhysicsSystem } from "../PhysicsSystem";
 import type { CollisionProvider } from "../Controller";
+import {
+  CAP_CENTER_OFF,
+  CAP_HALF,
+  CAP_RADIUS,
+  KCC_OFFSET,
+  makeCapsuleCollisionProvider,
+} from "../physics/capsuleKcc";
 import { makeGrid, nearestWalkable, worldToCell, type NavGrid } from "./navmesh";
 
 /** Default dungeon level behind the Danger Room door. */
@@ -23,11 +30,6 @@ const PIT_GAP = 20; // air gap between the water floor and the pit floor
 const PIT_MARGIN = 8; // pit/water footprint extends this far beyond the map
 const WALL_THICK = 1.5; // pit perimeter wall thickness
 const NAV_INSET = 2; // keep the pit navmesh off the walls
-
-/** Player capsule dimensions (total height = 2*radius + 2*halfHeight). */
-const CAP_RADIUS = 0.35;
-const CAP_HALF = 0.55;
-const CAP_CENTER_OFF = CAP_RADIUS + CAP_HALF; // feet → capsule centre
 
 /** Nav grid cell size (m) + how much headroom a cell needs to be walkable. */
 const NAV_CELL = 0.6;
@@ -114,34 +116,20 @@ export class Dungeon {
     this.buildCharacter();
   }
 
-  /** Bake every mesh into a static trimesh collider + collect render meshes. */
+  /** Bake every solid mesh into a static trimesh collider + collect render meshes. */
   private collectMeshesAndColliders(root: THREE.Object3D) {
-    const tmp = new THREE.Vector3();
     root.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh || !mesh.geometry) return;
       this.meshes.push(mesh);
       this.occluders.push(mesh);
-
-      const geo = mesh.geometry;
-      const posAttr = geo.getAttribute("position");
-      if (!posAttr) return;
-      const verts = new Float32Array(posAttr.count * 3);
-      for (let i = 0; i < posAttr.count; i++) {
-        tmp.fromBufferAttribute(posAttr as THREE.BufferAttribute, i);
-        mesh.localToWorld(tmp);
-        verts[i * 3] = tmp.x;
-        verts[i * 3 + 1] = tmp.y;
-        verts[i * 3 + 2] = tmp.z;
-      }
-      let indices: Uint32Array;
-      if (geo.index) {
-        indices = new Uint32Array(geo.index.array);
-      } else {
-        indices = new Uint32Array(posAttr.count);
-        for (let i = 0; i < posAttr.count; i++) indices[i] = i;
-      }
-      this.physics.addStaticTrimesh(verts, indices);
+      // Skip pure visuals (transparent FX, non-collide tags) so the capsule
+      // doesn't get trapped inside double-sided foliage / HUD planes.
+      if (mesh.userData?.noCollision) return;
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
+      if (mats.length && mats.every((m) => m.transparent && (m.opacity ?? 1) < 0.15)) return;
+      this.physics.addStaticMesh(mesh);
     });
   }
 
@@ -307,26 +295,7 @@ export class Dungeon {
 
   /** Bake a single mesh's geometry into a static world-space trimesh collider. */
   private bakeMeshCollider(mesh: THREE.Mesh) {
-    const geo = mesh.geometry;
-    const posAttr = geo.getAttribute("position");
-    if (!posAttr) return;
-    const tmp = new THREE.Vector3();
-    const verts = new Float32Array(posAttr.count * 3);
-    for (let i = 0; i < posAttr.count; i++) {
-      tmp.fromBufferAttribute(posAttr as THREE.BufferAttribute, i);
-      mesh.localToWorld(tmp);
-      verts[i * 3] = tmp.x;
-      verts[i * 3 + 1] = tmp.y;
-      verts[i * 3 + 2] = tmp.z;
-    }
-    let indices: Uint32Array;
-    if (geo.index) {
-      indices = new Uint32Array(geo.index.array);
-    } else {
-      indices = new Uint32Array(posAttr.count);
-      for (let i = 0; i < posAttr.count; i++) indices[i] = i;
-    }
-    this.physics.addStaticTrimesh(verts, indices);
+    this.physics.addStaticMesh(mesh);
   }
 
   /** A fully-walkable flat grid at a single height (used by the pit). */
@@ -350,36 +319,32 @@ export class Dungeon {
     if (!cap) return;
     this.charBody = cap.body;
     this.charCollider = cap.collider;
-    this.controller = this.physics.makeCharacterController(0.08);
+    this.controller = this.physics.makeCharacterController(KCC_OFFSET);
     // Build the broad phase once so the first KCC query sees the colliders.
     this.physics.world?.step();
   }
 
-  /** The Controller's pluggable collision backend (KCC capsule reconciliation). */
+  /** The Controller's pluggable collision backend (KCC + depenetration). */
   get collision(): CollisionProvider {
-    return {
-      move: (from, delta) => {
-        const body = this.charBody;
-        const collider = this.charCollider;
-        const controller = this.controller;
-        const world = this.physics.world;
-        if (!body || !collider || !controller || !world) {
-          return { pos: from.clone().add(delta), grounded: delta.y <= 0 };
-        }
-        const center = { x: from.x, y: from.y + CAP_CENTER_OFF, z: from.z };
-        body.setTranslation(center, true);
-        controller.computeColliderMovement(collider, { x: delta.x, y: delta.y, z: delta.z });
-        const mv = controller.computedMovement();
-        const nc = { x: center.x + mv.x, y: center.y + mv.y, z: center.z + mv.z };
-        body.setTranslation(nc, true);
-        const grounded = controller.computedGrounded();
-        world.step();
-        return {
-          pos: new THREE.Vector3(nc.x, nc.y - CAP_CENTER_OFF, nc.z),
-          grounded,
-        };
-      },
-    };
+    const body = this.charBody;
+    const collider = this.charCollider;
+    const controller = this.controller;
+    const world = this.physics.world;
+    if (!body || !collider || !controller || !world) {
+      return {
+        move: (from, delta) => ({
+          pos: from.clone().add(delta),
+          grounded: delta.y <= 0,
+        }),
+      };
+    }
+    return makeCapsuleCollisionProvider({
+      world,
+      body,
+      collider,
+      controller,
+      centerOff: CAP_CENTER_OFF,
+    });
   }
 
   dispose() {

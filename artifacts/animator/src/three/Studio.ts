@@ -1215,12 +1215,14 @@ export class Studio {
   private async spawnCharacter(id: string) {
     const token = ++this.loadToken;
     const grudge = this.parseGrudgeAvatarId(id);
+    // Always resolve catalog metadata (loadout, skills, yaw, tank) — even when
+    // the live avatar is modular GrudgeAvatar (which was missing `def` before).
+    const def = getCharacter(id);
     let next: Avatar;
     if (grudge) {
       // Modular race FBX + gear preset from assets.grudge-studio.com (same kit as GRUDOX / Warlords).
       next = new GrudgeAvatar(grudge.raceId, grudge.presetId);
     } else {
-      const def = getCharacter(id);
       next = def.procedural ? new ExplorerCharacter(def) : new Character(def);
     }
     try {
@@ -1230,7 +1232,6 @@ export class Studio {
       // Fleet grudge avatars: fall back to catalog GLB Character if modular load fails
       if (grudge) {
         try {
-          const def = getCharacter(id);
           const fallback: Avatar = def.procedural ? new ExplorerCharacter(def) : new Character(def);
           await fallback.load();
           next = fallback;

@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 // PORT and BASE_PATH are optional — defaults work for local dev and Vercel.
-// Replit sets them explicitly; other platforms can override via env vars.
 const port = Number(process.env.PORT) || 3000;
 const basePath = process.env.BASE_PATH || "/";
 

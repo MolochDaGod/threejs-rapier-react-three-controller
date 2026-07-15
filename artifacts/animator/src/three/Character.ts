@@ -9,6 +9,13 @@ import { LocomotionBlend } from "./explorer/LocomotionBlend";
 import { sliceClipFraction, type SnippetSpec } from "./snippets";
 import { FootGrounder, type GroundSampler } from "./anim/legIk";
 import { directionalBlendWeights, resolveBlendTime } from "./anim/blend";
+import {
+  lockInPlaceRoot,
+  sampleBindRoot,
+  stabilizeClipForPlayback,
+  stripNonRootPositions,
+  type BindRoot,
+} from "./rig/rootLock";
 
 /** Crossfade (seconds) used to ease the additive combat overlay in and out. */
 const OVERLAY_FADE = 0.07;
@@ -44,6 +51,8 @@ export class Character {
   private blendTime = 0.22;
   private modelYaw = 0;
   private disposed = false;
+  /** Bind-pose hips/root XYZ — every clip locks here so blends never teleport. */
+  private bindRoot: BindRoot = { x: 0, y: 0, z: 0 };
 
   /** Monotonic clock (seconds) driving the additive overlay lifecycle. */
   private elapsed = 0;
@@ -137,8 +146,14 @@ export class Character {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     this.locoBlend = new LocomotionBlend((id) => this.actions.get(id) ?? null);
-    for (const clip of gltf.animations) {
-      const action = this.mixer.clipAction(filterBindableTracks(this.model, clip));
+    // Controller owns world XYZ — strip limb positions + lock root on every clip.
+    this.bindRoot = sampleBindRoot(this.model);
+    for (const raw of gltf.animations) {
+      let clip = filterBindableTracks(this.model, raw.clone());
+      clip = stripNonRootPositions(clip);
+      lockInPlaceRoot(clip, this.bindRoot);
+      const action = this.mixer.clipAction(clip);
+      this.actions.set(raw.name, action);
       this.actions.set(clip.name, action);
     }
     for (const [role, name] of Object.entries(this.def.clips)) {
@@ -415,7 +430,11 @@ export class Character {
    */
   addClip(name: string, clip: THREE.AnimationClip): void {
     if (!this.mixer || !this.model) return;
-    const action = this.mixer.clipAction(filterBindableTracks(this.model, clip));
+    const stable = stabilizeClipForPlayback(this.model, filterBindableTracks(this.model, clip), {
+      stripLimbPositions: true,
+      bind: this.bindRoot,
+    });
+    const action = this.mixer.clipAction(stable);
     this.actions.set(name, action);
   }
 
@@ -565,6 +584,7 @@ export class Character {
     const base = this.actions.get(name);
     if (!base || !this.mixer || !this.model) return null;
     const clip = filterBindableTracks(this.model, base.getClip().clone());
+    lockInPlaceRoot(clip, this.bindRoot);
     clip.tracks = clip.tracks.filter((t) => isUpperBodyTrack(t.name));
     if (clip.tracks.length === 0) return null;
     THREE.AnimationUtils.makeClipAdditive(clip);
@@ -585,7 +605,11 @@ export class Character {
     const parent = this.actions.get(spec.parent)?.getClip();
     if (!parent) return false;
     const sub = sliceClipFraction(parent, spec.from, spec.to, spec.id);
-    const action = this.mixer.clipAction(filterBindableTracks(this.model, sub));
+    const stable = stabilizeClipForPlayback(this.model, filterBindableTracks(this.model, sub), {
+      stripLimbPositions: false,
+      bind: this.bindRoot,
+    });
+    const action = this.mixer.clipAction(stable);
     this.actions.set(spec.id, action);
     return true;
   }

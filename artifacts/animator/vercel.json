@@ -72,47 +72,47 @@
     },
     {
       "source": "/api/blocks",
-      "destination": "https://mine-loader.replit.app/api/blocks"
+      "destination": "https://mine-loader.vercel.app/api/blocks"
     },
     {
       "source": "/api/blocks/:path*",
-      "destination": "https://mine-loader.replit.app/api/blocks/:path*"
+      "destination": "https://mine-loader.vercel.app/api/blocks/:path*"
     },
     {
       "source": "/api/assets",
-      "destination": "https://mine-loader.replit.app/api/assets"
+      "destination": "https://mine-loader.vercel.app/api/assets"
     },
     {
       "source": "/api/assets/:path*",
-      "destination": "https://mine-loader.replit.app/api/assets/:path*"
+      "destination": "https://mine-loader.vercel.app/api/assets/:path*"
     },
     {
       "source": "/api/definitions",
-      "destination": "https://mine-loader.replit.app/api/definitions"
+      "destination": "https://mine-loader.vercel.app/api/definitions"
     },
     {
       "source": "/api/definitions/:path*",
-      "destination": "https://mine-loader.replit.app/api/definitions/:path*"
+      "destination": "https://mine-loader.vercel.app/api/definitions/:path*"
     },
     {
       "source": "/api/worlds",
-      "destination": "https://mine-loader.replit.app/api/worlds"
+      "destination": "https://mine-loader.vercel.app/api/worlds"
     },
     {
       "source": "/api/worlds/:path*",
-      "destination": "https://mine-loader.replit.app/api/worlds/:path*"
+      "destination": "https://mine-loader.vercel.app/api/worlds/:path*"
     },
     {
       "source": "/api/lobby/:path*",
-      "destination": "https://mine-loader.replit.app/api/lobby/:path*"
+      "destination": "https://mine-loader.vercel.app/api/lobby/:path*"
     },
     {
       "source": "/api/me",
-      "destination": "https://mine-loader.replit.app/api/me"
+      "destination": "https://mine-loader.vercel.app/api/me"
     },
     {
       "source": "/api/npc/:path*",
-      "destination": "https://mine-loader.replit.app/api/npc/:path*"
+      "destination": "https://mine-loader.vercel.app/api/npc/:path*"
     },
     {
       "source": "/api/:path*",

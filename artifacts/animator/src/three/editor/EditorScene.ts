@@ -35,6 +35,14 @@ import { applyWeaponTuning, patchWeaponTuning, patchWeaponTierTuning } from "../
 import { resolveHitShape } from "../arsenal/holdStyle";
 import { Controller } from "../Controller";
 import { InputState } from "../input";
+import { PhysicsSystem } from "../PhysicsSystem";
+import {
+  CAP_CENTER_OFF,
+  CAP_HALF,
+  CAP_RADIUS,
+  KCC_OFFSET,
+  makeCapsuleCollisionProvider,
+} from "../physics/capsuleKcc";
 import { CHARACTER_HEIGHT_M, type CharacterDef, type Avatar, type WeaponGroup } from "../types";
 import { loadControls, loadMouseFeel, subscribeMouseFeel } from "../controlsSettings";
 import { GrudgeAvatar } from "../grudge/GrudgeAvatar";
@@ -329,6 +337,12 @@ export class EditorScene {
   private controller: Controller | null = null;
   private playInput: InputState | null = null;
   private playAvatar: GrudgeAvatar | null = null;
+  /** Per-session Rapier world for solid editor colliders / platforms in Play. */
+  private playPhysics: PhysicsSystem | null = null;
+  private playCharBody: import("@dimforge/rapier3d-compat").RigidBody | null = null;
+  private playCharCollider: import("@dimforge/rapier3d-compat").Collider | null = null;
+  private playKcc: import("@dimforge/rapier3d-compat").KinematicCharacterController | null =
+    null;
   /** Resolved weapon-skill kit for the current Play session (empty when idle). */
   private playSkills: PlaySkill[] = [];
   /** Per-skill cooldown end timestamps (performance.now() ms); absent = ready. */
@@ -2922,7 +2936,138 @@ export class EditorScene {
     // The driven avatar is now the skill target — push current lab state onto it
     // so overdrive/mirror/arm-width/collider match the UI without re-touching a slider.
     this.applySkillLab();
+    // Bake solid colliders / platforms into a Rapier KCC so Play mode pushes the
+    // capsule out of meshing geometry instead of walking through it.
+    void this.mountPlayCollision(driven, controller);
     this.emit();
+  }
+
+  /**
+   * Build a gravity-free Rapier world from every editor object that has a
+   * collider spec (or solid managed primitives), then attach a capsule KCC to
+   * the Play controller so feet stay on platforms and walls eject the body.
+   */
+  private async mountPlayCollision(driven: Avatar, controller: Controller): Promise<void> {
+    if (!this.playing || this.controller !== controller) return;
+    this.teardownPlayCollision();
+    const phys = new PhysicsSystem();
+    await phys.init(0);
+    if (!this.playing || this.controller !== controller) {
+      phys.dispose();
+      return;
+    }
+    this.playPhysics = phys;
+    // Ground plane under the editor stage so Play has solid footing.
+    phys.addGroundPlane(0, 80, 0.5);
+
+    for (const o of this.objects) {
+      if (!o.object.visible) continue;
+      // Never collide with the driven character's own meshes.
+      if (o.object === driven.root || driven.root.getObjectById(o.object.id)) continue;
+      if (o.collider) {
+        this.bakeEditorColliderSpec(phys, o.object, o.collider);
+        continue;
+      }
+      // Editor-spawned primitives without an explicit collider still block as
+      // AABB boxes (quick platform/wall blocking in Play previews).
+      if (!o.imported && PRIMITIVE_KINDS.has(o.kind as PrimitiveKind)) {
+        o.object.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(o.object);
+        if (box.isEmpty()) continue;
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        if (size.x < 0.05 && size.y < 0.05 && size.z < 0.05) continue;
+        phys.addStaticCuboid(
+          { x: center.x, y: center.y, z: center.z },
+          { x: size.x / 2, y: size.y / 2, z: size.z / 2 },
+        );
+      }
+    }
+
+    const spawn = driven.root.position.clone();
+    // Prefer standing on the ground if the stand is high; keep author pose XZ.
+    if (spawn.y < 0.05) spawn.y = 0.05;
+    const center = { x: spawn.x, y: spawn.y + CAP_CENTER_OFF, z: spawn.z };
+    const cap = phys.makeCapsuleBody(center, CAP_RADIUS, CAP_HALF);
+    if (!cap || !phys.world) return;
+    this.playCharBody = cap.body;
+    this.playCharCollider = cap.collider;
+    this.playKcc = phys.makeCharacterController(KCC_OFFSET);
+    phys.world.step();
+    if (!this.playKcc || !this.playCharBody || !this.playCharCollider) return;
+    const provider = makeCapsuleCollisionProvider({
+      world: phys.world,
+      body: this.playCharBody,
+      collider: this.playCharCollider,
+      controller: this.playKcc,
+      centerOff: CAP_CENTER_OFF,
+    });
+    controller.setCollision(provider, spawn);
+  }
+
+  /** Map an editor ColliderSpec (local to the object) into a fixed Rapier shape. */
+  private bakeEditorColliderSpec(
+    phys: PhysicsSystem,
+    object: THREE.Object3D,
+    spec: ColliderSpec,
+  ): void {
+    object.updateMatrixWorld(true);
+    const local = new THREE.Vector3(spec.offset.x, spec.offset.y, spec.offset.z);
+    const world = object.localToWorld(local.clone());
+    const q = new THREE.Quaternion();
+    object.getWorldQuaternion(q);
+    const scl = new THREE.Vector3();
+    object.getWorldScale(scl);
+    const sx = Math.abs(scl.x) || 1;
+    const sy = Math.abs(scl.y) || 1;
+    const sz = Math.abs(scl.z) || 1;
+    const rot = { x: q.x, y: q.y, z: q.z, w: q.w };
+    switch (spec.shape) {
+      case "box":
+        phys.addStaticCuboid(
+          { x: world.x, y: world.y, z: world.z },
+          {
+            x: (spec.dims.x * sx) / 2,
+            y: (spec.dims.y * sy) / 2,
+            z: (spec.dims.z * sz) / 2,
+          },
+          rot,
+        );
+        break;
+      case "sphere":
+        phys.addStaticBall(
+          { x: world.x, y: world.y, z: world.z },
+          Math.max(spec.dims.x * Math.max(sx, sy, sz), 0.05),
+        );
+        break;
+      case "capsule": {
+        const r = Math.max(spec.dims.x * Math.max(sx, sz), 0.05);
+        const totalH = Math.max(spec.dims.y * sy, r * 2 + 0.05);
+        const half = Math.max(0.01, totalH / 2 - r);
+        phys.addStaticCapsule({ x: world.x, y: world.y, z: world.z }, half, r);
+        break;
+      }
+      case "cylinder": {
+        // Approximate cylinder with a cuboid (stable platforms) using diameter × height.
+        const r = Math.max(spec.dims.x * Math.max(sx, sz), 0.05);
+        const h = Math.max(spec.dims.y * sy, 0.05);
+        phys.addStaticCuboid(
+          { x: world.x, y: world.y, z: world.z },
+          { x: r, y: h / 2, z: r },
+          rot,
+        );
+        break;
+      }
+    }
+  }
+
+  private teardownPlayCollision(): void {
+    this.controller?.setCollision(null);
+    this.playKcc = null;
+    this.playCharBody = null;
+    this.playCharCollider = null;
+    this.playPhysics?.dispose();
+    this.playPhysics = null;
   }
 
   /** Leave Play mode: tear down the controller/input and restore editor framing. */
@@ -2937,6 +3082,7 @@ export class EditorScene {
     // mode hides the driven body, and tearing down play in FP would otherwise leave
     // it invisible back in the editor (and on the next play start).
     this.controller?.setViewMode("third");
+    this.teardownPlayCollision();
     this.controller = null;
     const driven = this.driven;
     this.playAvatar = null;

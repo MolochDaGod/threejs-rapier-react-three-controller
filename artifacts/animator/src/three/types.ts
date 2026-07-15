@@ -884,16 +884,20 @@ export interface CharacterDef {
 }
 
 /**
- * XZ push-out collision circle for the flat Danger Room path. `top` (world Y,
- * metres) marks a landable/walkable upper surface: the player can stand on the
- * obstacle at that height, and lateral push-out is skipped while they're on it.
- * Omitted ⇒ the obstacle is an infinite cylinder (live combatants, tall columns).
+ * XZ push-out collision circle for the flat Danger Room path.
+ * - `top` (world Y): landable upper surface — stand/walk on it; lateral push-out
+ *   is skipped while feet are at/above the top.
+ * - `bottom` (world Y): underside of a floating platform — skip lateral push when
+ *   feet are below the volume so the capsule can walk under platforms.
+ * Omitted top ⇒ infinite cylinder (live combatants, tall columns).
  */
 export interface ObstacleCircle {
   x: number;
   z: number;
   r: number;
   top?: number;
+  /** Lower Y of the solid volume (platforms that leave walkable space underneath). */
+  bottom?: number;
 }
 
 /**

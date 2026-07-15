@@ -4,6 +4,13 @@ import { HealthBar } from "../HealthBar";
 import type { CollisionProvider } from "../Controller";
 import type { WeaponId } from "../types";
 import {
+  CAP_CENTER_OFF,
+  CAP_HALF,
+  CAP_RADIUS,
+  KCC_OFFSET,
+  makeCapsuleCollisionProvider,
+} from "../physics/capsuleKcc";
+import {
   DIFFICULTY_DAMAGE,
   DIFFICULTY_HEALTH,
   DIFFICULTY_SCALE,
@@ -19,11 +26,6 @@ import { loadPropTemplate } from "./props";
 
 /** Half-extent of the editor grid (must match VoxelEditor's GRID). */
 const GRID = 24;
-
-/** Player capsule dimensions (mirrors the Dungeon KCC). */
-const CAP_RADIUS = 0.35;
-const CAP_HALF = 0.55;
-const CAP_CENTER_OFF = CAP_RADIUS + CAP_HALF; // feet → capsule centre
 
 /** Physics-bag sway tuning (a damped spring tilting it back upright on its post). */
 const BAG_STIFFNESS = 26;
@@ -185,27 +187,7 @@ export class VoxelArena {
 
   /** Bake one mesh's world-space triangles into a static Rapier trimesh. */
   private bakeCollider(mesh: THREE.Mesh): void {
-    mesh.updateMatrixWorld(true);
-    const geo = mesh.geometry;
-    const posAttr = geo.getAttribute("position") as THREE.BufferAttribute | undefined;
-    if (!posAttr) return;
-    const tmp = new THREE.Vector3();
-    const verts = new Float32Array(posAttr.count * 3);
-    for (let i = 0; i < posAttr.count; i++) {
-      tmp.fromBufferAttribute(posAttr, i);
-      mesh.localToWorld(tmp);
-      verts[i * 3] = tmp.x;
-      verts[i * 3 + 1] = tmp.y;
-      verts[i * 3 + 2] = tmp.z;
-    }
-    let indices: Uint32Array;
-    if (geo.index) {
-      indices = new Uint32Array(geo.index.array);
-    } else {
-      indices = new Uint32Array(posAttr.count);
-      for (let i = 0; i < posAttr.count; i++) indices[i] = i;
-    }
-    this.physics.addStaticTrimesh(verts, indices);
+    this.physics.addStaticMesh(mesh);
   }
 
   /** A flat ground plane collider at y=0 spanning the whole grid. */
@@ -370,32 +352,31 @@ export class VoxelArena {
     if (!cap) return;
     this.charBody = cap.body;
     this.charCollider = cap.collider;
-    this.controller = this.physics.makeCharacterController(0.08);
+    this.controller = this.physics.makeCharacterController(KCC_OFFSET);
     this.physics.world?.step();
   }
 
-  /** The Controller's pluggable collision backend (KCC capsule reconciliation). */
+  /** The Controller's pluggable collision backend (KCC + depenetration). */
   get collision(): CollisionProvider {
-    return {
-      move: (from, delta) => {
-        const body = this.charBody;
-        const collider = this.charCollider;
-        const controller = this.controller;
-        const world = this.physics.world;
-        if (!body || !collider || !controller || !world) {
-          return { pos: from.clone().add(delta), grounded: delta.y <= 0 };
-        }
-        const center = { x: from.x, y: from.y + CAP_CENTER_OFF, z: from.z };
-        body.setTranslation(center, true);
-        controller.computeColliderMovement(collider, { x: delta.x, y: delta.y, z: delta.z });
-        const mv = controller.computedMovement();
-        const nc = { x: center.x + mv.x, y: center.y + mv.y, z: center.z + mv.z };
-        body.setTranslation(nc, true);
-        const grounded = controller.computedGrounded();
-        world.step();
-        return { pos: new THREE.Vector3(nc.x, nc.y - CAP_CENTER_OFF, nc.z), grounded };
-      },
-    };
+    const body = this.charBody;
+    const collider = this.charCollider;
+    const controller = this.controller;
+    const world = this.physics.world;
+    if (!body || !collider || !controller || !world) {
+      return {
+        move: (from, delta) => ({
+          pos: from.clone().add(delta),
+          grounded: delta.y <= 0,
+        }),
+      };
+    }
+    return makeCapsuleCollisionProvider({
+      world,
+      body,
+      collider,
+      controller,
+      centerOff: CAP_CENTER_OFF,
+    });
   }
 
   // ── Physics-bag knockback ────────────────────────────────────────────────────

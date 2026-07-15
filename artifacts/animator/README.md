@@ -1,91 +1,69 @@
-# Animator (the "Danger Room")
+# Animator (Danger Room / Play Shell)
 
-**Deployed at:** `/animator/` &nbsp;·&nbsp; **Package:** `@workspace/animator-app` &nbsp;·&nbsp; **Engine:** plain three.js
+**Live:** https://threejs-rapier-react-three-controll.vercel.app  
+**Package:** `@workspace/animator-app` · **Engine:** plain three.js + Rapier
 
-A third-person character **animation + combat studio** set in an X-Men-style
-"Danger Room" training chamber. Pick a character and weapon, run around, attack,
-and fire signature skills, while live-tuning movement, camera, and combat feel
-from an in-app editor.
+Grudge Studio **play shell**: third-person combat training, grudge6 races, voxel Explorer, doors to Realms / Characters / Dressing, Grudge ID on the landing page.
+
+## About
+
+- **Drive** characters: WASD walk, **Shift sprint**, jump, LMB attack, F skill, 1–4 signatures  
+- **Grudge6 races** — modular Bip001 kits (armor/weapon mesh visibility + baked packs)  
+- **Explorer** — procedural Mixamo weapon animation library  
+- **Physics** — Rapier KCC / capsule depenetration vs room obstacles  
+- **Root lock** — clips do not own world XYZ (stable blends, no meshing teleports)  
+- **Fleet** — auth, characters, assets, multiplayer via production proxies  
+
+Full connection map: [`../../docs/PRODUCTION.md`](../../docs/PRODUCTION.md).
 
 ## What you can do
 
-- **Drive a character** in third-person: camera-relative WASD, jump + double-jump,
-  attack, weapon skill (F), four signature skills (1–4), and a Skyfall special (R).
-- **Switch characters and weapons** — the default is the procedural **Explorer**;
-  others (e.g. the **Striker**, a weaponless kick-fighter) bring their own clips
-  and combat style.
-- **Minecraft-style armor loadout** (`I` equipment) — four slots (head / chest /
-  legs / feet) plus full-set equip from the realistic armor stand pack. See
-  [`docs/minecraft-armor-equipment.md`](./docs/minecraft-armor-equipment.md).
-- **Weapon skill kits (one at a time)** — only **Guardian Maul** (`mace2h`) has a
-  full F+1–4 kit so far; other weapons untouched. Pipeline:
-  [`docs/weapon-skill-kit-pipeline.md`](./docs/weapon-skill-kit-pipeline.md).
-- **Wildlife** — Quirky free animals pack (8 species), navmesh wander/flee AI,
-  death tip-to-side, **2 min corpse** for skin/butcher (**KeyN**). See
-  [`docs/wildlife-system.md`](./docs/wildlife-system.md).
-- **Skillwrite casting** — target lock + ground AOE circle (LMB place, RMB/Esc
-  cancel): Meteor, Blizzard, Ice Snake (stops 2 m short), Moonbeam, Nature's
-  Healing, Earth Wall/Wave, turrets, Flame Body. See
-  [`docs/skillwrite-casting.md`](./docs/skillwrite-casting.md).
-- **Avatar hats** — 3D horns (`horns.glb`) replace box horns; **Adventurer Hood**
-  from Hooded Adventurer head mesh. Crown attach at head top (y≈0.5).
-- **Tune everything live** — move speed, jump, gravity, camera distance/height,
-  FOV, dash distance, AoE radius, knockback, and per-character **attack
-  direction-assist + dash rating**.
-- **Train against dummies** with impact VFX, dash lunges, and target-assisted
-  strikes.
+- **Danger Room** combat sandbox + multiplayer hooks  
+- **Minecraft-style armor** (`I`) — see `docs/minecraft-armor-equipment.md`  
+- **Weapon skill kits** — F + 1–4 (mace2h exemplar + grudge kit aliases)  
+- **Wildlife**, skillwrite casting, avatar hats — see `docs/`  
+- **Doors hall** — Dressing, Realms (Mine-Loader), Characters GRUDOX  
 
 ## Run
 
-```
+```bash
 pnpm --filter @workspace/animator-app run dev
 pnpm --filter @workspace/animator-app run typecheck
+pnpm --filter @workspace/animator-app run test
 ```
 
-## How it's built (three.js, not R3F)
+## Production deploy
 
-**Plain three.js.** React renders only the HUD and editor panels; the scene is a
-hand-written engine.
+```bash
+# From artifacts/animator — use Vercel CLI session (not a stale VERCEL_TOKEN)
+npx vercel deploy --prod --yes
+```
 
-- `src/three/Studio.ts` — the scene owner: renderer, lights, the Danger Room,
-  characters, VFX, skills, and the update loop.
-- `src/three/Controller.ts` — the **bespoke third-person camera + movement
-  controller** (yaw/pitch orbit, gravity, ground clamp, dash lunges, and a
-  wall-clamp that keeps the camera inside the room so walls can't occlude the
-  character). This is hand-written three.js, **not** R3F `useFrame`/`<Canvas>`.
-- `src/three/DangerRoom.ts` — the training chamber geometry (disposable).
-- `src/three/Character.ts` / `ExplorerCharacter.ts` — GLB and procedural rigs
-  behind one shared `Avatar` interface the controller/studio drive.
-- `src/three/assets.ts`, `types.ts` — character/weapon/skill definitions and
-  editor params; `Vfx.ts` — impact/skill effects.
-- `src/three/equipment/` — Minecraft-style armor slots, catalog (leather / iron /
-  gold / magic sets), and armor-stand visibility helpers for
-  `public/models/armor/mc-armor-stand.glb`.
-- `src/components/Hud.tsx` — the RPG-style HUD overlay (vitals, action bar with
-  cooldowns), fed by snapshots the engine pushes.
-- `src/components/EquipmentScreen.tsx` — live weapons + armor set loadout (`I`).
+Env template: `.env.production.example`  
+Rewrites: `vercel.json`
 
-## Armor (Minecraft practices)
+## Architecture (three.js, not R3F)
 
-| Practice | How we do it |
-|----------|----------------|
-| Four body slots | `head` · `chest` · `legs` · `feet` |
-| Full set equip | `loadoutFromSet(id)` fills all four |
-| Armor stand preview | `mc-armor-stand.glb` node visibility per set |
-| Data ≠ mesh | Stable piece/set ids; stand nodes or future `wornFile` |
+| Module | Role |
+|--------|------|
+| `Studio.ts` | Scene owner, loop, weapons, skills |
+| `Controller.ts` | Third-person move/camera + locomotion intent |
+| `Character.ts` / `ExplorerCharacter.ts` / `grudge/GrudgeAvatar.ts` | Avatar implementations |
+| `physics/capsuleKcc.ts` | Shared Rapier capsule KCC |
+| `rig/rootLock.ts` | Bind-pose root XYZ freeze |
 
-**Asset note:** the source Fin Armor GLB is a mannequin showcase (no skinned worn pieces).
-High value for rack + UI; worn bone-attach is the same slot model when split meshes exist.
-Full write-up: `docs/minecraft-armor-equipment.md`.
+React (`Hud.tsx`, `LandingPage.tsx`, panels) is UI only.
 
-## Self-contained by design
+## Production connections (summary)
 
-This artifact **does not import `@workspace/*` libraries.** The animator library
-is ported locally into `src/three/explorer/`, and its FBX animation assets are
-hosted in this app's own `public/anim/...` and loaded via `FBXLoader`.
+| Service | Host |
+|---------|------|
+| Auth | id.grudge-studio.com |
+| Characters / bag | grudge-api-production (Railway) |
+| Assets | assets.grudge-studio.com |
+| Danger API | gameopen-production (Railway) |
+| Realms | mine-loader.vercel.app |
 
-> Combat tuning (direction-assist / dash-rating), the lunge/dash motion model, and
-> the locomotion blend are documented in `replit.md` and `.agents/memory/`.
+## Self-contained design
 
-<!-- vercel deploy kick 2026-07-12T22:22:55.3617306-05:00 -->
-
+Does not import `@workspace/*` into the browser bundle for the core engine path; explorer/animator code lives under `src/three/`. Shared fleet helpers live in `lib/fleet-client` for launch URLs.

@@ -1,12 +1,19 @@
 import * as THREE from "three";
 import type { AnimRole, Avatar, CharacterDef } from "../types";
 import { FootGrounder, type GroundSampler } from "../anim/legIk";
+import { getCharacter } from "../assets";
+import {
+  lockInPlaceRoot,
+  sampleBindRoot,
+  stabilizeClipForPlayback,
+} from "../rig/rootLock";
 import {
   ANIM_PACK_CLIPS,
   SPRINT_CLIP,
   applyBodyTexture,
   applyGearPreset,
   findHandBone,
+  findHipsBone,
   getPreset,
   loadBakedClip,
   loadBodyTexture,
@@ -89,16 +96,31 @@ export class GrudgeAvatar implements Avatar {
     const race = RACE_ASSETS[raceId];
     const preset = getPreset(raceId, presetId);
     this.root.add(this.holder);
+    // Catalog def carries signature skills + modelYaw for Studio skills / facing.
+    const catalogId = `grudge-${raceId}-${presetId === "unarmed" ? "warrior" : presetId}`;
+    const catalog = (() => {
+      try {
+        return getCharacter(catalogId);
+      } catch {
+        return null;
+      }
+    })();
     this.def = {
-      id: `grudge:${raceId}:${presetId}`,
-      name: `${race.name} ${preset.label}`,
+      id: catalog?.id ?? `grudge:${raceId}:${presetId}`,
+      name: catalog?.name ?? `${race.name} ${preset.label}`,
       file: race.modelUrl,
       scale: 1,
-      clips: {},
-      signatureSkills: [],
-      handBone: "Bip001_(R|L)_Hand",
-      modelYaw: 0,
+      clips: catalog?.clips ?? { idle: "idle", walk: "walk", run: "run", attack: "attack" },
+      // Weapon skills 1–4 + F need these labels/kinds even when clips alias to attack.
+      signatureSkills: catalog?.signatureSkills ?? [],
+      loadout: catalog?.loadout,
+      offHand: catalog?.offHand,
+      handBone: catalog?.handBone ?? "Bip001_(R|L)_Hand",
+      // Catalog yaw is authored for fleet GLB path; FBX kit already faces via
+      // normalizeCharacterGroup — Studio still applies getCharacter().modelYaw.
+      modelYaw: catalog?.modelYaw ?? Math.PI + Math.PI / 2,
     };
+    this.modelYaw = this.def.modelYaw ?? 0;
   }
 
   async load(): Promise<void> {
@@ -125,6 +147,10 @@ export class GrudgeAvatar implements Avatar {
     this.mixer = loaded.mixer;
     this.holder.add(loaded.group);
 
+    // Plant feet on y=0 and center hips XZ under the controller root so walk/run
+    // no longer reads as leaning / off-balance (gear hide can bias the old bbox).
+    this.centerHipsBetweenFeet(this.model);
+
     // Stream the baked locomotion/attack clips for this preset's anim pack and
     // bind them under stable logical keys (role name) — keys, not clip names, so
     // packs that reuse a base clip (e.g. run + sprint both "running") never
@@ -135,6 +161,7 @@ export class GrudgeAvatar implements Avatar {
       { key: "walk", role: "walk", rel: pack.walk },
       { key: "run", role: "run", rel: pack.run },
       { key: "attack", role: "attack", rel: pack.attack },
+      // Pack-agnostic sprint (Shift) — NOT a time-scaled walk/run (foot-slide).
       { key: "sprint", role: null, rel: SPRINT_CLIP },
     ];
     const loadedClips = await Promise.all(
@@ -152,10 +179,17 @@ export class GrudgeAvatar implements Avatar {
       this.teardownGpu();
       return;
     }
+    const bind = sampleBindRoot(this.model);
     for (const { key, role, clip } of loadedClips) {
       if (!clip) continue;
-      clip.name = key;
-      const action = this.mixer.clipAction(clip);
+      // Rotation-only bake still occasionally ships residual root pos tracks.
+      const stable = stabilizeClipForPlayback(this.model, clip, {
+        stripLimbPositions: true,
+        bind,
+      });
+      stable.name = key;
+      lockInPlaceRoot(stable, bind);
+      const action = this.mixer.clipAction(stable);
       this.actions.set(key, action);
       if (role) this.roleClip.set(role, key);
     }
@@ -165,6 +199,8 @@ export class GrudgeAvatar implements Avatar {
     }
     if (!this.roleClip.has("walk") && this.roleClip.has("run")) this.roleClip.set("walk", this.roleClip.get("run")!);
     if (!this.roleClip.has("run") && this.roleClip.has("walk")) this.roleClip.set("run", this.roleClip.get("walk")!);
+    // Skill / combat clip aliases → real attack (kit only ships idle/walk/run/attack).
+    this.aliasCombatClips();
 
     this.model.updateMatrixWorld(true);
     this.rightHand = findHandBone(this.model, "R");
@@ -173,6 +209,78 @@ export class GrudgeAvatar implements Avatar {
     this.footGrounder.bind(this.model);
     this.holder.rotation.y = this.modelYaw;
     this.playRole("idle", 0);
+  }
+
+  /**
+   * Map catalog/weapon skill clip names onto the baked attack (or idle) so F / 1–4
+   * and signature kits animate instead of no-oping on missing clip ids.
+   */
+  private aliasCombatClips(): void {
+    const attack = this.actions.get("attack") ?? this.actions.get(this.roleClip.get("attack") ?? "");
+    const idle = this.actions.get("idle") ?? this.actions.get(this.roleClip.get("idle") ?? "");
+    const walk = this.actions.get("walk");
+    if (!attack && !idle) return;
+    const toAttack = [
+      "attack",
+      "sword_attack_c",
+      "sword_dash_attack",
+      "sword_combo_finisher",
+      "shield_bash",
+      "unarmed_uppercut",
+      "bow_aim_walk_fwd",
+      "magic_walk_fwd",
+      "skill",
+      "cast",
+      "slash",
+    ];
+    for (const name of toAttack) {
+      if (!this.actions.has(name) && attack) this.actions.set(name, attack);
+    }
+    const toIdle = ["sword_block", "block", "jump", "front_flip"];
+    for (const name of toIdle) {
+      if (!this.actions.has(name) && (idle || attack)) this.actions.set(name, idle ?? attack!);
+    }
+    if (!this.actions.has("walk") && walk) this.actions.set("walk", walk);
+    // Role fills for jump/block if absent
+    if (!this.roleClip.has("jump") && this.actions.has("jump")) this.roleClip.set("jump", "jump");
+    if (!this.roleClip.has("block") && this.actions.has("block")) this.roleClip.set("block", "block");
+  }
+
+  /**
+   * After gear visibility changes the silhouette, re-seat the kit so the
+   * pelvis sits over the origin and feet rest on y=0 (controller capsule).
+   */
+  private centerHipsBetweenFeet(model: THREE.Object3D): void {
+    model.updateWorldMatrix(true, true);
+    const box = new THREE.Box3();
+    let any = false;
+    model.traverse((o) => {
+      const m = o as THREE.SkinnedMesh;
+      if (!m.isSkinnedMesh || !m.visible) return;
+      box.expandByObject(m);
+      any = true;
+    });
+    if (!any) box.setFromObject(model);
+    // Feet on y=0
+    model.position.y -= box.min.y;
+    // Prefer hips bone XZ; fall back to visible body center
+    const hips = findHipsBone(model);
+    model.updateWorldMatrix(true, true);
+    if (hips) {
+      const hp = new THREE.Vector3();
+      hips.getWorldPosition(hp);
+      model.parent?.worldToLocal(hp);
+      model.position.x -= hp.x;
+      model.position.z -= hp.z;
+    } else {
+      const c = box.getCenter(new THREE.Vector3());
+      model.position.x -= c.x;
+      model.position.z -= c.z;
+      // Re-apply feet after XZ shift
+      model.updateWorldMatrix(true, true);
+      const box2 = new THREE.Box3().setFromObject(model);
+      model.position.y -= box2.min.y;
+    }
   }
 
   clipNames(): string[] {
@@ -241,6 +349,48 @@ export class GrudgeAvatar implements Avatar {
 
   setLocomotionRate(rate: number): void {
     if (this.current) this.current.setEffectiveTimeScale(rate * this.overdrive);
+  }
+
+  /**
+   * Continuous locomotion for Controller (same contract as Character).
+   * Maps 0..1 speed → idle / walk / run / sprint with proper clip selection.
+   *
+   * Controller values: walk ≈ 0.5, Shift-sprint = 1.0. Using the dedicated
+   * sprint clip at high speed (not a time-scaled walk) fixes "wrong run".
+   */
+  setLocomotion(speed: number): void {
+    if (!this.mixer || this.oneShot) return;
+    const s = Math.max(0, Math.min(1, speed));
+    if (s >= 0.82) {
+      // Shift sprint: prefer dedicated sprint clip (uploads running), else run.
+      if (this.actions.has("sprint")) this.playClipLoop("sprint");
+      else if (this.hasRole("run")) this.playRole("run");
+      else if (this.hasRole("walk")) this.playRole("walk");
+      this.setLocomotionRate(1);
+    } else if (s >= 0.1) {
+      // Normal WASD walk — do NOT play run here (was causing off-balance "jog").
+      if (this.hasRole("walk")) this.playRole("walk");
+      else if (this.hasRole("run")) this.playRole("run");
+      // Cadence tracks speed without sliding into run range.
+      this.setLocomotionRate(0.9 + Math.min(0.25, (s - 0.1) * 0.4));
+    } else {
+      this.playRole("idle");
+      this.setLocomotionRate(1);
+    }
+  }
+
+  /** Loop a named clip (used for sprint which is not an AnimRole). */
+  private playClipLoop(name: string, fade = this.blendTime): void {
+    const action = this.actions.get(name);
+    if (!action || action === this.current) return;
+    action.reset();
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.enabled = true;
+    action.setEffectiveWeight(1);
+    action.fadeIn(fade);
+    action.play();
+    if (this.current && this.current !== action) this.current.fadeOut(fade);
+    this.current = action;
   }
 
   // ── Skill Lab authoring API ────────────────────────────────────────────────

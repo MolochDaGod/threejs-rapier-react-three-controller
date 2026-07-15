@@ -7,6 +7,19 @@ import { mountWeapons, unmountWeapons, type MountedWeapons } from "./weapons";
 import { filterBindableTracks } from "../clipTracks";
 import { isUpperBodyTrack } from "../upperBody";
 import { animDebug } from "../debug/animDebug";
+import {
+  lockInPlaceRoot,
+  sampleBindRoot,
+  stripNonRootPositions,
+  type BindRoot,
+  isRootPositionTrack,
+} from "../rig/rootLock";
+
+// Re-export under legacy names so existing tests/import sites keep working.
+export const isHipsPositionTrack = isRootPositionTrack;
+export function lockHorizontalRoot(clip: THREE.AnimationClip, bind: BindRoot): void {
+  lockInPlaceRoot(clip, bind);
+}
 
 /** Horizontal speed below which the character is considered standing still. */
 const MOVE_EPS = 0.08;
@@ -136,23 +149,18 @@ export class Animator {
   private comboIndex = 0;
   private comboUntil = 0;
   private skillUntil = 0;
-  /** Bind-pose local position of the Hips bone. Clips re-baseline their hip
-   *  height to Y (so packs exported at a different height don't float/sink) and
-   *  their horizontal root to X/Z (so packs authored off-origin don't plant the
-   *  rig away from centre). */
-  private readonly bindHipX: number;
-  private readonly bindHipY: number;
-  private readonly bindHipZ: number;
+  /**
+   * Bind-pose root XYZ. Every clip locks full position here so weapon packs and
+   * blends never teleport the character through environment / layers.
+   */
+  private readonly bindRoot: BindRoot;
 
   constructor(character: VoxelCharacter, clips: Map<string, THREE.AnimationClip>) {
     this.character = character;
     this.root = character.root;
     this.clips = clips;
     this.mixer = new THREE.AnimationMixer(character.skeletonRoot);
-    const hips = character.skeletonRoot.getObjectByName("mixamorigHips");
-    this.bindHipX = hips ? hips.position.x : 0;
-    this.bindHipY = hips ? hips.position.y : 0;
-    this.bindHipZ = hips ? hips.position.z : 0;
+    this.bindRoot = sampleBindRoot(character.skeletonRoot);
     this.locoBlend = new LocomotionBlend((id) => this.action(id));
   }
 
@@ -892,7 +900,7 @@ export class Animator {
     return a;
   }
 
-  /** Get/create a cached action for a clip id (clone + lock horizontal root). */
+  /** Get/create a cached action for a clip id (clone + strip limb pos + root lock). */
   private action(id: string): THREE.AnimationAction | null {
     const cached = this.actionCache.get(id);
     if (cached) return cached;
@@ -905,8 +913,9 @@ export class Animator {
     // dropped (unbindable) tracks surface as a mesh/skeleton-form warning. Runs
     // once per clip (the action is cached below), so it's cheap.
     animDebug.recordValidate(this.character.skeletonRoot, id, clip);
-    const c = filterBindableTracks(this.character.skeletonRoot, clip.clone());
-    lockHorizontalRoot(c, { x: this.bindHipX, y: this.bindHipY, z: this.bindHipZ });
+    let c = filterBindableTracks(this.character.skeletonRoot, clip.clone());
+    c = stripNonRootPositions(c);
+    lockInPlaceRoot(c, this.bindRoot);
     const action = this.mixer.clipAction(c);
     this.actionCache.set(id, action);
     return action;
@@ -926,59 +935,12 @@ export class Animator {
     const clip = this.clips.get(id);
     if (!clip) return null;
     const c = filterBindableTracks(this.character.skeletonRoot, clip.clone());
+    lockInPlaceRoot(c, this.bindRoot);
     c.tracks = c.tracks.filter((t) => isUpperBodyTrack(t.name));
     if (c.tracks.length === 0) return null;
     THREE.AnimationUtils.makeClipAdditive(c);
     const action = this.mixer.clipAction(c, undefined, THREE.AdditiveAnimationBlendMode);
     this.actionCache.set(key, action);
     return action;
-  }
-}
-
-/**
- * True for a clip's root (Hips) translation track under ANY of the bone-naming
- * conventions that reach the rig: native Mixamo FBX bind as `mixamorigHips`
- * (the FBX loader strips the `mixamorig:` colon), normalised "Retargeted Clip"
- * packs are renamed to `mixamorigHips`, and a few escape normalisation and stay
- * a bare `Hips`. All are the same root translation we must neutralise, so match
- * the canonical bone rather than one exact string (the old exact-match silently
- * let un-normalised `Hips.position` packs drift).
- */
-export function isHipsPositionTrack(name: string): boolean {
-  if (!name.endsWith(".position")) return false;
-  const bone = name.slice(0, -".position".length).replace(/^mixamorig:?/, "");
-  return /^Hips\d*$/.test(bone);
-}
-
-/**
- * Remove horizontal motion from a clip's root (Hips) track while keeping the
- * vertical bob, so the game engine (or the Dressing Room pedestal) owns the
- * character's world translation.
- *
- * Every frame's hip X/Z is set to the rig's BIND-POSE hip position — NOT the
- * clip's first frame. Several "Retargeted Clip" packs (the block/, extra/,
- * reactions/ families) author the body tens of units off-origin, so pinning to
- * frame 0 planted the rig that far from centre — the "feet meters away" bug —
- * while native in-place clips (first frame ≈ origin) were unaffected, which is
- * why a plain block read fine but the rest walked off the spot. Re-baselining to
- * the bind position keeps every clip centred and is a no-op for native clips.
- *
- * The vertical channel is re-baselined so the clip's first frame sits at the
- * rig's bind-pose hip height (`bind.y`) and only the relative bob is kept; a
- * pack exported higher would otherwise float the whole body off the ground.
- */
-export function lockHorizontalRoot(
-  clip: THREE.AnimationClip,
-  bind: { x: number; y: number; z: number },
-): void {
-  for (const track of clip.tracks) {
-    if (!isHipsPositionTrack(track.name)) continue;
-    const v = track.values;
-    const y0 = v[1];
-    for (let i = 0; i < v.length; i += 3) {
-      v[i] = bind.x;
-      v[i + 1] = v[i + 1] - y0 + bind.y;
-      v[i + 2] = bind.z;
-    }
   }
 }

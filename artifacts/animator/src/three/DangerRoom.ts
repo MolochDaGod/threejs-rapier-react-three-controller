@@ -287,7 +287,10 @@ export class DangerRoom {
     crate.castShadow = true;
     crate.receiveShadow = true;
     this.group.add(crate);
-    if (spec.collide) this.propObstacles.push({ x: spec.x, z: spec.z, r: size * 0.7, top: h });
+    if (spec.collide) {
+      // Floor-seated crate: solid volume [0, top]; landable at `top`.
+      this.propObstacles.push({ x: spec.x, z: spec.z, r: size * 0.7, top: h, bottom: 0 });
+    }
   }
 
   private buildBarrel(spec: PropSpec) {
@@ -303,7 +306,7 @@ export class DangerRoom {
     barrel.castShadow = true;
     barrel.receiveShadow = true;
     this.group.add(barrel);
-    if (spec.collide) this.propObstacles.push({ x: spec.x, z: spec.z, r: r + 0.15, top: h });
+    if (spec.collide) this.propObstacles.push({ x: spec.x, z: spec.z, r: r + 0.15, top: h, bottom: 0 });
   }
 
   private buildColumn(spec: PropSpec) {
@@ -396,7 +399,7 @@ export class DangerRoom {
         this.group.add(strip);
       }
     }
-    if (spec.collide) this.propObstacles.push({ x: spec.x, z: spec.z, r: 0.45 * s, top: h });
+    if (spec.collide) this.propObstacles.push({ x: spec.x, z: spec.z, r: 0.45 * s, top: h, bottom: 0 });
   }
 
   /**

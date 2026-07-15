@@ -154,6 +154,16 @@ class MusicStation {
   /** Build one deck (media element + filter + gain + echo send) into the mix bus. */
   private makeDeck(ctx: AudioContext, mixBus: GainNode, delay: DelayNode): Deck {
     const el = new Audio();
+    // Missing CDN files (404) must not hard-stop the station — advance the set.
+    el.addEventListener("error", () => {
+      if (!this.enabled || this.tracks.length <= 1) return;
+      console.warn("[MusicStation] track failed, skipping", el.src);
+      try {
+        this.next();
+      } catch {
+        /* ignore */
+      }
+    });
     el.preload = "auto";
     el.loop = false;
     el.crossOrigin = "anonymous";
@@ -557,6 +567,7 @@ class MusicStation {
   }
 
   private cueDeck(deck: Deck, i: number): void {
+    // Skip dead/missing files (404) so one bad track cannot kill the station.
     if (this.tracks.length === 0) return;
     const n = this.tracks.length;
     const idx = ((i % n) + n) % n;

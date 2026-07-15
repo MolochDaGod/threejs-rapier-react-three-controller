@@ -47,28 +47,7 @@ export function unifySkeletons(root: THREE.Object3D): THREE.Skeleton | null {
   return widest;
 }
 
-// Resolve a character's hand bone for weapon attachment. All six races use the
-// unified Bip001 rig (exact "Bip001_R_Hand" / "Bip001_L_Hand"), tried first; a
-// fuzzy fallback handles non-standard skeletons. Finger/thumb bones excluded.
-export function findHandBone(root: THREE.Object3D, side: "L" | "R"): THREE.Object3D | null {
-  const exact = side === "R" ? "Bip001_R_Hand" : "Bip001_L_Hand";
-  let exactHit: THREE.Object3D | null = null;
-  let fuzzyHit: THREE.Object3D | null = null;
-  let fuzzyName = "";
-  const want = side === "R" ? /rhand|righthand|handr|rwrist/ : /lhand|lefthand|handl|lwrist/;
-  const isFinger = /finger|thumb|index|middle|ring|pinky|pinkie|metacarp|digit/;
-  root.traverse((node) => {
-    if (exactHit) return;
-    if (node.name === exact) {
-      exactHit = node;
-      return;
-    }
-    const norm = node.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (!want.test(norm) || isFinger.test(norm)) return;
-    if (!fuzzyHit || norm.length < fuzzyName.length) {
-      fuzzyHit = node;
-      fuzzyName = norm;
-    }
-  });
-  return exactHit ?? fuzzyHit;
-}
+// Resolve a character's hand bone for weapon attachment. Prefer grudge6
+// containers + Bip001 hand bones (spaces OR underscores), then Mixamo/generic.
+// Shared implementation: `../rig/boneResolve`.
+export { findHandBone, findHipsBone, resolveRigBind, formatBindSummary } from "../rig/boneResolve";

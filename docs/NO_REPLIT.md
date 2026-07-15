@@ -2,6 +2,8 @@
 
 This play shell and all fleet games deploy on **Vercel + Railway + Cloudflare R2/D1** only.
 
+See also **[PRODUCTION.md](./PRODUCTION.md)** for full env + rewrite matrix.
+
 | Concern | Host |
 |---------|------|
 | Play shell | `threejs-rapier-react-three-controll.vercel.app` · open.grudge-studio.com |
@@ -9,6 +11,8 @@ This play shell and all fleet games deploy on **Vercel + Railway + Cloudflare R2
 | Auth | id.grudge-studio.com |
 | Characters / account | Railway grudge-api-production |
 | Assets | assets.grudge-studio.com (R2) |
+| Danger multiplayer | gameopen-production (Railway) |
+| GRUDOX rooms | voxgrudge-grudox-room-production |
 
 ## Forbidden
 

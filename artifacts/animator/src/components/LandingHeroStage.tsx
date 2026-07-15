@@ -1,7 +1,7 @@
 /**
  * Cinematic 3D backdrop for the landing page:
- *   - Short-circuit AstroCreeper character (hero)
- *   - Helpers toolkit props arranged around them (from helpers.glb showcase)
+ *   - Short-circuit AstroCreeper character (hero) with fleet fallbacks
+ *   - Helpers toolkit props arranged around them
  *   - Slow orbiting / crane camera that keeps the hero as focus
  *
  * Pure three.js (no R3F) — same pattern as {@link DoorsHeroStage}.
@@ -11,8 +11,19 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { assetUrl } from "../three/assetHost";
 
-const HERO_URL = assetUrl("models/landing/astrocreeper.glb");
-const HELPERS_URL = assetUrl("models/landing/helpers.glb");
+/** Prefer landing pack; fall back to live-proven root models (deployed on Vercel). */
+const HERO_CANDIDATES = [
+  "models/landing/astrocreeper.glb",
+  "models/astrocreeper.glb",
+  "models/racalvin.glb",
+  "models/karate-boss.glb",
+  "models/orc.glb",
+];
+const HELPERS_CANDIDATES = [
+  "models/landing/helpers.glb",
+  "models/landing-helpers.glb",
+  "models/dj-booth.glb",
+];
 
 /** Height-normalize a model and plant feet on y=0; returns world height. */
 function plantOnGround(obj: THREE.Object3D, targetHeight: number): number {
@@ -48,59 +59,85 @@ function prepMeshes(root: THREE.Object3D, cast = true): void {
 
 /**
  * Pull named tool subtrees out of helpers.glb for a ring of props. Falls back
- * to the whole scene if individual tools can't be identified.
+ * to cloning the whole root if no named tools are found.
  */
-function extractHelperProps(helpersRoot: THREE.Object3D): THREE.Object3D[] {
-  const want = [
-    "Pickaxe",
-    "Hammer_Circle027",
-    "Knife",
-    "Shovel_1",
-    "Bucket",
-    "FirstAidKit_Hard",
-    "FishingRod_Lvl2",
-    "Lure_2",
-  ];
-  const found: THREE.Object3D[] = [];
-  for (const name of want) {
-    const n = helpersRoot.getObjectByName(name);
-    if (n) found.push(n.clone(true));
+function extractHelperProps(root: THREE.Object3D): THREE.Object3D[] {
+  const named: THREE.Object3D[] = [];
+  root.traverse((o) => {
+    if (o === root) return;
+    if (!o.name) return;
+    if (/tool|prop|kit|wrench|hammer|sword|shield|box|crate/i.test(o.name) && o.children.length > 0) {
+      named.push(o);
+    }
+  });
+  if (named.length >= 3) {
+    return named.slice(0, 8).map((o) => o.clone(true));
   }
-  if (found.length >= 3) return found;
-  // Fallback: use the whole helpers pack as one decorative cluster.
-  return [helpersRoot.clone(true)];
+  // Whole-pack clone ring
+  return [0, 1, 2, 3, 4, 5].map(() => root.clone(true));
+}
+
+async function loadGltfFirst(
+  paths: string[],
+  loader: GLTFLoader,
+): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[]; url: string }> {
+  let last: unknown;
+  for (const p of paths) {
+    const url = assetUrl(p);
+    try {
+      const gltf = await loader.loadAsync(url);
+      return {
+        scene: gltf.scene,
+        animations: gltf.animations ?? [],
+        url,
+      };
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last ?? new Error(`Failed to load: ${paths.join(", ")}`);
+}
+
+/** Procedural placeholder if every CDN candidate 404s. */
+function buildFallbackHero(): THREE.Group {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.32, 0.85, 6, 12),
+    new THREE.MeshStandardMaterial({ color: 0x4fc3ff, roughness: 0.55, metalness: 0.15 }),
+  );
+  body.position.y = 1.0;
+  body.castShadow = true;
+  g.add(body);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 16, 12),
+    new THREE.MeshStandardMaterial({ color: 0xe8c877, roughness: 0.5 }),
+  );
+  head.position.y = 1.75;
+  head.castShadow = true;
+  g.add(head);
+  return g;
 }
 
 export function LandingHeroStage() {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mountRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
+    const mount = mountRef.current;
+    if (!mount) return;
     let disposed = false;
     let raf = 0;
-    const clock = new THREE.Clock();
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: true,
-      powerPreference: "high-performance",
-    });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setClearColor(0x000000, 0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 1.05;
+    mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x050a14, 0.035);
-
     const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 120);
     camera.position.set(4.5, 2.4, 5.5);
 
-    // Cool studio lights — readable skin + gold rim for brand fit
     scene.add(new THREE.HemisphereLight(0xb8d4ff, 0x1a1420, 0.65));
     const key = new THREE.DirectionalLight(0xfff0dd, 1.45);
     key.position.set(5, 10, 6);
@@ -112,7 +149,6 @@ export function LandingHeroStage() {
     gold.position.set(0, 2.2, 1.5);
     scene.add(gold);
 
-    // Soft ground disc under the hero
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(8, 64),
       new THREE.MeshBasicMaterial({
@@ -137,57 +173,58 @@ export function LandingHeroStage() {
     const propRoots: THREE.Object3D[] = [];
 
     const loader = new GLTFLoader();
-    const loadGltf = (url: string) =>
-      new Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }>((resolve, reject) => {
-        loader.load(
-          url,
-          (gltf) => resolve({ scene: gltf.scene, animations: gltf.animations ?? [] }),
-          undefined,
-          (err) => reject(err),
-        );
-      });
 
     void (async () => {
       try {
-        const [heroGltf, helpersGltf] = await Promise.all([
-          loadGltf(HERO_URL),
-          loadGltf(HELPERS_URL),
-        ]);
+        let hero: THREE.Object3D;
+        let anims: THREE.AnimationClip[] = [];
+        try {
+          const heroGltf = await loadGltfFirst(HERO_CANDIDATES, loader);
+          if (disposed) return;
+          console.info("[LandingHeroStage] hero from", heroGltf.url);
+          hero = heroGltf.scene;
+          anims = heroGltf.animations;
+        } catch (err) {
+          console.warn("[LandingHeroStage] all hero GLBs failed — procedural fallback", err);
+          hero = buildFallbackHero();
+        }
         if (disposed) return;
 
-        const hero = heroGltf.scene;
         prepMeshes(hero);
         plantOnGround(hero, 1.85);
-        hero.rotation.y = Math.PI; // face default camera start
+        hero.rotation.y = Math.PI;
         root.add(hero);
         heroRoot = hero;
         heroBaseY = hero.position.y;
         focus.set(0, 1.05, 0);
         orbitR = 4.6;
 
-        // Helpers toolkit — ring of props around the character (showcase style)
-        const props = extractHelperProps(helpersGltf.scene);
-        const n = Math.max(props.length, 1);
-        props.forEach((prop, i) => {
-          prepMeshes(prop, false);
-          plantOnGround(prop, 0.55 + (i % 3) * 0.12);
-          const angle = (i / n) * Math.PI * 2 + 0.35;
-          const r = 1.55 + (i % 2) * 0.35;
-          prop.position.x = Math.cos(angle) * r;
-          prop.position.z = Math.sin(angle) * r;
-          prop.rotation.y = -angle + Math.PI * 0.5;
-          // Slight outward lean so tools read as set dressing
-          prop.rotation.z = Math.sin(i * 1.7) * 0.08;
-          root.add(prop);
-          propRoots.push(prop);
-        });
+        try {
+          const helpersGltf = await loadGltfFirst(HELPERS_CANDIDATES, loader);
+          if (disposed) return;
+          console.info("[LandingHeroStage] helpers from", helpersGltf.url);
+          const props = extractHelperProps(helpersGltf.scene);
+          const n = Math.max(props.length, 1);
+          props.forEach((prop, i) => {
+            prepMeshes(prop, false);
+            plantOnGround(prop, 0.55 + (i % 3) * 0.12);
+            const angle = (i / n) * Math.PI * 2 + 0.35;
+            const r = 1.55 + (i % 2) * 0.35;
+            prop.position.x = Math.cos(angle) * r;
+            prop.position.z = Math.sin(angle) * r;
+            prop.rotation.y = -angle + Math.PI * 0.5;
+            prop.rotation.z = Math.sin(i * 1.7) * 0.08;
+            root.add(prop);
+            propRoots.push(prop);
+          });
+        } catch {
+          /* props optional */
+        }
 
-        if (heroGltf.animations?.length) {
+        if (anims.length) {
           mixer = new THREE.AnimationMixer(hero);
-          // Prefer idle; otherwise use the first clip (this pack ships "dissection")
           const clip =
-            heroGltf.animations.find((c) => /idle|stand|breath|loop/i.test(c.name)) ||
-            heroGltf.animations[0];
+            anims.find((c) => /idle|stand|breath|loop/i.test(c.name)) || anims[0];
           const action = mixer.clipAction(clip);
           action.setLoop(THREE.LoopRepeat, Infinity);
           action.clampWhenFinished = false;
@@ -198,81 +235,69 @@ export function LandingHeroStage() {
       }
     })();
 
+    const clock = new THREE.Clock();
     const resize = () => {
-      const w = canvas.clientWidth || window.innerWidth;
-      const h = canvas.clientHeight || window.innerHeight;
+      const w = mount.clientWidth || 1;
+      const h = mount.clientHeight || 1;
       renderer.setSize(w, h, false);
-      camera.aspect = w / Math.max(h, 1);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     resize();
-    window.addEventListener("resize", resize);
+    const ro = new ResizeObserver(resize);
+    ro.observe(mount);
 
-    const animate = () => {
+    const tick = () => {
       if (disposed) return;
-      raf = requestAnimationFrame(animate);
+      raf = requestAnimationFrame(tick);
       const t = clock.getElapsedTime();
       const dt = clock.getDelta();
-
-      mixer?.update(dt);
-
-      // Gentle hero hover + slow turn so the skin reads from all sides
+      if (mixer) mixer.update(dt);
       if (heroRoot) {
         heroRoot.position.y = heroBaseY + Math.sin(t * 1.1) * 0.04;
-        heroRoot.rotation.y = Math.PI + t * 0.12;
       }
-
-      // Props idle bob, offset per item
       propRoots.forEach((p, i) => {
-        p.position.y = Math.sin(t * 1.3 + i * 0.9) * 0.03;
-        p.rotation.y += dt * 0.15 * (i % 2 === 0 ? 1 : -1);
+        p.rotation.y += dt * (0.15 + (i % 3) * 0.05);
       });
-
-      // Multi-layer camera path around the character
-      const orbit = t * 0.22;
-      const crane = 1.55 + Math.sin(t * 0.28) * 0.55 + Math.sin(t * 0.09) * 0.25;
-      const radius = orbitR * (1.05 + Math.sin(t * 0.17) * 0.1 + Math.sin(t * 0.5) * 0.03);
-      const bob = Math.sin(t * 0.85) * 0.12;
-
+      const az = t * 0.18;
+      const elev = 0.35 + Math.sin(t * 0.22) * 0.08;
       camera.position.set(
-        Math.cos(orbit) * radius,
-        crane + bob,
-        Math.sin(orbit) * radius,
+        Math.cos(az) * orbitR * Math.cos(elev),
+        focus.y + Math.sin(elev) * orbitR * 0.55 + 0.4,
+        Math.sin(az) * orbitR * Math.cos(elev),
       );
-
-      const look = focus.clone();
-      look.x += Math.sin(t * 0.3) * 0.2;
-      look.y += Math.sin(t * 0.4) * 0.12;
-      camera.lookAt(look);
-
-      camera.fov = 38 + Math.sin(t * 0.18) * 1.8;
-      camera.updateProjectionMatrix();
-
-      root.rotation.y = Math.sin(t * 0.04) * 0.05;
-
-      (ground.material as THREE.MeshBasicMaterial).opacity = 0.07 + Math.sin(t * 1.0) * 0.03;
-      ground.scale.setScalar(1 + Math.sin(t * 0.55) * 0.03);
-
+      camera.lookAt(focus);
       renderer.render(scene, camera);
     };
-    animate();
+    tick();
 
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
-      mixer?.stopAllAction();
+      ro.disconnect();
       renderer.dispose();
+      mount.removeChild(renderer.domElement);
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
-        if (m.geometry) m.geometry.dispose();
-        if (m.material) {
+        if (m.isMesh) {
+          m.geometry?.dispose();
           const mats = Array.isArray(m.material) ? m.material : [m.material];
-          for (const mat of mats) mat.dispose();
+          for (const mat of mats) mat?.dispose?.();
         }
       });
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="landing-hero-stage" aria-hidden />;
+  return (
+    <div
+      ref={mountRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        zIndex: 0,
+      }}
+      aria-hidden
+    />
+  );
 }

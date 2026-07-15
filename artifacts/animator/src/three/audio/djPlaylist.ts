@@ -21,28 +21,21 @@ export interface DjTrack {
 }
 
 /**
- * The CPT RAC Station playlist — Racalvin the Pirate King's set. The station
- * plays these back-to-back and repeats from the top forever. Ordered so his
- * signature pirate anthems open the set.
+ * CPT RAC Station playlist — only files verified on the Vercel CDN
+ * (threejs-rapier-react-three-controll.vercel.app). Do not list tracks that
+ * exist only locally until they are committed + deployed under public/audio/dj/.
  *
- * When adding tracks: skip any entry whose `file` or case-insensitive `title`
- * is already listed (see {@link hasDjTrack}).
+ * Note: `racalvin-the-pirate-king.mp3` is NOT used (404); the live file is
+ * `racalvin-the-pirate-the-king.mp3`.
  */
 export const DJ_TRACKS: readonly DjTrack[] = [
   { file: "audio/dj/rac-the-king.mp3", title: "Rac The King" },
   { file: "audio/dj/racalvin-the-pirate-the-king.mp3", title: "Racalvin The Pirate, The King" },
-  { file: "audio/dj/racalvin-the-pirate-king.mp3", title: "Racalvin the Pirate King" },
   { file: "audio/dj/pirate-kings-reign.mp3", title: "Pirate King's Reign" },
   { file: "audio/dj/pirates-trap-anthem.mp3", title: "Pirate's Trap Anthem" },
   { file: "audio/dj/warlords-horns.mp3", title: "Warlord's Horns" },
   { file: "audio/dj/ironworks-bounty.mp3", title: "Ironworks Bounty" },
-  { file: "audio/dj/ra-of-the-sea.mp3", title: "Ra Of The Sea" },
   { file: "audio/dj/ra-of-the-sea-remix.mp3", title: "Ra Of The Sea (Remix)" },
-  { file: "audio/dj/curtain-calls.mp3", title: "Curtain Calls" },
-  { file: "audio/dj/ducks-gladiators.mp3", title: "Ducks & Gladiators" },
-  { file: "audio/dj/ethereal-class.mp3", title: "Ethereal Class" },
-  { file: "audio/dj/elevate-your-mind.mp3", title: "Elevate Your Mind" },
-  { file: "audio/dj/deep-trap-groove.mp3", title: "Deep Trap Groove" },
   { file: "audio/dj/malord.mp3", title: "Malord" },
   { file: "audio/dj/lives-of-the-young-kingpins.mp3", title: "Lives of the Young Kingpins" },
   { file: "audio/dj/let-it-cook.mp3", title: "Let It Cook" },

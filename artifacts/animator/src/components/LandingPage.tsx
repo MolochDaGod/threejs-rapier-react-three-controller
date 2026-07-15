@@ -84,6 +84,34 @@ export function LandingPage({ onEnter }: Props) {
           GRUDGE<span className="landing-brand-accent">STUDIO</span>
         </h1>
         <p className="landing-tag">Animator · Danger Room · Voxel Worlds</p>
+        <p className="landing-about">
+          Play shell for grudge6 races, weapon skills, and Rapier combat. Connected to Grudge ID,
+          fleet characters, R2 assets, and live rooms — production at{" "}
+          <span className="landing-mono">threejs-rapier-react-three-controll.vercel.app</span>.
+        </p>
+        <details className="landing-connections">
+          <summary>About &amp; connections</summary>
+          <ul>
+            <li>
+              <strong>Auth</strong> — id.grudge-studio.com (Grudge ID)
+            </li>
+            <li>
+              <strong>Characters / bag</strong> — Railway grudge-api-production
+            </li>
+            <li>
+              <strong>Assets</strong> — assets.grudge-studio.com (R2)
+            </li>
+            <li>
+              <strong>Danger / multiplayer</strong> — gameopen + GRUDOX Railway rooms
+            </li>
+            <li>
+              <strong>Realms</strong> — mine-loader.vercel.app
+            </li>
+            <li>
+              <strong>Controls</strong> — WASD walk · Shift sprint · F / 1–4 skills
+            </li>
+          </ul>
+        </details>
 
         {phase === "checking" && <div className="landing-note">Checking your Grudge ID…</div>}
 

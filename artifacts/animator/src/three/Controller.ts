@@ -961,67 +961,72 @@ export class Controller {
       this.extVel.z *= damp;
     }
 
-    // Danger Room interior collision: push the body out of static props (corner
-    // pillars, training dummies) and live opponents so you can't walk through
-    // them. The dungeon/arena run a Rapier KCC (collision provider) instead, so
-    // this XZ push-out only runs on the null path and leaves that feel intact.
+    // Danger Room interior collision: multi-pass push out of static props
+    // (pillars, crates/platforms) and live opponents so the capsule never stays
+    // meshed inside solid volumes. Dungeon/arena use a Rapier KCC instead.
     if (!this.collision && this.obstacles) {
       const PLAYER_R = 0.35;
       const obs = this.obstacles();
-      // Pass 1: radial push out of every overlapping circle (smooth slide when
-      // approaching from open floor). Landable obstacles stop pushing once the
-      // feet are at/above their top surface — standing or walking on the top is
-      // legitimate support, not an overlap to eject from.
-      for (const o of obs) {
-        if (o.top !== undefined && pos.y >= o.top - 0.02) continue;
-        const dx = pos.x - o.x;
-        const dz = pos.z - o.z;
-        const minDist = o.r + PLAYER_R;
-        const d = Math.hypot(dx, dz);
-        if (d >= minDist) continue;
-        if (d > 1e-4) {
-          pos.x = o.x + (dx / d) * minDist;
-          pos.z = o.z + (dz / d) * minDist;
-        } else {
-          // Standing exactly on the obstacle centre: eject along current facing.
-          const f = this.forward();
-          pos.x = o.x + f.x * minDist;
-          pos.z = o.z + f.z * minDist;
-        }
-      }
-      pos.x = THREE.MathUtils.clamp(pos.x, -this.bound, this.bound);
-      pos.z = THREE.MathUtils.clamp(pos.z, -this.bound, this.bound);
-      // Pass 2: the wall clamp can shove the body back into a corner pillar (the
-      // very corner has no walkable space). Slide along the wall to the nearest
-      // in-bounds point that clears the circle, so the body stops cleanly
-      // against the pillar instead of jittering.
-      for (const o of obs) {
-        if (o.top !== undefined && pos.y >= o.top - 0.02) continue;
-        const dx = pos.x - o.x;
-        const dz = pos.z - o.z;
-        const minDist = o.r + PLAYER_R;
-        if (dx * dx + dz * dz >= minDist * minDist) continue;
-        const candidates: { x: number; z: number }[] = [];
-        const needX = Math.sqrt(Math.max(0, minDist * minDist - dz * dz));
-        for (const sx of [o.x + needX, o.x - needX]) {
-          if (sx >= -this.bound && sx <= this.bound) candidates.push({ x: sx, z: pos.z });
-        }
-        const needZ = Math.sqrt(Math.max(0, minDist * minDist - dx * dx));
-        for (const sz of [o.z + needZ, o.z - needZ]) {
-          if (sz >= -this.bound && sz <= this.bound) candidates.push({ x: pos.x, z: sz });
-        }
-        let best: { x: number; z: number } | null = null;
-        let bestD = Infinity;
-        for (const c of candidates) {
-          const dd = (c.x - pos.x) ** 2 + (c.z - pos.z) ** 2;
-          if (dd < bestD) {
-            bestD = dd;
-            best = c;
+      const lateralActive = (o: ObstacleCircle, feetY: number): boolean => {
+        // Standing on a landable top — no side push.
+        if (o.top !== undefined && feetY >= o.top - 0.02) return false;
+        // Walking under a floating platform — no side push below its bottom.
+        if (o.bottom !== undefined && feetY < o.bottom - 0.02) return false;
+        // Capsule vertical span roughly [feetY, feetY+1.8]; skip if fully above top.
+        if (o.top !== undefined && feetY > o.top + 1.75) return false;
+        return true;
+      };
+      // 3 iterations: overlapping circles (pillar + crate) need repeated resolve
+      // so we don't remain stuck after a single push into a neighbour.
+      for (let iter = 0; iter < 3; iter++) {
+        for (const o of obs) {
+          if (!lateralActive(o, pos.y)) continue;
+          const dx = pos.x - o.x;
+          const dz = pos.z - o.z;
+          const minDist = o.r + PLAYER_R;
+          const d = Math.hypot(dx, dz);
+          if (d >= minDist) continue;
+          if (d > 1e-4) {
+            pos.x = o.x + (dx / d) * minDist;
+            pos.z = o.z + (dz / d) * minDist;
+          } else {
+            const f = this.forward();
+            pos.x = o.x + f.x * minDist;
+            pos.z = o.z + f.z * minDist;
           }
         }
-        if (best) {
-          pos.x = best.x;
-          pos.z = best.z;
+        pos.x = THREE.MathUtils.clamp(pos.x, -this.bound, this.bound);
+        pos.z = THREE.MathUtils.clamp(pos.z, -this.bound, this.bound);
+        // Corner slide: wall clamp can re-embed into a pillar — project to the
+        // nearest in-bounds point that clears the circle.
+        for (const o of obs) {
+          if (!lateralActive(o, pos.y)) continue;
+          const dx = pos.x - o.x;
+          const dz = pos.z - o.z;
+          const minDist = o.r + PLAYER_R;
+          if (dx * dx + dz * dz >= minDist * minDist) continue;
+          const candidates: { x: number; z: number }[] = [];
+          const needX = Math.sqrt(Math.max(0, minDist * minDist - dz * dz));
+          for (const sx of [o.x + needX, o.x - needX]) {
+            if (sx >= -this.bound && sx <= this.bound) candidates.push({ x: sx, z: pos.z });
+          }
+          const needZ = Math.sqrt(Math.max(0, minDist * minDist - dx * dx));
+          for (const sz of [o.z + needZ, o.z - needZ]) {
+            if (sz >= -this.bound && sz <= this.bound) candidates.push({ x: pos.x, z: sz });
+          }
+          let best: { x: number; z: number } | null = null;
+          let bestD = Infinity;
+          for (const c of candidates) {
+            const dd = (c.x - pos.x) ** 2 + (c.z - pos.z) ** 2;
+            if (dd < bestD) {
+              bestD = dd;
+              best = c;
+            }
+          }
+          if (best) {
+            pos.x = best.x;
+            pos.z = best.z;
+          }
         }
       }
     }
@@ -1204,12 +1209,15 @@ export class Controller {
     }
 
     // Locomotion blend by smoothed speed (skip while a one-shot owns the body).
+    // Walk stays mid-range; Shift forces 1.0 so setLocomotion can pick sprint.
+    // Previously non-sprint keyboard sat at 0.5 and the fallback path promoted
+    // grudge6 to "run" at 0.65 — Shift and walk both felt like the wrong gait.
     const targetSpeed = moving
       ? sprinting
         ? 1
         : analog
-          ? Math.min(0.85, 0.3 + mag * 0.6)
-          : 0.5
+          ? Math.min(0.75, 0.25 + mag * 0.5)
+          : 0.45
       : 0;
     this.smoothedSpeed += (targetSpeed - this.smoothedSpeed) * Math.min(1, 10 * dt);
     if (!this.character.isOneShotActive && this.grounded && !this.isBusy && !this.hoverActive) {
@@ -1223,15 +1231,14 @@ export class Controller {
         const mv = this.smoothedSpeed;
         this.character.setLocomotionDirectional(Math.sin(rel) * mv, Math.cos(rel) * mv, mv);
       } else if (this.character.setLocomotion) {
-        // Weight-blended path (GLB Character): one continuous speed eases the
-        // idle/walk/run weights — no discrete role swap or rate hack needed.
+        // GrudgeAvatar + GLB Character: continuous speed → idle/walk/sprint.
         this.character.setLocomotion(this.smoothedSpeed);
-      } else if (this.smoothedSpeed > 0.65 && this.character.hasRole("run")) {
+      } else if (sprinting && this.character.hasRole("run")) {
         this.character.playRole("run");
-        this.character.setLocomotionRate(1 + (this.smoothedSpeed - 0.65) * 0.6);
+        this.character.setLocomotionRate(1);
       } else if (this.smoothedSpeed > 0.06) {
         this.character.playRole("walk");
-        this.character.setLocomotionRate(0.8 + this.smoothedSpeed);
+        this.character.setLocomotionRate(0.9 + this.smoothedSpeed * 0.3);
       } else {
         this.character.playRole("idle");
         this.character.setLocomotionRate(1);
