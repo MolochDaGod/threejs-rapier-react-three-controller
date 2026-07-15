@@ -115,7 +115,7 @@ export const HUB_DESTINATIONS: HubDestination[] = [
   {
     id: "minegrudge-editor",
     label: "GRUDOX Realms",
-    blurb: "Live survival · build · combat · friends (mine-loader.replit.app)",
+    blurb: "Live survival · build · combat · friends (mine-loader.vercel.app)",
     group: "play",
     localMode: "minegrudge",
   },
