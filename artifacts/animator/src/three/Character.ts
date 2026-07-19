@@ -8,6 +8,7 @@ import { isUpperBodyTrack } from "./upperBody";
 import { LocomotionBlend } from "./explorer/LocomotionBlend";
 import { sliceClipFraction, type SnippetSpec } from "./snippets";
 import { FootGrounder, type GroundSampler } from "./anim/legIk";
+import { SpineIK, findSpineBones } from "./anim/spineIk";
 import { directionalBlendWeights, resolveBlendTime } from "./anim/blend";
 import {
   lockInPlaceRoot,
@@ -82,8 +83,12 @@ export class Character {
   /** Dominant directional override for the current frame, or null = forward. */
   private dirOverride: "left" | "right" | "back" | null = null;
 
-  /** Foot-to-ground IK pass; bound on load, applied post-mixer, default OFF. */
+  /** Foot-to-ground IK pass; bound on load, applied post-mixer. */
   private footGrounder = new FootGrounder();
+  /** Spine aim IK (1P/3P gun look); restore pre-mixer, apply post feet. */
+  private spineIk: SpineIK | null = null;
+  /** Optional mesh tint (Madarame / palette variants). */
+  private meshTint: number | null = null;
 
   // --- Upper-body additive overlay (step 2) ---
   /** Additive (upper-body) actions, cached separately from full-body actions. */
@@ -204,7 +209,48 @@ export class Character {
     this.model.updateMatrixWorld(true);
     this.findHands();
     this.footGrounder.bind(this.model);
+    // Default ON for skinned GLBs: flat Y=0 sampler until Studio supplies terrain.
+    // Flat ground is a no-op when feet already plant; uneven dungeon overrides sampler.
+    if (this.footGrounder.isBound) {
+      this.footGrounder.setEnabled(true);
+    }
+    const { spine, head } = findSpineBones(this.model);
+    this.spineIk = spine.length ? new SpineIK(spine, head) : null;
+    // Snapshot base quats so first restoreBones is a no-op, not identity collapse.
+    if (this.spineIk) {
+      for (let i = 0; i < this.spineIk.spineBones.length; i++) {
+        this.spineIk.baseQuats[i].copy(this.spineIk.spineBones[i].quaternion);
+      }
+    }
+    const tint = this.meshTint ?? this.def.meshTint ?? null;
+    if (tint != null) {
+      this.meshTint = tint;
+      this.applyMeshTint(tint);
+    }
     this.playRole("idle", 0);
+  }
+
+  /**
+   * Multiply all mesh materials by a hex color (palette variants of the same GLB).
+   * Call before or after load; applied when the model exists.
+   */
+  setMeshTint(hex: number | null): void {
+    this.meshTint = hex;
+    if (this.model && hex != null) this.applyMeshTint(hex);
+  }
+
+  private applyMeshTint(hex: number): void {
+    if (!this.model) return;
+    const color = new THREE.Color(hex);
+    this.model.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.material) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        const mat = m as THREE.MeshStandardMaterial;
+        if (mat.color) mat.color.multiply(color);
+      }
+    });
   }
 
   /**
@@ -325,7 +371,7 @@ export class Character {
     this.blendTime = resolveBlendTime(t, this.blendTime);
   }
 
-  /** Enable/disable the post-mixer foot-to-ground IK pass (default OFF). */
+  /** Enable/disable the post-mixer foot-to-ground IK pass. */
   setFootIk(enabled: boolean): void {
     this.footGrounder.setEnabled(enabled);
   }
@@ -333,6 +379,26 @@ export class Character {
   /** Supply a world-space ground-height sampler for the foot IK pass. */
   setGroundSampler(fn: GroundSampler): void {
     this.footGrounder.setGroundSampler(fn);
+  }
+
+  get hasSpineIk(): boolean {
+    return !!this.spineIk?.isBound;
+  }
+
+  /**
+   * Apply spine aim IK after foot plant (call from Studio after character.update).
+   * `pitch` is look elevation (+up). 1P uses fp pitch; 3P uses camera.rotation.x path.
+   */
+  applySpineAim(
+    camera: THREE.Camera,
+    opts: { firstPerson: boolean; gunEngaged: boolean; pitch: number },
+  ): void {
+    if (!this.spineIk?.isBound) return;
+    if (opts.firstPerson) {
+      this.spineIk.applyAim1P(camera, opts.pitch);
+    } else {
+      this.spineIk.applyAim3P(camera as THREE.Camera & { rotation: { x: number } }, opts.gunEngaged);
+    }
   }
 
   setShowSkeleton(show: boolean) {
@@ -527,14 +593,14 @@ export class Character {
       }
     }
 
-    // Single documented per-frame POST-MIXER override order for the GLB rig:
-    //   0. footGrounder.beginFrame — undo last frame's pelvis drop PRE-mixer so
-    //      the mixer always sees a clean base (never compounds; no stale-drop
-    //      leak when a one-shot clip saves/restores its "original" pose).
-    //   1. mixer.update  — bakes the locomotion blend + additive overlay pose.
-    //   2. footGrounder.apply — foot-to-ground IK override (legs + pelvis drop).
-    // Any future per-frame bone override must slot in AFTER the mixer, here.
+    // Single documented per-frame bone override order for the GLB rig:
+    //   0. footGrounder.beginFrame — undo last frame's pelvis drop PRE-mixer
+    //   0b. spineIk.restoreBones — undo last spine aim IK before mixer
+    //   1. mixer.update  — locomotion blend + additive overlay
+    //   2. footGrounder.apply — feet plant on terrain (XZ sample, Y plant)
+    //   3. spineIk.applyAim* — called by Studio AFTER this.update (needs camera)
     this.footGrounder.beginFrame();
+    this.spineIk?.restoreBones();
     this.mixer.update(dt);
     this.footGrounder.apply(dt);
 

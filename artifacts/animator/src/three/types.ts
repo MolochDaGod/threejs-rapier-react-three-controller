@@ -745,6 +745,11 @@ export interface CharacterDef {
   file: string;
   /** Uniform scale applied so the rig is ~1.8m tall. */
   scale: number;
+  /**
+   * Optional mesh color multiply (hex) for palette variants of one GLB
+   * (e.g. Ikkaku Madarame crimson / azure / void).
+   */
+  meshTint?: number;
   /** Map of logical role -> exact clip name embedded in the GLB. */
   clips: Partial<Record<AnimRole, string>>;
   /** Extra signature skill clips, keyed by a label shown in the UI. */

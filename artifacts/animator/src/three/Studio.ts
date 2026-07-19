@@ -1267,12 +1267,12 @@ export class Studio {
     this.character = next;
     this.character.setBlendTime(this.params.blendTime);
     this.character.setShowSkeleton(this.params.showSkeleton);
-    // Re-arm foot-to-ground IK on the new rig if we're mid-dungeon (the sampler
-    // outlives character swaps); procedural rigs no-op via the optional methods.
+    // Foot IK: dungeon uses nav sampler; elsewhere keep feet on flat Y=0.
+    // Always on for skinned GLBs so third-person feet stay planted.
     if (this.inDungeon && this.dungeonGround) {
       this.character.setGroundSampler?.(this.dungeonGround);
-      this.character.setFootIk?.(true);
     }
+    this.character.setFootIk?.(true);
     // Honour the spectator invariant: a character swapped in mid-duel must stay
     // hidden (the player is a spectator until the duel stops).
     this.character.root.visible = !this.spectating;
@@ -5736,6 +5736,21 @@ export class Studio {
       }
     }
     this.character?.update(dt);
+    // Spine aim IK AFTER mixer + foot plant (needs live camera + weapon stance).
+    if (this.character && this.controller) {
+      const gun =
+        this.weaponId === "pistol" ||
+        this.weaponId === "rifle" ||
+        this.weaponId === "hunter-rifle" ||
+        this.weaponId === "gunblade" ||
+        this.weaponId === "bow" ||
+        this.blocking;
+      this.character.applySpineAim?.(this.camera, {
+        firstPerson: this.controller.isFirstPerson,
+        gunEngaged: gun,
+        pitch: this.controller.aimElevation(),
+      });
+    }
     // Step real physics + slave the punching-bag visuals to their bodies.
     this.physics?.step(dt);
     this.bags?.sync(dt, this.camera);
@@ -6254,9 +6269,10 @@ export class Studio {
     this.controller?.setCameraOccluders([]);
     this.controller?.clearWaterBand();
     this.character?.setTraversalMode?.("ground");
-    // Back on the flat Danger Room floor: foot IK off so its feel is untouched.
+    // Back on the flat Danger Room floor: flat ground sampler, foot IK stays on.
     this.dungeonGround = null;
-    this.character?.setFootIk?.(false);
+    this.character?.setGroundSampler?.((x, z) => ({ y: 0, normal: new THREE.Vector3(0, 1, 0) }));
+    this.character?.setFootIk?.(true);
     // Snap the underwater tint/fog back to the Danger Room baseline immediately.
     // Adopt the active room preset's atmosphere (not the bare base) so the room
     // returns to its own mood, and re-tune the ambient bed to match.

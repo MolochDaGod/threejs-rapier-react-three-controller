@@ -1263,8 +1263,11 @@ export class Controller {
       this.applyCameraShake();
       return;
     }
+    // Orbit target: character root + cameraHeight, but never sink below feet.
+    // Foot IK can drop the mesh slightly; keep look-at above ground + small pad.
     const target = this.character.root.position.clone();
-    target.y += this.params.cameraHeight;
+    const footFloor = Math.max(0, target.y) + 0.05;
+    target.y = Math.max(target.y + this.params.cameraHeight, footFloor + this.params.cameraHeight * 0.85);
     const dist = this.params.cameraDistance;
     // Spherical orbit BEHIND the character: the horizontal ring (x/z) sits on
     // -forward via -dist and shrinks with pitch (cos), while the vertical rises
