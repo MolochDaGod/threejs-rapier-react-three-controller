@@ -12,6 +12,7 @@ import {
 import { DUNGEON_MAPS, loadDungeonMap } from "./DungeonMaps";
 import { addStudioLights, STUDIO_FOG, STUDIO_TONE_MAPPING_EXPOSURE } from "./studioLighting";
 import { DjBooth } from "./DjBooth";
+import { CastRuneStones } from "./fx/CastRuneStones";
 import { Character } from "./Character";
 import { ExplorerCharacter } from "./ExplorerCharacter";
 import { GrudgeAvatar } from "./grudge/GrudgeAvatar";
@@ -53,6 +54,7 @@ import type { AleCameraMode, ReplayFrequency } from "./types";
 import { invalidateTargetPortrait, requestTargetPortrait } from "./targetPortraits";
 import { Dungeon } from "./dungeon/Dungeon";
 import { DungeonEnemies } from "./dungeon/DungeonEnemies";
+import { DungeonHazards } from "./dungeon/DungeonHazards";
 import { isInWaterBand, traversalModeFor } from "./dungeon/water";
 import { groundProbeAt, type NavGrid } from "./dungeon/navmesh";
 import { WildlifeSystem, type HarvestDrop } from "./wildlife";
@@ -415,6 +417,11 @@ export class Studio {
   private wildlife: WildlifeSystem | null = null;
   /** Skillwrite cast aiming (target lock / ground AOE ring). */
   private castCtrl = new CastController();
+  /**
+   * Overhead magic runestone per skill family while casting/channeling.
+   * Firebolt · Icewave · Stormfist · Nature/Holy/Arcane default — tinted on channel.
+   */
+  private castRunes = new CastRuneStones();
   /** Flame Body remaining time (s); 0 = inactive. */
   private flameBodyT = 0;
   /**
@@ -437,6 +444,7 @@ export class Studio {
   private telegraphs: TelegraphField;
   /** The active dungeon level (null in the Danger Room). */
   private dungeon: Dungeon | null = null;
+  private dungeonHazards: DungeonHazards | null = null;
   private inDungeon = false;
   /** Foot-IK ground sampler for the active dungeon navmesh; null in the (flat)
    *  Danger Room, where foot IK stays off so its feel is untouched. */
@@ -771,6 +779,7 @@ export class Studio {
     } else if (e.button === 2) {
       if (this.castCtrl.isActive()) {
         this.castCtrl.cancel();
+        this.castRunes.hide();
         return;
       }
       this.toggleLock();
@@ -857,6 +866,8 @@ export class Studio {
     });
     this.targets = new Targets(this.scene);
     this.scene.add(this.castCtrl.ring);
+    this.scene.add(this.castRunes.group);
+    void this.castRunes.preload();
     // Wildlife pack (Quirky animals): additive fauna — pathfind when nav bound,
     // corpse + butcher. Load async; never blocks player boot.
     this.wildlife = new WildlifeSystem(this.scene);
@@ -4448,6 +4459,14 @@ export class Studio {
     if (this.skillCooldown > 0) return false;
     const theme = ELEMENT_THEME[element];
     const color = theme.color;
+    // Overhead elemental stone while cast animation plays
+    this.castRunes.show({
+      skillId: `elem:${element}`,
+      element,
+      school: element,
+      channelColor: color,
+    });
+    this.castRunes.release(0.45);
     const origin = this.character.root.position.clone();
     const fwd = this.facing();
     if (this.character.hasClip(theme.castClip)) this.character.playClipOnce(theme.castClip, 0.12);
@@ -5531,6 +5550,11 @@ export class Studio {
 
     this.room.update(t, this.sfx?.getMusicPulse()?.intensity ?? 0);
     this.djBooth?.update(dt, this.sfx?.getMusicPulse() ?? null);
+    // Overhead cast stones follow caster while aiming / after release flash
+    this.castRunes.update(dt, this.character?.root.position ?? null, {
+      channeling: this.castCtrl.isActive(),
+      intensity: this.castCtrl.isActive() ? 0.6 : 0,
+    });
     // Door portal prompt: lit only in the Danger Room while standing at the arch.
     this.doorPrompt =
       !this.inDungeon &&
@@ -5785,6 +5809,10 @@ export class Studio {
     // Wildlife AI + corpses (additive; independent of combat Targets).
     if (this.wildlife && this.character) {
       this.wildlife.update(dt, this.character.root.position);
+    }
+    // Dungeon obstacle traps (spikes / gears / bombs from mobile pack).
+    if (this.inDungeon && this.dungeonHazards) {
+      this.dungeonHazards.update(dt, this.character?.root.position ?? null);
     }
     // Skillwrite cast aim ring + Flame Body trail.
     this.updateCastAim(dt);
@@ -6207,6 +6235,28 @@ export class Studio {
       this.locked = false;
       this.controller?.setLockTarget(null);
 
+      // Seed mobile-obstacle traps on surface + pit (deterministic seed from map id).
+      this.dungeonHazards?.dispose();
+      const trapSeed =
+        (dmap.id ?? "default")
+          .split("")
+          .reduce((a, ch) => a + ch.charCodeAt(0), 0) ^ 0x6f627374; // "obst"
+      const hazards = new DungeonHazards(this.scene, trapSeed);
+      hazards.setDamageHandler((amount, at, label) => {
+        if (this.defeated || this.invuln > 0) return;
+        this.health = Math.max(0, this.health - amount);
+        this.vfx.burst(at, 0xff5522, 18, 4);
+        this.vfx.shockwave(new THREE.Vector3(at.x, at.y + 0.05, at.z), 0xff7744, 1.6, 0.35);
+        if (this.health <= 0) this.defeated = true;
+        console.info(`[DungeonHazards] hit by ${label} dmg=${amount}`);
+      });
+      hazards.setBombHandler((at) => {
+        this.vfx.burst(at, 0xffaa22, 48, 8);
+        this.vfx.shockwave(new THREE.Vector3(at.x, at.y + 0.05, at.z), 0xff6600, 4, 0.7);
+      });
+      void hazards.seed(dungeon.nav, dungeon.spawn, dungeon.pitNav, dungeon.pitSpawn);
+      this.dungeonHazards = hazards;
+
       // The dungeon keeps its own dark dry tone regardless of the room preset, so
       // reset the fog baseline (the water-band fx lerps from this) to the base.
       this.baseFogColor.set(Studio.FOG_BASE_COLOR);
@@ -6254,6 +6304,8 @@ export class Studio {
     if (!this.inDungeon) return;
     this.cancelMaceThrow();
     this.targets.dispose();
+    this.dungeonHazards?.dispose();
+    this.dungeonHazards = null;
     this.dungeon?.dispose();
     this.dungeon = null;
     // Back to flat Danger Room — wildlife wander without grid.
@@ -6513,7 +6565,10 @@ export class Studio {
     else if (code === "KeyC") this.headbutt();
     // KeyN = skin/butcher nearest wildlife corpse (meat + leather; 2 min window).
     else if (code === "KeyN") this.butcherWildlife();
-    else if (code === "Escape" && this.castCtrl.isActive()) this.castCtrl.cancel();
+    else if (code === "Escape" && this.castCtrl.isActive()) {
+      this.castCtrl.cancel();
+      this.castRunes.hide();
+    }
     else if (code === "KeyB") this.toggleView();
     else if (code === "Digit1") this.useSkill(0);
     else if (code === "Digit2") this.useSkill(1);
@@ -7795,15 +7850,35 @@ export class Studio {
       );
     }
     if (preset.acquire === "instant") {
-      return this.executeSkillPreset(preset, {
+      // Brief overhead stone during instant cast wind-up
+      this.showCastStoneForPreset(preset);
+      const ok = this.executeSkillPreset(preset, {
         ground: this.character?.root.position.clone() ?? new THREE.Vector3(),
         targetPos: null,
         targetFriendly: true,
       });
+      if (ok) this.castRunes.release(0.32);
+      else this.castRunes.hide();
+      return ok;
     }
     const armed = this.castCtrl.begin(preset);
-    if (armed) this.setCombatFlash(preset.label.toUpperCase(), 0.9);
+    if (armed) {
+      this.showCastStoneForPreset(preset);
+      this.setCombatFlash(preset.label.toUpperCase(), 0.9);
+    }
     return armed;
+  }
+
+  /** Pick Firebolt / Icewave / Stormfist / nature-holy-arcane stone and show over head. */
+  private showCastStoneForPreset(preset: SkillPreset): void {
+    const el = getWeapon(this.weaponId).element;
+    this.castRunes.show({
+      skillId: preset.id,
+      vfx: preset.vfx,
+      element: el,
+      school: el,
+      channelColor: preset.color,
+    });
   }
 
   private updateCastAim(_dt: number): void {
@@ -7823,6 +7898,8 @@ export class Studio {
   private confirmSkillCast(): void {
     const snap = this.castCtrl.confirm();
     if (!snap?.preset) return;
+    // Channel complete — stone pulses skill color then dismisses
+    this.castRunes.release(0.38);
     this.executeSkillPreset(snap.preset, {
       ground: snap.ground,
       targetPos: snap.targetPos,
@@ -7906,17 +7983,36 @@ export class Studio {
           if (preset.status) this.applyStatusScoped(preset.status, "hostile");
         });
         break;
-      case "naturesHealing":
-        this.vfx.castMoonbeam(at, color, preset.duration ?? 10, true, (p) => {
+      case "naturesHealing": {
+        // Water splash spiral rises from under caster (opaque, spinning).
+        // Friendly: also spiral on target; beam keeps HoT ticks.
+        const casterFeet = origin.clone();
+        this.vfx.castNatureHealingSpiral(casterFeet, color, {
+          life: 1.4,
+          peakHeight: 2.15,
+          spin: 26,
+          scale: 1.05,
+        });
+        if (aim.targetFriendly) {
+          this.vfx.castNatureHealingSpiral(at.clone(), color, {
+            life: 1.25,
+            peakHeight: 2.0,
+            spin: 22,
+            scale: 0.95,
+          });
+          if (preset.heal) this.health = Math.min(this.maxHealth, this.health + (preset.heal ?? 0));
+          if (preset.statusOnFriendly) this.applyStatusScoped(preset.statusOnFriendly, "ally");
+        }
+        this.vfx.castMoonbeam(at, color, Math.min(4, preset.duration ?? 4), true, (p) => {
           if (aim.targetFriendly) {
-            if (preset.heal) this.health = Math.min(this.maxHealth, this.health + preset.heal * 0.15);
-            if (preset.statusOnFriendly) this.applyStatusScoped(preset.statusOnFriendly, "ally");
+            if (preset.heal) this.health = Math.min(this.maxHealth, this.health + preset.heal * 0.12);
           } else {
             this.sparringBlast(p, radius, dmg * 0.25, this.params.skillForce * 0.25);
             if (preset.statusOnHostile) this.applyStatusScoped(preset.statusOnHostile, "hostile");
           }
         });
         break;
+      }
       case "earthWall":
         this.vfx.castEarthWall(at, color, radius, preset.duration ?? 6);
         if (preset.status) this.applyStatusScoped(preset.status, "self");
@@ -8069,6 +8165,7 @@ export class Studio {
     this.wildlife?.dispose();
     this.wildlife = null;
     this.castCtrl.dispose();
+    this.castRunes.dispose();
     this.flameBodyT = 0;
     this.frostBlinkWindow = 0;
     // Stop the boot stall watchdog so it can't fire against a torn-down session.

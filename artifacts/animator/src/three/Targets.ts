@@ -38,6 +38,12 @@ import type { NpcState } from "@workspace/danger-net";
 import { createFighterBrain, type FighterActions, type FighterAgent, type FighterBias, type FighterPerception } from "./ai/FighterBrain";
 import { fighterWeaponProfile, type WeaponCombatRole } from "./ai/weaponRole";
 import type { Think } from "./ai/Think";
+import {
+  CORPSE_TO_SKELETON_S,
+  SKELETON_LINGER_S,
+  createSkeletonCorpse,
+  preloadSkeletonCorpses,
+} from "./corpse/SkeletonCorpse";
 
 /** Per-frame world snapshot the brain's action hooks read (refreshed in updateAi). */
 interface FighterFrame {
@@ -432,6 +438,9 @@ interface Dummy {
   flashColor: THREE.Color;
   dead: boolean;
   respawn: number;
+  /** Flesh replaced by Skeletons_Free residual after 2 min dead. */
+  isSkeleton: boolean;
+  skeletonRoot: THREE.Object3D | null;
   yaw: number;
   body: THREE.Mesh;
   head: THREE.Mesh;
@@ -674,6 +683,7 @@ export class Targets implements CombatTargets {
 
     this.build(count);
     scene.add(this.group);
+    preloadSkeletonCorpses();
   }
 
   /** Register the player's CombatController (so player hits can be parried). */
@@ -777,6 +787,8 @@ export class Targets implements CombatTargets {
       flashColor: FLASH_COLOR.clone(),
       dead: false,
       respawn: 0,
+      isSkeleton: false,
+      skeletonRoot: null,
       yaw: 0,
       body,
       head,
@@ -1608,9 +1620,7 @@ export class Targets implements CombatTargets {
     }
 
     if (d.cc.getHealth() <= 0 && !d.dead) {
-      d.dead = true;
-      d.respawn = 2.6;
-      this.onDeath?.(this.chest(d));
+      this.markDead(d);
     }
     return result;
   }
@@ -1934,10 +1944,8 @@ export class Targets implements CombatTargets {
       if (damage > 0) {
         d.cc.applyAttack({ force: 4, damage: damage * falloff, poiseDamage: damage * falloff });
         if (d.cc.getHealth() <= 0 && !d.dead) {
-          d.dead = true;
           d.launchPhase = undefined;
-          d.respawn = 2.6;
-          this.onDeath?.(this.chest(d));
+          this.markDead(d);
         }
       }
       hits++;
@@ -2021,7 +2029,7 @@ export class Targets implements CombatTargets {
       if (d.dead) {
         d.vel.y -= 22 * dt;
         d.group.position.addScaledVector(d.vel, dt);
-        if (d.avatar) {
+        if (d.avatar && !d.isSkeleton) {
           // Avatar fighters play a death clip once; the rig (not a topple tilt)
           // sells the fall, so keep the group upright while the clip runs.
           if (!d.deathPlayed) {
@@ -2030,17 +2038,17 @@ export class Targets implements CombatTargets {
           }
           d.group.rotation.set(0, d.yaw, 0);
           if (d.avatarReady) d.avatar.update(dt);
-        } else {
+        } else if (!d.isSkeleton) {
           d.tilt.x += (Math.PI / 2 - d.tilt.x) * Math.min(1, 8 * dt);
           d.group.rotation.set(d.tilt.x, d.group.rotation.y, d.tilt.z);
         }
         if (d.group.position.y < 0) d.group.position.y = 0;
         d.respawn -= dt;
-        if (!d.avatar) {
-          const fade = THREE.MathUtils.clamp(d.respawn / 2.6, 0, 1);
-          d.mat.emissive.copy(REST_EMISSIVE).multiplyScalar(fade);
+        // After 2 minutes dead → Skeletons_Free residual (characters).
+        if (!d.isSkeleton && d.respawn <= SKELETON_LINGER_S) {
+          void this.toSkeleton(d);
         }
-        // With auto-respawn off (duel mode) a slain fighter stays down.
+        // With auto-respawn off (duel mode) a slain fighter stays as skeleton.
         if (this.autoRespawn && d.respawn <= 0) this.revive(d);
         continue;
       }
@@ -3033,8 +3041,68 @@ export class Targets implements CombatTargets {
     }
   }
 
+  /** Mark fighter dead — flesh corpse for 2 min, then skeleton residual. */
+  private markDead(d: Dummy): void {
+    d.dead = true;
+    d.isSkeleton = false;
+    d.respawn = CORPSE_TO_SKELETON_S + SKELETON_LINGER_S;
+    this.onDeath?.(this.chest(d));
+  }
+
+  private async toSkeleton(d: Dummy): Promise<void> {
+    if (!d.dead || d.isSkeleton) return;
+    d.isSkeleton = true;
+    // Hide flesh visuals
+    d.body.visible = false;
+    d.head.visible = false;
+    d.accent.visible = false;
+    if (d.avatar) {
+      try {
+        d.avatar.root.visible = false;
+      } catch {
+        /* avatar may not expose root */
+      }
+    }
+    if (d.model) {
+      try {
+        (d.model as { root?: THREE.Object3D }).root &&
+          ((d.model as { root: THREE.Object3D }).root.visible = false);
+      } catch {
+        /* ignore */
+      }
+    }
+    d.group.visible = true;
+    d.group.rotation.set(0, d.yaw, 0);
+    const skel = await createSkeletonCorpse({
+      position: new THREE.Vector3(0, 0, 0),
+      yaw: d.yaw,
+      scale: 1,
+      variant: d.combatRole === "ranged" ? "archer" : "humanoid",
+      lieDown: true,
+    });
+    if (skel) {
+      d.group.add(skel);
+      d.skeletonRoot = skel;
+    }
+  }
+
   private revive(d: Dummy) {
     d.dead = false;
+    d.isSkeleton = false;
+    if (d.skeletonRoot) {
+      d.group.remove(d.skeletonRoot);
+      d.skeletonRoot = null;
+    }
+    d.body.visible = true;
+    d.head.visible = true;
+    d.accent.visible = true;
+    if (d.avatar) {
+      try {
+        d.avatar.root.visible = true;
+      } catch {
+        /* ignore */
+      }
+    }
     // Fresh CC so health/poise/stamina/crit all reset cleanly.
     d.cc = makeFighterCC(d.arch, {}, d.maxHealth ? { maxHealth: d.maxHealth } : {});
     d.lastState = "idle";

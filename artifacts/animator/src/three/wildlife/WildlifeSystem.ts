@@ -30,6 +30,13 @@ import {
   type AnimalSpeciesDef,
   type AnimalSpeciesId,
 } from "./catalog";
+import {
+  CORPSE_TO_SKELETON_S,
+  SKELETON_LINGER_S,
+  createSkeletonCorpse,
+  preloadSkeletonCorpses,
+  skeletonScaleForBodyHeight,
+} from "../corpse/SkeletonCorpse";
 
 export interface HarvestDrop {
   itemId: string;
@@ -70,6 +77,10 @@ interface LiveAnimal {
   deathBlend: number;
   corpseT: number;
   harvested: boolean;
+  /** Flesh replaced by Skeletons_Free residual. */
+  isSkeleton: boolean;
+  /** Seconds remaining while showing skeleton residual. */
+  skeletonT: number;
   /** Facing yaw (rad). */
   yaw: number;
   fallAxis: THREE.Vector3;
@@ -98,6 +109,7 @@ export class WildlifeSystem {
     this.scene = scene;
     this.group.name = "wildlife";
     scene.add(this.group);
+    preloadSkeletonCorpses();
   }
 
   /** Bind a navmesh for A* wander/flee (dungeon / island). Null = flat plane. */
@@ -233,6 +245,8 @@ export class WildlifeSystem {
       deathBlend: 0,
       corpseT: 0,
       harvested: false,
+      isSkeleton: false,
+      skeletonT: 0,
       yaw: Math.random() * Math.PI * 2,
       fallAxis: new THREE.Vector3(1, 0, 0),
     };
@@ -291,8 +305,8 @@ export class WildlifeSystem {
     }
     const rolls = rollButcherYield(best.def);
     best.harvested = true;
-    // Visual: sink/flatten slightly after butcher.
-    best.root.scale.multiplyScalar(0.92);
+    // Skin/loot complete → replace flesh with skeleton residual immediately.
+    void this.toSkeleton(best);
     const drops: HarvestDrop[] = rolls.map((r) => ({
       ...r,
       speciesId: best!.def.id,
@@ -301,7 +315,11 @@ export class WildlifeSystem {
     }));
     this.onHarvest?.(drops);
     const summary = drops.map((d) => `${d.qty}× ${d.label}`).join(", ");
-    this.onMessage?.(summary ? `Butchered ${best.def.label}: ${summary}` : `Butchered ${best.def.label}.`);
+    this.onMessage?.(
+      summary
+        ? `Skinned ${best.def.label}: ${summary}`
+        : `Skinned ${best.def.label} — bones remain.`,
+    );
     return drops;
   }
 
@@ -311,7 +329,7 @@ export class WildlifeSystem {
       speciesId: a.def.id,
       label: a.def.label,
       alive: a.ai !== "dead",
-      harvestable: a.ai === "dead" && !a.harvested && a.corpseT > 0,
+      harvestable: a.ai === "dead" && !a.harvested && !a.isSkeleton && a.corpseT > 0,
       harvested: a.harvested,
       health: a.health,
       maxHealth: a.def.health,
@@ -328,17 +346,24 @@ export class WildlifeSystem {
       a.mixer?.update(dt);
 
       if (a.ai === "dead") {
-        // Fall to side over ~0.55s, then linger.
-        if (a.deathBlend < 1) {
+        // Fall to side over ~0.55s, then linger as flesh corpse.
+        if (!a.isSkeleton && a.deathBlend < 1) {
           a.deathBlend = Math.min(1, a.deathBlend + dt / 0.55);
           const t = a.deathBlend * a.deathBlend * (3 - 2 * a.deathBlend);
           a.model.rotation.z = 0;
           a.model.rotation.x = 0;
-          // Tip onto side around local forward-perpendicular.
           a.model.quaternion.setFromAxisAngle(a.fallAxis, (Math.PI / 2) * t);
         }
+        if (a.isSkeleton) {
+          a.skeletonT -= dt;
+          if (a.skeletonT <= 0) remove.push(a.id);
+          continue;
+        }
         a.corpseT -= dt;
-        if (a.corpseT <= 0) remove.push(a.id);
+        // After 2 minutes unskinned (or corpse timer), become skeleton residual.
+        if (a.corpseT <= 0) {
+          void this.toSkeleton(a);
+        }
         continue;
       }
 
@@ -427,7 +452,9 @@ export class WildlifeSystem {
     a.ai = "dead";
     a.health = 0;
     a.stateT = 0;
-    a.corpseT = CORPSE_LIFETIME_S;
+    a.corpseT = Math.min(CORPSE_LIFETIME_S, CORPSE_TO_SKELETON_S);
+    a.skeletonT = 0;
+    a.isSkeleton = false;
     a.deathBlend = 0;
     a.goal = null;
     a.path = [];
@@ -438,6 +465,45 @@ export class WildlifeSystem {
       a.fallAxis.set(side, 0, 0);
     }
     a.fallAxis.normalize();
+  }
+
+  /** Replace flesh mesh with Skeletons_Free residual (after loot or 2 min dead). */
+  private async toSkeleton(a: LiveAnimal): Promise<void> {
+    if (a.isSkeleton) return;
+    a.isSkeleton = true;
+    a.harvested = true; // no further skin
+    a.corpseT = 0;
+    a.skeletonT = SKELETON_LINGER_S;
+    a.mixer?.stopAllAction();
+    a.mixer = null;
+    a.action = null;
+
+    const scale = skeletonScaleForBodyHeight(a.def.heightM ?? 0.8);
+    const skel = await createSkeletonCorpse({
+      position: new THREE.Vector3(0, 0, 0),
+      yaw: a.yaw,
+      scale,
+      variant: "humanoid",
+      lieDown: true,
+    });
+    // Remove flesh model children, keep root at world pos.
+    while (a.root.children.length) a.root.remove(a.root.children[0]!);
+    if (skel) {
+      // skel is a group already lying down — attach local
+      skel.position.set(0, 0, 0);
+      a.root.add(skel);
+      a.model = skel;
+    } else {
+      // Fallback: flatten a bone-coloured capsule if pack missing
+      const bone = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.12, 0.7, 4, 6),
+        new THREE.MeshStandardMaterial({ color: 0xe8e0d4, roughness: 0.85 }),
+      );
+      bone.rotation.z = Math.PI / 2;
+      bone.position.y = 0.12;
+      a.root.add(bone);
+      a.model = bone;
+    }
   }
 
   private pickSpawnPos(center: THREE.Vector3, radius: number): THREE.Vector3 | null {

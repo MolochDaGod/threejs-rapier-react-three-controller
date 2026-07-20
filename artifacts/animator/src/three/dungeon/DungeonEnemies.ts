@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type {
   AttackPayload,
   CombatController,
@@ -25,8 +26,58 @@ import {
   type NavGrid,
   type NavWaypoint,
 } from "./navmesh";
+import { asset } from "../assets";
+import {
+  CORPSE_TO_SKELETON_S,
+  SKELETON_LINGER_S,
+  createSkeletonCorpse,
+  preloadSkeletonCorpses,
+} from "../corpse/SkeletonCorpse";
 
-export type EnemyKind = "melee" | "ranged" | "monster" | "boss";
+export type EnemyKind =
+  | "melee"
+  | "ranged"
+  | "monster"
+  | "boss"
+  | "nature_guard"
+  | "shadow_assassin"
+  | "lava_golem"
+  | "ifrit"
+  | "drake"
+  | "thorn_beast"
+  | "free_reptile"
+  | "armored_crab";
+
+/** Belerick Guard of Nature — GLB with baked combat clips. */
+const BELERICK_MODEL = "models/enemies/belerick_guard_of_nature.glb";
+const BELERICK_HEIGHT_M = 2.15;
+/** Helcurt Shadowbringer — GLB with baked combat clips. */
+const HELCURT_MODEL = "models/enemies/helcurt_shadowbringer.glb";
+const HELCURT_HEIGHT_M = 2.0;
+const LAVA_GOLEM_MODEL = "models/enemies/lava_golem.glb";
+const LAVA_GOLEM_HEIGHT_M = 2.4;
+const IFRIT_MODEL = "models/enemies/ifrit.glb";
+const IFRIT_HEIGHT_M = 2.35;
+const DRAKE_MODEL = "models/enemies/drake.glb";
+const DRAKE_HEIGHT_M = 1.9;
+const THORN_BEAST_MODEL = "models/enemies/monsters_x_free.glb";
+const THORN_BEAST_HEIGHT_M = 2.1;
+const FREE_REPTILE_MODEL = "models/enemies/free_reptile.glb";
+const FREE_REPTILE_HEIGHT_M = 1.85;
+const ARMORED_CRAB_MODEL = "models/enemies/creature_crab.glb";
+const ARMORED_CRAB_HEIGHT_M = 1.4;
+
+/** Kinds that load a skinned/animated GLB instead of capsule placeholders. */
+const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
+  "nature_guard",
+  "shadow_assassin",
+  "lava_golem",
+  "ifrit",
+  "drake",
+  "thorn_beast",
+  "free_reptile",
+  "armored_crab",
+]);
 
 interface KindProfile {
   name: string;
@@ -102,6 +153,112 @@ const PROFILES: Record<EnemyKind, KindProfile> = {
     ranged: false,
     defense: 22,
   },
+  /** Belerick — Guard of Nature (Mobile Legends pack, full anim set). */
+  nature_guard: {
+    name: "Belerick",
+    health: 220,
+    scale: 1.15,
+    color: 0x3d7a4a,
+    attack: 28,
+    range: 2.4,
+    windup: 0.7,
+    attackInterval: 1.85,
+    speed: 2.5,
+    ranged: false,
+    defense: 12,
+  },
+  /** Helcurt — Shadowbringer assassin (fast melee). */
+  shadow_assassin: {
+    name: "Helcurt",
+    health: 165,
+    scale: 1.05,
+    color: 0x4a2d6a,
+    attack: 32,
+    range: 2.2,
+    windup: 0.45,
+    attackInterval: 1.45,
+    speed: 3.4,
+    ranged: false,
+    defense: 8,
+  },
+  lava_golem: {
+    name: "Lava Golem",
+    health: 280,
+    scale: 1.35,
+    color: 0xc44a1a,
+    attack: 30,
+    range: 2.8,
+    windup: 0.85,
+    attackInterval: 2.1,
+    speed: 1.8,
+    ranged: false,
+    defense: 16,
+  },
+  ifrit: {
+    name: "Ifrit",
+    health: 240,
+    scale: 1.2,
+    color: 0xff5522,
+    attack: 34,
+    range: 2.6,
+    windup: 0.65,
+    attackInterval: 1.7,
+    speed: 2.6,
+    ranged: false,
+    defense: 12,
+  },
+  drake: {
+    name: "Drake",
+    health: 180,
+    scale: 1.1,
+    color: 0x8b4513,
+    attack: 26,
+    range: 2.5,
+    windup: 0.6,
+    attackInterval: 1.6,
+    speed: 2.9,
+    ranged: false,
+    defense: 10,
+  },
+  thorn_beast: {
+    name: "Thorn Beast",
+    health: 150,
+    scale: 1.05,
+    color: 0x5a7040,
+    attack: 24,
+    range: 2.4,
+    windup: 0.55,
+    attackInterval: 1.55,
+    speed: 2.8,
+    ranged: false,
+    defense: 9,
+  },
+  free_reptile: {
+    name: "Wild Reptile",
+    health: 95,
+    scale: 0.95,
+    color: 0x4a7a3a,
+    attack: 18,
+    range: 2.2,
+    windup: 0.5,
+    attackInterval: 1.5,
+    speed: 2.7,
+    ranged: false,
+    defense: 6,
+  },
+  armored_crab: {
+    name: "Armored Crab",
+    health: 110,
+    scale: 0.9,
+    color: 0xb85a2a,
+    attack: 20,
+    range: 2.1,
+    windup: 0.7,
+    attackInterval: 1.8,
+    speed: 2.0,
+    ranged: false,
+    defense: 14,
+  },
 };
 
 /**
@@ -115,6 +272,14 @@ const KIND_ARCH: Record<EnemyKind, FighterArchetype> = {
   ranged: "grunt",
   monster: "elite",
   boss: "boss",
+  nature_guard: "elite",
+  shadow_assassin: "elite",
+  lava_golem: "elite",
+  ifrit: "elite",
+  drake: "elite",
+  thorn_beast: "elite",
+  free_reptile: "grunt",
+  armored_crab: "grunt",
 };
 
 /** Per-difficulty multipliers (mirrors the Danger Room's spread, simplified). */
@@ -158,6 +323,9 @@ interface Enemy {
   dead: boolean;
   /** Seconds until this enemy respawns at its spawn cell (reset). */
   respawn: number;
+  /** Flesh → skeleton residual (Skeletons_Free). */
+  isSkeleton: boolean;
+  skeletonRoot: THREE.Object3D | null;
   spawn: THREE.Vector3;
   yaw: number;
   vel: THREE.Vector3;
@@ -179,6 +347,13 @@ interface Enemy {
   repathT: number;
   ownGeos: THREE.BufferGeometry[];
   ownMats: THREE.Material[];
+  /** Optional skinned GLB visual (Belerick / future heroes). */
+  glbRoot: THREE.Object3D | null;
+  mixer: THREE.AnimationMixer | null;
+  actions: Map<string, THREE.AnimationAction>;
+  currentAnim: string;
+  /** Hide procedural limbs when GLB is driving the look. */
+  useGlbVisual: boolean;
 }
 
 interface Projectile {
@@ -226,6 +401,13 @@ export class DungeonEnemies implements CombatTargets {
   /** Hook fired when a projectile/strike should spawn VFX (Studio supplies it). */
   onProjectileImpact: ((pos: THREE.Vector3) => void) | null = null;
 
+  /** Shared skinned enemy templates (Belerick / Helcurt), loaded once each. */
+  private glbTpls = new Map<
+    EnemyKind,
+    { root: THREE.Object3D; clips: THREE.AnimationClip[] }
+  >();
+  private glbLoading = new Map<EnemyKind, Promise<void>>();
+
   constructor(
     scene: THREE.Scene,
     nav: NavGrid,
@@ -239,8 +421,165 @@ export class DungeonEnemies implements CombatTargets {
     this.projGeo = new THREE.SphereGeometry(0.16, 8, 8);
     this.projMat = new THREE.MeshBasicMaterial({ color: 0xffe27a });
     this.scene.add(this.group);
+    preloadSkeletonCorpses();
+    // Kick GLB loads early so heroes can mount visuals ASAP
+    for (const kind of GLB_ENEMY_KINDS) void this.ensureGlbTpl(kind);
     this.spawnWave();
     if (pit) this.spawnPit(pit.nav, pit.spawn);
+  }
+
+  private glbSpec(
+    kind: EnemyKind,
+  ): { path: string; height: number; label: string } | null {
+    switch (kind) {
+      case "nature_guard":
+        return { path: BELERICK_MODEL, height: BELERICK_HEIGHT_M, label: "Belerick" };
+      case "shadow_assassin":
+        return { path: HELCURT_MODEL, height: HELCURT_HEIGHT_M, label: "Helcurt" };
+      case "lava_golem":
+        return { path: LAVA_GOLEM_MODEL, height: LAVA_GOLEM_HEIGHT_M, label: "Lava Golem" };
+      case "ifrit":
+        return { path: IFRIT_MODEL, height: IFRIT_HEIGHT_M, label: "Ifrit" };
+      case "drake":
+        return { path: DRAKE_MODEL, height: DRAKE_HEIGHT_M, label: "Drake" };
+      case "thorn_beast":
+        return { path: THORN_BEAST_MODEL, height: THORN_BEAST_HEIGHT_M, label: "Thorn Beast" };
+      case "free_reptile":
+        return { path: FREE_REPTILE_MODEL, height: FREE_REPTILE_HEIGHT_M, label: "Wild Reptile" };
+      case "armored_crab":
+        return { path: ARMORED_CRAB_MODEL, height: ARMORED_CRAB_HEIGHT_M, label: "Armored Crab" };
+      default:
+        return null;
+    }
+  }
+
+  /** Lazy-load skinned enemy pack (model + attack/run/idle/death clips). */
+  private ensureGlbTpl(kind: EnemyKind): Promise<void> {
+    const spec = this.glbSpec(kind);
+    if (!spec) return Promise.resolve();
+    if (this.glbTpls.has(kind)) return Promise.resolve();
+    const inflight = this.glbLoading.get(kind);
+    if (inflight) return inflight;
+
+    const loading = (async () => {
+      try {
+        const gltf = await new GLTFLoader().loadAsync(asset(spec.path));
+        const root = gltf.scene;
+        const box = new THREE.Box3().setFromObject(root);
+        const size = box.getSize(new THREE.Vector3());
+        if (size.y > 1e-4) root.scale.multiplyScalar(spec.height / size.y);
+        const box2 = new THREE.Box3().setFromObject(root);
+        const center = box2.getCenter(new THREE.Vector3());
+        root.position.x -= center.x;
+        root.position.z -= center.z;
+        root.position.y -= box2.min.y;
+        root.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh) {
+            m.castShadow = true;
+            m.receiveShadow = true;
+          }
+        });
+        this.glbTpls.set(kind, { root, clips: gltf.animations?.slice() ?? [] });
+        for (const e of this.enemies) {
+          if (e.kind === kind && !e.glbRoot) this.mountGlbVisual(e);
+        }
+        const clips = this.glbTpls.get(kind)!.clips.map((c) => c.name).join(",");
+        console.info(`[DungeonEnemies] ${spec.label} loaded clips=${clips}`);
+      } catch (err) {
+        console.warn(`[DungeonEnemies] ${spec.label} load failed — capsule fallback`, err);
+        this.glbLoading.delete(kind);
+      }
+    })();
+    this.glbLoading.set(kind, loading);
+    return loading;
+  }
+
+  private mountGlbVisual(e: Enemy): void {
+    const tpl = this.glbTpls.get(e.kind);
+    if (!tpl || e.glbRoot) return;
+    const clone = tpl.root.clone(true);
+    clone.scale.multiplyScalar(e.profile.scale);
+    clone.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const src = Array.isArray(m.material) ? m.material : [m.material];
+      m.material = Array.isArray(m.material)
+        ? src.map((x) => (x as THREE.Material).clone())
+        : (src[0] as THREE.Material).clone();
+    });
+    e.group.add(clone);
+    e.glbRoot = clone;
+    e.useGlbVisual = true;
+    e.body.visible = false;
+    e.head.visible = false;
+    e.legL.visible = false;
+    e.legR.visible = false;
+    e.armL.visible = false;
+    e.armR.visible = false;
+
+    const mixer = new THREE.AnimationMixer(clone);
+    e.mixer = mixer;
+    e.actions = new Map();
+    for (const clip of tpl.clips) {
+      const key = this.classifyHeroClip(clip.name);
+      if (!key || e.actions.has(key)) continue;
+      const action = mixer.clipAction(clip);
+      action.enabled = true;
+      e.actions.set(key, action);
+    }
+    this.playEnemyAnim(e, "idle", true);
+  }
+
+  /** Map pack clip names (Belerick / Helcurt / Ziambetov / Ifrit / Drake) → combat roles. */
+  private classifyHeroClip(name: string): string | null {
+    const n = name.toLowerCase();
+    if (n.includes("dead") || n.includes("death") || n === "die") return "dead";
+    if (
+      n.includes("fight_idle") ||
+      n.includes("wait_1") ||
+      n.includes("wait_inhand") ||
+      (n.includes("idle") && !n.includes("skill"))
+    )
+      return "idle";
+    if (
+      n.includes("fastrun") ||
+      n.includes("run2") ||
+      n.includes("run3") ||
+      n.includes("run1") ||
+      n.includes("run") ||
+      n === "walk"
+    )
+      return "run";
+    if (
+      n.includes("attack1") ||
+      n.includes("attack2") ||
+      n.includes("attack3") ||
+      n.includes("attack_01") ||
+      n.includes("attack") ||
+      n.includes("use_skill")
+    )
+      return "attack";
+    if (n.includes("skill1") || n.includes("skill2") || n.includes("skill3") || n.includes("skill_"))
+      return "skill";
+    if (n.includes("taunt") || n.includes("verigo") || n.includes("shout") || n.includes("get hit") || n.includes("behit") || n.includes("hit"))
+      return "taunt";
+    return null;
+  }
+
+  private playEnemyAnim(e: Enemy, role: string, loop: boolean): void {
+    if (!e.mixer || e.actions.size === 0) return;
+    if (e.currentAnim === role) return;
+    const next = e.actions.get(role) ?? e.actions.get("idle");
+    if (!next) return;
+    const prev = e.currentAnim ? e.actions.get(e.currentAnim) : null;
+    next.reset();
+    next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
+    next.clampWhenFinished = !loop;
+    next.setEffectiveWeight(1);
+    next.play();
+    if (prev && prev !== next) prev.crossFadeTo(next, 0.18, false);
+    e.currentAnim = role;
   }
 
   // ---- Spawning -----------------------------------------------------------
@@ -270,15 +609,23 @@ export class DungeonEnemies implements CombatTargets {
     return out;
   }
 
-  /** Build the initial surface enemy population: a mix of all three kinds. */
+  /** Surface wave: skeletons, archers, brute + GLB elites / wildlife pack. */
   private spawnWave() {
     const plan: EnemyKind[] = [
-      "melee",
       "melee",
       "melee",
       "ranged",
       "ranged",
       "monster",
+      "nature_guard",
+      "shadow_assassin",
+      "free_reptile",
+      "free_reptile",
+      "thorn_beast",
+      "armored_crab",
+      "drake",
+      "lava_golem",
+      "ifrit",
     ];
     const cells = this.pickSpawnCells(plan.length, 6);
     for (let i = 0; i < cells.length; i++) {
@@ -293,10 +640,28 @@ export class DungeonEnemies implements CombatTargets {
    * real climax. The boss anchors at the pit centre; brutes ring around it.
    */
   private spawnPit(pitNav: NavGrid, pitSpawn: THREE.Vector3) {
-    const BRUTE_COUNT = 9;
+    const BRUTE_COUNT = 8;
     const cells = this.pickSpawnCells(BRUTE_COUNT, 0, pitNav, pitSpawn, 3);
     for (const cell of cells) {
       this.enemies.push(this.makeEnemy("monster", cell, pitNav, { hardened: true, noRespawn: true }));
+    }
+    // GLB elites flank the boss (hardened, no respawn).
+    const elitePlan: EnemyKind[] = [
+      "nature_guard",
+      "shadow_assassin",
+      "lava_golem",
+      "ifrit",
+      "drake",
+      "thorn_beast",
+    ];
+    const eliteCells = this.pickSpawnCells(elitePlan.length, 0, pitNav, pitSpawn, 3.5);
+    for (let i = 0; i < eliteCells.length; i++) {
+      this.enemies.push(
+        this.makeEnemy(elitePlan[i % elitePlan.length], eliteCells[i], pitNav, {
+          hardened: true,
+          noRespawn: true,
+        }),
+      );
     }
     // The boss stands at the centre of the pit floor.
     this.enemies.push(
@@ -386,7 +751,7 @@ export class DungeonEnemies implements CombatTargets {
     group.position.copy(at);
     this.group.add(group);
 
-    return {
+    const enemy: Enemy = {
       id: this.nextId++,
       kind,
       profile,
@@ -409,6 +774,8 @@ export class DungeonEnemies implements CombatTargets {
       maxHealth: profile.health,
       dead: false,
       respawn: 0,
+      isSkeleton: false,
+      skeletonRoot: null,
       spawn: at.clone(),
       yaw: 0,
       vel: new THREE.Vector3(),
@@ -426,7 +793,22 @@ export class DungeonEnemies implements CombatTargets {
       repathT: Math.random() * 0.5,
       ownGeos: geos,
       ownMats: mats,
+      glbRoot: null,
+      mixer: null,
+      actions: new Map(),
+      currentAnim: "",
+      useGlbVisual: false,
     };
+
+    // Skinned GLB enemies — mount mesh when template ready
+    if (GLB_ENEMY_KINDS.has(kind)) {
+      void this.ensureGlbTpl(kind).then(() => {
+        const e = this.enemies.find((x) => x.id === enemy.id);
+        if (e) this.mountGlbVisual(e);
+      });
+    }
+
+    return enemy;
   }
 
   // ---- CombatTargets: selection + queries ---------------------------------
@@ -696,11 +1078,53 @@ export class DungeonEnemies implements CombatTargets {
   private kill(e: Enemy) {
     e.dead = true;
     e.health = 0;
-    // Pit dwellers stay down (Infinity ⇒ never revived); surface enemies respawn.
-    e.respawn = e.noRespawn ? Infinity : 6 + Math.random() * 4;
-    e.group.visible = false;
+    e.isSkeleton = false;
+    // Corpse phase 2 min → skeleton residual → then respawn (surface) or stay bones (pit).
+    e.respawn = e.noRespawn
+      ? CORPSE_TO_SKELETON_S + SKELETON_LINGER_S
+      : CORPSE_TO_SKELETON_S + SKELETON_LINGER_S;
+    if (e.useGlbVisual && e.actions.has("dead")) {
+      this.playEnemyAnim(e, "dead", false);
+    }
+    // After death pose settles, leave body visible until skeleton swap.
+    window.setTimeout(() => {
+      if (!e.dead || e.isSkeleton) return;
+      // Keep group visible as corpse; no hide.
+    }, 1800);
     if (this.selectedId === e.id) this.setSelected(null);
     this.onDeath?.(this.chest(e));
+    // Schedule skeleton at 2 minutes (characters aren't skinned; time-only).
+    window.setTimeout(() => {
+      if (e.dead && !e.isSkeleton) void this.toSkeleton(e);
+    }, CORPSE_TO_SKELETON_S * 1000);
+  }
+
+  private async toSkeleton(e: Enemy): Promise<void> {
+    if (!e.dead || e.isSkeleton) return;
+    e.isSkeleton = true;
+    // Hide original body parts / GLB
+    if (e.glbRoot) e.glbRoot.visible = false;
+    e.body.visible = false;
+    e.head.visible = false;
+    e.legL.visible = false;
+    e.legR.visible = false;
+    e.armL.visible = false;
+    e.armR.visible = false;
+    e.mixer?.stopAllAction();
+    e.group.visible = true;
+
+    const variant = e.profile.ranged ? "archer" : "humanoid";
+    const skel = await createSkeletonCorpse({
+      position: new THREE.Vector3(0, 0, 0),
+      yaw: e.yaw,
+      scale: Math.max(0.7, Math.min(1.35, e.profile.scale)),
+      variant,
+      lieDown: true,
+    });
+    if (skel) {
+      e.group.add(skel);
+      e.skeletonRoot = skel;
+    }
   }
 
   reactAt(nearPos: THREE.Vector3, reaction: "stagger" | "stunned" | "fallen"): void {
@@ -954,7 +1378,19 @@ export class DungeonEnemies implements CombatTargets {
     for (const e of this.enemies) {
       if (e.dead) {
         e.respawn -= dt;
-        if (e.respawn <= 0) this.reviveEnemy(e);
+        // When only skeleton-linger time remains, swap flesh → bones.
+        if (!e.isSkeleton && e.respawn <= SKELETON_LINGER_S) {
+          void this.toSkeleton(e);
+        }
+        if (e.respawn <= 0) {
+          if (e.noRespawn) {
+            // Pit climax: leave skeleton residual (or hide after linger).
+            e.group.visible = !!e.skeletonRoot;
+            e.respawn = Infinity;
+          } else {
+            this.reviveEnemy(e);
+          }
+        }
         continue;
       }
       // Hardened pit dwellers always fight at the hardest tuning regardless of
@@ -972,11 +1408,26 @@ export class DungeonEnemies implements CombatTargets {
     e.lastState = e.cc.getState();
     e.health = e.maxHealth;
     e.dead = false;
+    e.isSkeleton = false;
+    if (e.skeletonRoot) {
+      e.group.remove(e.skeletonRoot);
+      e.skeletonRoot = null;
+    }
+    if (e.glbRoot) e.glbRoot.visible = true;
+    e.body.visible = !e.useGlbVisual;
+    e.head.visible = !e.useGlbVisual;
+    e.legL.visible = !e.useGlbVisual;
+    e.legR.visible = !e.useGlbVisual;
+    e.armL.visible = !e.useGlbVisual;
+    e.armR.visible = !e.useGlbVisual;
+    e.group.visible = true;
     e.state = "idle";
     e.stateT = 0;
     e.vel.set(0, 0, 0);
     e.attackCd = 1 + Math.random();
     e.group.visible = true;
+    e.currentAnim = "";
+    if (e.useGlbVisual) this.playEnemyAnim(e, "idle", true);
   }
 
   private updateEnemy(
@@ -986,9 +1437,28 @@ export class DungeonEnemies implements CombatTargets {
     ctx?: SparringContext,
   ) {
     e.flash = Math.max(0, e.flash - dt);
-    const mat = e.body.material as THREE.MeshStandardMaterial;
-    mat.emissive.setHex(e.flash > 0 ? 0xff4040 : 0x000000);
-    mat.emissiveIntensity = e.flash > 0 ? e.flash * 5 : 0;
+    if (e.useGlbVisual && e.glbRoot) {
+      e.glbRoot.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of mats) {
+          const sm = mat as THREE.MeshStandardMaterial;
+          if (!sm?.isMeshStandardMaterial) continue;
+          if (e.flash > 0) {
+            sm.emissive.setHex(0xff4040);
+            sm.emissiveIntensity = e.flash * 4;
+          } else {
+            sm.emissive.setHex(0x000000);
+            sm.emissiveIntensity = 0;
+          }
+        }
+      });
+    } else {
+      const mat = e.body.material as THREE.MeshStandardMaterial;
+      mat.emissive.setHex(e.flash > 0 ? 0xff4040 : 0x000000);
+      mat.emissiveIntensity = e.flash > 0 ? e.flash * 5 : 0;
+    }
 
     // Bow-slash slow debuff ticks down regardless of state.
     if (e.slowT > 0) {
@@ -1201,8 +1671,26 @@ export class DungeonEnemies implements CombatTargets {
     }
   }
 
-  /** Procedural limb swing + windup pose. */
+  /** Procedural limb swing, or Belerick GLB clip mixer. */
   private animateEnemy(e: Enemy, dt: number, moveT: number) {
+    if (e.useGlbVisual && e.mixer) {
+      e.mixer.update(dt);
+      if (e.dead) return;
+      if (e.state === "windup") {
+        // One-shot attack/skill telegraph (don't re-roll every frame)
+        if (e.currentAnim !== "attack" && e.currentAnim !== "skill") {
+          this.playEnemyAnim(e, "attack", false);
+        }
+      } else if (e.state === "recover") {
+        this.playEnemyAnim(e, "idle", true);
+      } else if (moveT > 0.15) {
+        this.playEnemyAnim(e, "run", true);
+      } else {
+        this.playEnemyAnim(e, "idle", true);
+      }
+      return;
+    }
+
     const s = e.profile.scale;
     e.walkPhase += dt * (4 + moveT * 6);
     const swing = Math.sin(e.walkPhase) * 0.5 * (0.2 + moveT);
@@ -1219,9 +1707,7 @@ export class DungeonEnemies implements CombatTargets {
       e.armR.rotation.x = swing * 0.7;
     }
     // Slight bob.
-    const baseY = e.group.position.y;
     e.body.position.y = 1.0 * s + Math.abs(Math.sin(e.walkPhase)) * 0.04 * moveT;
-    void baseY;
   }
 
   dispose(): void {

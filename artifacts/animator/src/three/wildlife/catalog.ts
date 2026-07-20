@@ -57,7 +57,11 @@ export interface AnimalSpeciesDef {
 /** Packed multi-animal GLB under public/. */
 export const WILDLIFE_PACK_FILE = "models/wildlife/quirky-animals.glb";
 
-/** Corpse lingers this long (s) for skin/butcher before despawn. */
+/**
+ * Flesh corpse window (s) for skin/butcher before auto-skeleton.
+ * After skin OR timeout, body is replaced by Skeletons_Free residual
+ * (see `corpse/SkeletonCorpse.ts`); skeleton then lingers ~90s.
+ */
 export const CORPSE_LIFETIME_S = 120;
 
 /** Max simultaneous animals (bounds cost). */
