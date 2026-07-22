@@ -114,3 +114,63 @@ export function computeParryRebound(
 export function isProjectileParryState(state: string | null | undefined): boolean {
   return state === "parry";
 }
+
+/**
+ * SkillKind / flight tags that **can** be weapon-parried and rebounded:
+ * arrows, bullets, orbs, energy bolts — single-target projectiles only.
+ *
+ * Explicitly **not** parryable (must not rebound):
+ * AoE (nova/meteor), force/slam, throws, ultimates, grenades/bombs (KeyH).
+ */
+export const PARRYABLE_PROJECTILE_KINDS = new Set<string>([
+  "bolt", // arrows, dungeon archers, generic bolts
+  "muzzle", // bullets / gun fire
+  "soul", // orbs / spectral projectiles
+  "laser", // energy bolts
+  "fireDragon", // single seeking projectile
+  "darkBlades", // flying blade projectiles
+  "swordVolley", // volley of projectiles
+]);
+
+/** Tags / kind substrings that must never rebound (AoE, throw, bomb, ultimate). */
+const PARRY_EXCLUDE_RE =
+  /nova|meteor|slam|thrust|slash|aoe|area|ultimat|grenade|bomb|throw|thrown|trap|force.?field|skyfall|stomp|headbutt/i;
+
+/**
+ * True when this attack flight is a parryable projectile (arrow/bullet/orb/bolt)
+ * and not an excluded class (AoE, throw, bomb, force, ultimate).
+ */
+export function isParryableProjectileKind(kind: string | null | undefined): boolean {
+  if (!kind) return false;
+  const k = kind.trim().toLowerCase();
+  if (!k) return false;
+  if (PARRY_EXCLUDE_RE.test(k)) return false;
+  if (PARRYABLE_PROJECTILE_KINDS.has(k)) return true;
+  // Allow explicit family tags from hosts: "arrow", "bullet", "orb", "projectile"
+  if (/^(arrow|bullet|orb|projectile|bolt|pellet|round)$/i.test(k)) return true;
+  return false;
+}
+
+export type ParryApproachSide = "left" | "right" | "front";
+
+/**
+ * Pick which baked defense clip to blend for a projectile parry.
+ * Directional block reacts for side shots; core parry flourish for frontal
+ * arrows/bullets/orbs; slightly heavier react for bullets/muzzle.
+ */
+export function pickProjectileParryClips(
+  kind: string,
+  side: ParryApproachSide,
+): { primary: string; secondary: string | null } {
+  const k = kind.toLowerCase();
+  // Core flourish always available
+  const primary = "parryReact";
+  // Side-on approach → directional guard blend
+  if (side === "left") return { primary, secondary: "blockLeft" };
+  if (side === "right") return { primary, secondary: "blockRight" };
+  // Frontal: bullet/muzzle uses heavier impact react; orbs softer block react
+  if (k === "muzzle" || k === "bullet") return { primary, secondary: "blockReactHeavy" };
+  if (k === "soul" || k === "orb") return { primary, secondary: "blockReact" };
+  // arrows / bolts / lasers — pure parry + light frontal soak
+  return { primary, secondary: "blockReact" };
+}

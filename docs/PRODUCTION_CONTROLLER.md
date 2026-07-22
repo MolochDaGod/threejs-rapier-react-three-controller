@@ -37,13 +37,14 @@ Deep-link: ?door=characters | danger | editor | avatar | …
 | **LMB** | Primary attack / combo |
 | **RMB** | Soft/hard lock focus |
 | **Ctrl** (hold) | Block |
-| **C** | Parry window |
-| **Q** (tap) | Parry / loadout cycle when kit has 2 weapons |
-| **Q** (hold) | Mode / radial (where enabled) |
-| **E** | Interact / block assist |
+| **C** | **Parry** (timing window + projectile rebound) |
+| **Q** | Loadout cycle (2-weapon kits only) |
+| **E** | Interact / block assist (or editor when unlocked) |
 | **F** | Weapon skill |
 | **1–4** | Signature skills (clip + VFX) |
 | **R** | Skyfall / special |
+| **H** | Throw grenade/bomb (**not** parry-reboundable) |
+| **X** | Dodge |
 | **Tab** | Cycle soft-lock target |
 | **I** | Equipment / armor |
 | **Esc** | UI / unlock pointer |
@@ -73,14 +74,22 @@ Do **not** force biped hip strip on custom animals / non-human bosses with their
 
 | Step | Behaviour |
 |------|-----------|
-| Input | **Q** → `CombatController.parry()` (timing window) |
-| Connect | Incoming bolt/spell impact near **weapon blade capsule** (mounted edgeA→edgeB) |
-| Anim | Deterministic hold-style **parry** clip + shield flash |
+| Input | **C** → `CombatController.parry()` (timing window) |
+| Connect | Incoming **projectile** near **weapon blade capsule** (edgeA→edgeB) |
+| Anim | Baked pack blended: `parryReact` + directional (`blockLeft`/`blockRight`) + family (`blockReact` / `blockReactHeavy` for bullets, softer for orbs) |
 | VFX | Bright impact burst + rebound bolt trail |
 | Rebound | **2× speed**, ~**180°** reverse, **85% home at caster** / 15% pure reverse |
 | Damage | Reflected shot damages original caster / enemies on contact |
 
-Dungeon bolts: mid-flight probe each frame. Danger Room spells/turret: impact gate wraps `castSpell` / `turretBolt`.
+### Parryable (rebound)
+
+`bolt` · `muzzle` (bullets) · `soul` (orbs) · `laser` · `fireDragon` · `darkBlades` · `swordVolley` · tags `arrow` / `bullet` / `orb`
+
+### Never parry-rebound
+
+AoE (`nova`, `meteor`) · force/slam · throws · ultimates · **H grenades/bombs** · traps · melee `slash`/`thrust`
+
+Dungeon bolts: mid-flight. Danger Room: impact gate on `castSpell` / `turretBolt` only if kind is parryable.
 
 Code: `three/combat/projectileParry.ts` · `DungeonEnemies` · `Studio.tryParryIncomingProjectile`.
 

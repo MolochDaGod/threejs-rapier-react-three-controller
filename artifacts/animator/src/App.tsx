@@ -601,8 +601,12 @@ export default function App() {
         // In pointer-lock: fall through so studio.handleKey("KeyE") fires below.
       }
       if (e.code === "KeyC") {
-        toggleDangerPanel("anim");
-        return;
+        // In combat (pointer-lock): C = parry. Outside lock: open clips panel.
+        if (!document.pointerLockElement) {
+          toggleDangerPanel("anim");
+          return;
+        }
+        // Pointer-lock: fall through to studio.handleKey → sparring.parry()
       }
       studioRef.current?.handleKey(e.code);
     };
@@ -1782,7 +1786,7 @@ export default function App() {
             <div className="click-hint">
               <p>Click to enter — mouse to look</p>
               <p className="dim">
-                WASD move · Shift sprint · Space jump (×2) · LMB attack · Q parry · Ctrl block · Ctrl+Space air block · X dodge · R heavy · Z / T combo · V kick · G evade · F / 1-4 skills · RMB lock toggle · Tab soft-lock · Alt+Tab free cam · ` admin · E editor · C clips
+                WASD move · Shift sprint · Space jump (×2) · LMB attack · C parry · Ctrl block · Ctrl+Space air block · X dodge · Q loadout · R heavy · Z / T combo · V kick · G evade · H grenade · F / 1-4 skills · RMB lock toggle · Tab soft-lock · Alt+Tab free cam · ` admin · E editor
               </p>
             </div>
           )}

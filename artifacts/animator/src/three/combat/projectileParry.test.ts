@@ -3,7 +3,9 @@ import * as THREE from "three";
 import {
   closestPointOnSegment,
   computeParryRebound,
+  isParryableProjectileKind,
   isProjectileParryState,
+  pickProjectileParryClips,
   pointHitsWeaponCollider,
   PARRY_REBOUND_SPEED_MUL,
 } from "./projectileParry";
@@ -46,5 +48,29 @@ describe("projectileParry", () => {
     expect(isProjectileParryState("parry")).toBe(true);
     expect(isProjectileParryState("block")).toBe(false);
     expect(isProjectileParryState("idle")).toBe(false);
+  });
+
+  it("isParryableProjectileKind allows arrows/bullets/orbs only", () => {
+    expect(isParryableProjectileKind("bolt")).toBe(true);
+    expect(isParryableProjectileKind("muzzle")).toBe(true);
+    expect(isParryableProjectileKind("soul")).toBe(true);
+    expect(isParryableProjectileKind("arrow")).toBe(true);
+    expect(isParryableProjectileKind("bullet")).toBe(true);
+    expect(isParryableProjectileKind("orb")).toBe(true);
+    // excluded
+    expect(isParryableProjectileKind("nova")).toBe(false);
+    expect(isParryableProjectileKind("meteor")).toBe(false);
+    expect(isParryableProjectileKind("slam")).toBe(false);
+    expect(isParryableProjectileKind("throwBomb")).toBe(false);
+    expect(isParryableProjectileKind("grenade")).toBe(false);
+    expect(isParryableProjectileKind("thrown")).toBe(false);
+    expect(isParryableProjectileKind("ultimate")).toBe(false);
+  });
+
+  it("pickProjectileParryClips blends directional + family clips", () => {
+    expect(pickProjectileParryClips("bolt", "front").primary).toBe("parryReact");
+    expect(pickProjectileParryClips("bolt", "left").secondary).toBe("blockLeft");
+    expect(pickProjectileParryClips("muzzle", "front").secondary).toBe("blockReactHeavy");
+    expect(pickProjectileParryClips("soul", "front").secondary).toBe("blockReact");
   });
 });

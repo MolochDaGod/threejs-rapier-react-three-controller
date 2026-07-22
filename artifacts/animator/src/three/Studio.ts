@@ -85,7 +85,9 @@ import { applyWeaponTuning } from "./weaponTuning";
 import { BladeCollisionSystem, type BladeContact } from "./combat/BladeCollisionSystem";
 import {
   computeParryRebound,
+  isParryableProjectileKind,
   isProjectileParryState,
+  pickProjectileParryClips,
   pointHitsWeaponCollider,
   type WeaponParryCollider,
   PARRY_REBOUND_SPEED_MUL,
@@ -1583,7 +1585,7 @@ export class Studio {
    * Heroes of Grudge: advance to the next weapon in the active character's
    * `loadout` (bound to Q), swapping the mounted model + animation set and
    * re-applying the off-hand. Returns false when the character has no 2+ weapon
-   * loadout, so the caller can fall back to the default Q action (parry).
+   * loadout. (Parry is KeyC — Q is loadout-only.)
    */
   private cycleLoadout(): boolean {
     const loadout = getCharacter(this.characterId).loadout;
@@ -3838,34 +3840,33 @@ export class Studio {
   }
 
   /**
-   * Mid-flight dungeon bolt parry: requires CombatController `parry` + bolt on
-   * the weapon capsule. Returns new velocity (2×, toward caster) or null.
+   * Mid-flight dungeon bolt parry: requires CombatController `parry` (KeyC) +
+   * bolt on the weapon capsule. Arrows/bolts only (not bombs/AoE).
    */
   private probeParryProjectile(
     pos: THREE.Vector3,
     incomingVel: THREE.Vector3,
     casterPos: THREE.Vector3,
   ): { vel: THREE.Vector3; point: THREE.Vector3 } | null {
+    // Dungeon archers are bolt/arrow family (always parryable projectile).
     if (!isProjectileParryState(this.sparring.getPlayerState())) return null;
     const col = this.weaponParryCollider();
     if (!col) return null;
     const contact = new THREE.Vector3();
     if (!pointHitsWeaponCollider(pos, col, contact)) {
-      // Also accept near-miss on the tip when the projectile is slightly past the blade
       if (pos.distanceTo(col.b) > col.radius * 1.8 && pos.distanceTo(col.a) > col.radius * 1.8) {
         return null;
       }
       contact.copy(pos);
     }
     const reb = computeParryRebound(incomingVel, contact, casterPos, PARRY_REBOUND_SPEED_MUL);
-    this.playProjectileParrySuccess(reb.point, reb.dir, "bolt");
+    this.playProjectileParrySuccess(reb.point, reb.dir, "bolt", casterPos);
     return { vel: reb.vel, point: reb.point };
   }
 
   /**
-   * Danger Room spell / turret bolt impact gate. If parrying with the weapon
-   * on the impact point, cancel the original hit and fire a reverse 2× bolt
-   * back at the caster (more direct path, deterministic parry anim + VFX).
+   * Danger Room spell / turret bolt impact gate. Only arrows/bullets/orbs/bolts
+   * (see {@link isParryableProjectileKind}) — never AoE, throws, ultimates, H-bombs.
    */
   private tryParryIncomingProjectile(
     impact: THREE.Vector3,
@@ -3873,11 +3874,10 @@ export class Studio {
     kind: SkillKind | string,
   ): boolean {
     if (!this.character || this.defeated) return false;
+    if (!isParryableProjectileKind(String(kind))) return false;
     if (!isProjectileParryState(this.sparring.getPlayerState())) return false;
     const col = this.weaponParryCollider();
     if (!col) return false;
-    // Impact is near player chest; accept if weapon is raised in the path
-    // (distance to blade OR impact near player + parry window).
     const onBlade = pointHitsWeaponCollider(impact, col);
     const chest = this.character.root.position.clone();
     chest.y += 1.0;
@@ -3894,16 +3894,14 @@ export class Studio {
         })()
       : col.b.clone();
 
-    // Fake incoming velocity: from caster → impact (pre-rebound direction).
     const incoming = impact.clone().sub(casterPos);
     if (incoming.lengthSq() < 1e-4) incoming.set(0, 0, 1);
     const inSpeed = 22;
     incoming.normalize().multiplyScalar(inSpeed);
 
     const reb = computeParryRebound(incoming, contact, casterPos, PARRY_REBOUND_SPEED_MUL);
-    this.playProjectileParrySuccess(reb.point, reb.dir, kind);
+    this.playProjectileParrySuccess(reb.point, reb.dir, kind, casterPos);
 
-    // Reverse bolt: 2× speed, direct at caster, damage on land
     const flightDist = Math.max(2, contact.distanceTo(casterPos) + 1.2);
     this.vfx.muzzle(contact.clone(), reb.dir.clone(), 0xfff0a0);
     this.vfx.bolt(
@@ -3922,24 +3920,46 @@ export class Studio {
     return true;
   }
 
-  /** Deterministic parry anim + spark VFX when steel connects with a projectile. */
+  /**
+   * Deterministic baked parry clips blended by approach side + projectile family
+   * (arrow/bullet/orb), plus connect VFX. KeyC parry window must already be open.
+   */
   private playProjectileParrySuccess(
     point: THREE.Vector3,
     reboundDir: THREE.Vector3,
-    _kind: SkillKind | string,
+    kind: SkillKind | string,
+    casterPos?: THREE.Vector3,
   ): void {
     this.setCombatFlash("PARRY REBOUND!", 1.2);
     this.sfx?.play("block", point, { volume: 1.1, rate: 1.25 });
     this.sfx?.play("bladeHit", point, { volume: 0.9, rate: 1.15 });
-    // Cool connect: bright sparks + shock ring along the blade
     this.vfx.impact(point, 0xfff8e0, 2.0);
     this.vfx.burst(point, 0xffe080, 40, 7);
     this.vfx.burst(point.clone().addScaledVector(reboundDir, 0.3), 0x9fdcff, 18, 4);
-    this.vfx.shockwave(new THREE.Vector3(point.x, Math.max(0.05, point.y - 0.4), point.z), 0xffd060, 1.8, 0.35);
+    this.vfx.shockwave(
+      new THREE.Vector3(point.x, Math.max(0.05, point.y - 0.4), point.z),
+      0xffd060,
+      1.8,
+      0.35,
+    );
     this.blockShield(point, true);
-    // Deterministic parry flourish from hold-style defense set
-    this.reactWithClip(defenseClips(this.playerGroup()).parry, 0.08);
-    // Brief invuln so the original bolt can't double-hit after rebound
+
+    // Baked defense pack: parryReact + directional/family secondary blend.
+    const side = this.hitSide(casterPos ?? this.lastStrikeFrom ?? point);
+    const picks = pickProjectileParryClips(String(kind), side);
+    const primary = (picks.primary === "parryReact"
+      ? defenseClips(this.playerGroup()).parry
+      : picks.primary) as ActionKey;
+    this.reactWithClip(primary, 0.07);
+    if (picks.secondary) {
+      // Layer a short secondary react so side/family reads without cancelling primary.
+      this.schedule(0.06, () => {
+        this.reactWithClip(picks.secondary as ActionKey, 0.12);
+      });
+    }
+    // Also fire the dedicated parryReact reaction path for Explorer GLOBAL_REACTIONS.
+    this.schedule(0.02, () => this.playPlayerReaction("parryReact"));
+
     this.invuln = Math.max(this.invuln, 0.25);
     this.respectWindow = Math.max(this.respectWindow, 0.45);
     this.pulseSpellPostFx(0.35);
@@ -6747,9 +6767,8 @@ export class Studio {
     else if (code === "KeyR") this.doHeavyAttack();
     else if (code === "KeyF") this.useSkill();
     else if (code === "KeyQ") {
-      // Heroes of Grudge cycle their 2-weapon loadout on Q; every other
-      // character keeps Q as the parry.
-      if (!this.cycleLoadout()) this.sparring.parry();
+      // Loadout swap only (2-weapon kits). Parry is KeyC — never rebound on Q.
+      this.cycleLoadout();
     }
     else if (code === "KeyX") {
       // Dodge-roll: direction from camera forward (or back-step if no dir key held).
@@ -6770,10 +6789,13 @@ export class Studio {
     else if (code === "KeyT") this.stomp();
     else if (code === "KeyV") this.utilityKick();
     // KeyH = throw a bomb (quick-draw overhand throw → arcing grenade → AoE blast).
+    // Grenades/bombs are NEVER projectile-parry rebounds (see isParryableProjectileKind).
     else if (code === "KeyH") this.throwBomb();
     // KeyJ = drink a heal potion (quick-draw use → restore HP). No-op at full HP.
     else if (code === "KeyJ") this.healPotion();
-    else if (code === "KeyC") this.headbutt();
+    // KeyC = parry (timing window + weapon-collider projectile rebound for
+    // arrows / bullets / orbs / bolts only — not AoE, throws, ultimates, H-bombs).
+    else if (code === "KeyC") this.sparring.parry();
     // KeyN = skin/butcher nearest wildlife corpse (meat + leather; 2 min window).
     else if (code === "KeyN") this.butcherWildlife();
     else if (code === "Escape" && this.castCtrl.isActive()) {
