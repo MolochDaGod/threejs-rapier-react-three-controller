@@ -69,6 +69,19 @@ Touch: on-screen move/look pads mirror the same combat graph.
 
 Do **not** force biped hip strip on custom animals / non-human bosses with their own skeletons.
 
+## Camera SSOT (do not regress)
+
+| System | Role |
+|--------|------|
+| **`Controller`** | **Only** play camera: third-person orbit + optional first-person eye |
+| **SpineIK** | Bone aim on skinned GLBs when gun/bow engaged — **must not** write `camera.rotation` |
+| **Feet look-at pad** | Keep orbit target above foot floor (shared, good) |
+| **CharacterSelect** | Optional lab strip of `PLAYABLE_CHARACTERS` only — **not** Ikkaku/Madarame; product entry is campfire |
+| **DuelCamera / ALE** | Spectator only |
+| **Dressing OrbitControls** | Editor only |
+
+Madarame-era 3P used to add pitch compensation onto the real camera; that fought normal orbit. Fixed: compensation stays on spine bones only.
+
 ## Deploy
 
 ```bash

@@ -90,25 +90,35 @@ export class SpineIK {
   }
 
   /**
-   * Third-person aim: pitch + slight yaw toward screen center when gun-engaged.
-   * Mutates camera.rotation.x for visual compensation (caller should own camera).
+   * Third-person aim: pitch + slight yaw on the **spine only** when gun-engaged.
+   *
+   * Production rule: never write to the play camera. Controller owns orbit pitch;
+   * mutating `camera.rotation.x` (Madarame-era compensation) fought the normal
+   * third-person orbit and felt like a second camera on skinned GLBs.
    */
   applyAim3P(camera: Camera & { rotation: { x: number } }, isGunEngaged: boolean): void {
     if (!this.spineBones.length) return;
 
-    const normalizedPitch = camera.rotation.x / PITCH_NORM;
+    // Read-only orbit pitch from Controller / PerspectiveCamera.
+    const camPitch = camera.rotation.x;
+    const normalizedPitch = camPitch / PITCH_NORM;
     const pitchSq = Math.pow(Math.abs(normalizedPitch), 2.0);
 
-    const pitchTarget = isGunEngaged ? camera.rotation.x : 0;
-    // Visual compensation: look-down raises aim, look-up softens
-    camera.rotation.x += normalizedPitch > 0 ? pitchSq * 0.35 : -pitchSq * 0.1;
+    const pitchTarget = isGunEngaged ? camPitch : 0;
+    // Former camera.rotation.x bias — applied only to spine bone rotation.
+    const spinePitchBias = isGunEngaged
+      ? normalizedPitch > 0
+        ? pitchSq * 0.35
+        : -pitchSq * 0.1
+      : 0;
+    const effectivePitch = pitchTarget + spinePitchBias;
 
     const yawTarget = isGunEngaged
       ? -Math.PI * ((10 * (1 + pitchSq * 0.35)) / 180)
       : 0;
 
     _aimAxis.set(1, 0, 0).applyQuaternion(camera.quaternion);
-    _aimQ.setFromAxisAngle(_aimAxis, pitchTarget / this.spineBones.length);
+    _aimQ.setFromAxisAngle(_aimAxis, effectivePitch / this.spineBones.length);
     _yawQ.setFromAxisAngle(_yawAxis, yawTarget);
     _aimQ.premultiply(_yawQ);
 

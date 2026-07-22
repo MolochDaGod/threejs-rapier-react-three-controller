@@ -1,34 +1,43 @@
 /**
- * First-run character select — four featured fighters on a stage.
- * Choosing one advances to the existing landing page (Grudge ID).
+ * Optional lab character strip — production entry is Ethereal Falls campfire
+ * (`CampfireLobby` after Grudge ID). This UI must never feature Ikkaku/Madarame
+ * or other removed lab cast; it only lists PLAYABLE_CHARACTERS.
  */
 import { useMemo, useState, type CSSProperties } from "react";
-import { CHARACTERS } from "../three/assets";
+import { PLAYABLE_CHARACTERS } from "../three/assets";
 import { assetUrl } from "../three/assetHost";
 import "./characterSelect.css";
 
 const STORAGE_KEY = "grudge:selectedCharacter:v1";
 
-/** Featured roster for the entry scene (order = stage left → right). */
-const FEATURED_IDS = ["ikkaku-madarame", "ikkaku-crimson", "ikkaku-azure", "ikkaku-void"] as const;
+/** Production stage order (no ikkaku / sensei / grudge6 grid). */
+const FEATURED_IDS = [
+  "explorer",
+  "gunslinger",
+  "archmage",
+  "centurion",
+] as const;
+
+const BLOCKED_ID = /ikkau|ikkaku|madarame|karate-boss|sensei/i;
 
 /** Poster art for the entry stage (PNG room/brand art — not GLB). */
 function posterFor(id: string): string {
-  if (id === "ikkaku-madarame") return assetUrl("favicon.png");
-  if (id === "ikkaku-crimson") return assetUrl("rooms/danger-scene.png");
-  if (id === "ikkaku-azure") return assetUrl("rooms/dressing-scene.png");
-  if (id === "ikkaku-void") return assetUrl("rooms/voxgrudge-scene.png");
   if (id === "gunslinger") return assetUrl("emblem.png");
-  if (id === "explorer") return assetUrl("favicon.png");
-  if (id === "karate-boss") return assetUrl("rooms/danger-scene.png");
-  if (id === "orc") return assetUrl("rooms/dressing-scene.png");
+  if (id === "explorer" || id === "led-monk") return assetUrl("favicon.png");
+  if (id === "archmage" || id === "soulbinder") return assetUrl("rooms/dressing-scene.png");
+  if (id === "centurion" || id === "orc") return assetUrl("rooms/danger-scene.png");
+  if (id === "sanji" || id === "tera-kasi") return assetUrl("rooms/voxgrudge-scene.png");
   return assetUrl("favicon.png");
 }
 
 export function loadStoredCharacterId(): string | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    if (v && CHARACTERS.some((c) => c.id === v)) return v;
+    if (!v || BLOCKED_ID.test(v)) {
+      if (v && BLOCKED_ID.test(v)) localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    if (PLAYABLE_CHARACTERS.some((c) => c.id === v)) return v;
   } catch {
     /* ignore */
   }
@@ -36,6 +45,7 @@ export function loadStoredCharacterId(): string | null {
 }
 
 export function saveStoredCharacterId(id: string): void {
+  if (BLOCKED_ID.test(id)) return;
   try {
     localStorage.setItem(STORAGE_KEY, id);
   } catch {
@@ -44,22 +54,28 @@ export function saveStoredCharacterId(id: string): void {
 }
 
 interface Props {
-  /** Called after the player confirms a character (goes to landing). */
+  /** Called after the player confirms a character. */
   onSelect: (characterId: string) => void;
   /** Optional initial highlight. */
   initialId?: string;
 }
 
 export function CharacterSelect({ onSelect, initialId }: Props) {
-  const roster = useMemo(
-    () =>
-      FEATURED_IDS.map((id) => CHARACTERS.find((c) => c.id === id)).filter(
-        (c): c is (typeof CHARACTERS)[number] => !!c,
-      ),
-    [],
-  );
+  const roster = useMemo(() => {
+    const fromFeatured = FEATURED_IDS.map((id) =>
+      PLAYABLE_CHARACTERS.find((c) => c.id === id),
+    ).filter((c): c is (typeof PLAYABLE_CHARACTERS)[number] => !!c);
+    if (fromFeatured.length >= 2) return fromFeatured;
+    return PLAYABLE_CHARACTERS.slice(0, 4);
+  }, []);
+
+  const safeInitial =
+    initialId && !BLOCKED_ID.test(initialId) && roster.some((c) => c.id === initialId)
+      ? initialId
+      : null;
+
   const [active, setActive] = useState(
-    () => initialId ?? loadStoredCharacterId() ?? roster[0]?.id ?? "explorer",
+    () => safeInitial ?? loadStoredCharacterId() ?? roster[0]?.id ?? "explorer",
   );
   const selected = roster.find((c) => c.id === active) ?? roster[0];
 
@@ -69,13 +85,23 @@ export function CharacterSelect({ onSelect, initialId }: Props) {
     onSelect(selected.id);
   };
 
+  if (!roster.length) {
+    return (
+      <div className="charselect">
+        <p className="charselect-sub">No production characters available — use Ethereal Falls campfire.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="charselect">
       <div className="charselect-bg" aria-hidden />
       <header className="charselect-head">
         <p className="charselect-kicker">Grudge Studio</p>
-        <h1 className="charselect-title">Choose your fighter</h1>
-        <p className="charselect-sub">Four heroes. One path into the facility.</p>
+        <h1 className="charselect-title">Production cast</h1>
+        <p className="charselect-sub">
+          Lab strip only — account heroes use Ethereal Falls campfire after sign-in.
+        </p>
       </header>
 
       <div className="charselect-stage" role="listbox" aria-label="Characters">

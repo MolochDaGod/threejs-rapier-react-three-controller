@@ -387,7 +387,8 @@ export class Character {
 
   /**
    * Apply spine aim IK after foot plant (call from Studio after character.update).
-   * `pitch` is look elevation (+up). 1P uses fp pitch; 3P uses camera.rotation.x path.
+   * `pitch` is look elevation (+up) for 1P. 3P reads orbit pitch from the camera
+   * but never mutates it — Controller owns the play camera.
    */
   applySpineAim(
     camera: THREE.Camera,
