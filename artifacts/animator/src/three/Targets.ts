@@ -381,6 +381,16 @@ export interface CombatTargets {
   bladeDefenders?(playerPos: THREE.Vector3): BladeDefender[];
   /** Force a short physical guard on an enemy by id (blade met its shield). */
   forceGuard?(id: number, seconds: number): void;
+  /**
+   * Shove living hostiles near `origin` away from `awayFrom` by ~`distance`
+   * metres (block bounce). Optional stun reaction during the bounce.
+   */
+  shoveAway?(
+    origin: THREE.Vector3,
+    awayFrom: THREE.Vector3,
+    distance: number,
+    stun?: boolean,
+  ): void;
   reactAt(nearPos: THREE.Vector3, reaction: "stagger" | "stunned" | "fallen"): void;
   /** Host-authoritative NPC roster for coop broadcast. */
   netSnapshot(): NpcState[];
@@ -1902,6 +1912,38 @@ export class Targets implements CombatTargets {
    * Damage is dealt through the CC with an unblockable force so the pop always
    * lands. Returns how many were struck.
    */
+  /**
+   * Block bounce: push hostiles near the attacker origin away from the blocker,
+   * at ~distance metres of horizontal velocity, with optional stun react.
+   */
+  shoveAway(
+    origin: THREE.Vector3,
+    awayFrom: THREE.Vector3,
+    distance: number,
+    stun = true,
+  ): void {
+    const tmp = new THREE.Vector3();
+    const radius = 1.4;
+    for (const d of this.dummies) {
+      if (d.dead || d.faction !== "enemy") continue;
+      if (this.chest(d, tmp).distanceTo(origin) > radius) continue;
+      const out = this.chest(d, new THREE.Vector3()).sub(awayFrom);
+      out.y = 0;
+      if (out.lengthSq() < 1e-4) out.set(0, 0, 1);
+      out.normalize();
+      // Map metres-ish to dummy vel units used elsewhere (~4–6 for solid shove)
+      const speed = Math.max(2.5, distance * 3.2);
+      d.vel.addScaledVector(out, speed);
+      d.vel.y += 1.2;
+      d.flash = 0.28;
+      d.flashColor.copy(DEFEND_COLOR);
+      if (stun) {
+        d.cc.applyVulnerableState("stunned");
+        d.avatar?.reaction?.("stunned", 0.1);
+      }
+    }
+  }
+
   launch(center: THREE.Vector3, radius: number, damage: number, upVel: number): number {
     let hits = 0;
     const tmp = new THREE.Vector3();

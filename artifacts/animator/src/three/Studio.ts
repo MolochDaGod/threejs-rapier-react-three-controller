@@ -349,6 +349,13 @@ const ATTACK3_MOTION: MotionProfile = { peak: -50, impactAt: 0.5 };
 const COMBO_ADVANCE_MM = 55;
 
 /**
+ * When a melee dash-attack lands on an actively blocking unit, the attacker is
+ * bounced back by this multiple of the dash/MM used to open the attack, and
+ * plays a stunned reaction during the bounce.
+ */
+const BLOCK_BOUNCE_MM_MUL = 1.25;
+
+/**
  * Fraction of a finisher swing's REAL clip length at which its hit (damage + slash
  * VFX) resolves. Big finisher clips (the dagger's double-dagger cross-stab, the
  * greatsword overhead, ...) land their blade near the END of the animation, so the
@@ -647,8 +654,14 @@ export class Studio {
   private onKeyUp = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-    // Ctrl (hold) = block: release the guard on key-up.
-    if (e.code === "ControlLeft" || e.code === "ControlRight") this.endBlock();
+    // E (hold) = block: release the guard on key-up. Ctrl kept as legacy alias.
+    if (
+      e.code === "KeyE" ||
+      e.code === "ControlLeft" ||
+      e.code === "ControlRight"
+    ) {
+      this.endBlock();
+    }
   };
 
   private health = 100;
@@ -720,6 +733,11 @@ export class Studio {
    *  entry; drop to "passive" in the Admin panel to make them inert again. */
   private difficulty: Difficulty = "medium";
   private blocking = false;
+  /**
+   * Dash distance (metres) of the most recent melee open — used when the swing
+   * hits a raised block: attacker bounces back at {@link BLOCK_BOUNCE_MM_MUL}× MM.
+   */
+  private lastAttackDashM = 0;
   /** Always-on soft-lock state: gentle aim assist toward the nearest/Tab'd foe.
    *  Alt+Tab turns it off (free camera); Tab / RMB re-arm it. */
   private softLockEnabled = true;
@@ -2101,6 +2119,8 @@ export class Studio {
         : Math.min(rMax, this.params.dashDistance * 0.5);
       const dashDur = 0.22; // quicker than a normal swing
       const impactAt = 0.7;
+      // Record MM for block-bounce (1.25× reverse if they eat a raised guard).
+      this.lastAttackDashM = close;
       this.controller.dash(dir, close, dashDur, 0, impactAt);
       // Motion-blur tail built from the character's OWN mesh.
       this.vfx.afterimage(this.character.root, origin, dir, Math.max(close, 0.6), color, 4, 0.3);
@@ -2113,6 +2133,7 @@ export class Studio {
       const lunge = COMBO_ADVANCE_MM * MM_TO_M + 0.3 * intensityN;
       const dashDur = 0.18;
       const impactAt = 0.5;
+      this.lastAttackDashM = lunge;
       this.controller.dash(dir, lunge, dashDur, lunge * 0.12, impactAt);
       // The finisher is a big committed swing whose blade lands near the END of the
       // clip; time its hit to the real clip impact (not the ~90 ms dash impact) so
@@ -2457,10 +2478,10 @@ export class Studio {
   private startBlock() {
     if (this.defeated) return;
     this.blocking = true;
-    // Single combat authority: raise the player CC's guard. Block is bound to
-    // Ctrl (hold); lock-on is now a separate RMB toggle, so blocking no longer
-    // seizes the camera — the always-on soft-lock keeps you roughly facing the
-    // foe while you guard.
+    // Single combat authority: raise the player CC's guard. Block is **E (hold)**
+    // — stamina drains while guarding; damage is mitigated. Melee attackers who
+    // connect into a raised block take a 1.25× MM bounce-back + stun reaction.
+    // Lock-on stays on RMB; soft-lock keeps facing during guard.
     this.sparring?.startBlock();
   }
   private endBlock() {
@@ -2469,12 +2490,42 @@ export class Studio {
     this.sparring?.endBlock();
   }
 
-  /** Ctrl+Space: an aerial guard — hop while keeping the raised block up. */
+  /** E/Ctrl+Space: aerial guard — hop while keeping the raised block up. */
   private airBlock() {
     if (this.defeated) return;
     if (!this.blocking) this.startBlock();
     this.controller?.jump();
     this.setCombatFlash("AIR BLOCK", 0.6);
+  }
+
+  /**
+   * Melee attacker bounce when steel hits an active block: push back
+   * {@link BLOCK_BOUNCE_MM_MUL} × the dash MM that opened the attack, and play a
+   * stunned reaction for the duration of the bounce.
+   */
+  private bounceAttackerOffBlock(hitPos: THREE.Vector3): void {
+    if (!this.controller || !this.character) return;
+    const mm = Math.max(0.55, this.lastAttackDashM || this.params.dashDistance * 0.45);
+    const bounceDist = mm * BLOCK_BOUNCE_MM_MUL;
+    const away = this.character.root.position.clone().sub(hitPos);
+    away.y = 0;
+    if (away.lengthSq() < 1e-4) away.copy(this.facing()).negate();
+    else away.normalize();
+    // Dash-style MM bounce (distance-based, not a weak velocity tick)
+    const dur = THREE.MathUtils.clamp(0.22 + bounceDist * 0.08, 0.26, 0.42);
+    this.controller.dash(away, bounceDist, dur, 0, 0.55);
+    // Lock offense while the bounce + stun reads
+    this.recoverLock = Math.max(this.recoverLock, dur + 0.15);
+    this.comboLock = Math.max(this.comboLock, dur + 0.15);
+    this.comboTimer = 0;
+    this.fireComboTimer = 0;
+    this.fireComboIndex = 0;
+    // Stunned animation during the MM bounce
+    this.playPlayerReaction("stunned");
+    this.setCombatFlash("BLOCK BOUNCE!", 0.85);
+    this.sfx?.play("block", hitPos, { volume: 1.05, rate: 0.9 });
+    this.vfx.burst(hitPos, 0xbfe4ff, 28, 5);
+    this.vfx.shockwave(new THREE.Vector3(hitPos.x, 0.05, hitPos.z), 0x88c0ff, 2.0, 0.4);
   }
 
   /**
@@ -2549,26 +2600,24 @@ export class Studio {
           this.recoverFromFail(0.95, -2.6, pos);
           break;
         case "deflect":
-          // Blade rang off the enemy's guard — a clean stance recoil, short beat.
+          // Blade rang off a raised guard (equal force / soft block) — same MM
+          // bounce as blockStop: 1.25× attack dash + stun anim during bounce.
           this.sfx?.play("block", pos, { volume: 0.85, rate: 1.1 });
           this.blockShield(pos);
           this.vfx.burst(pos, 0x88aaff, 20, 3.5);
-          this.setCombatFlash("DEFLECTED", 0.7);
-          this.reactWithClip(defenseClips(this.playerGroup()).parry, 0.1);
-          this.recoverFromFail(0.45, -1.6, pos);
+          this.bounceAttackerOffBlock(pos);
           break;
         case "blockStop":
-          // Enemy soaked the hit on its guard. Shield-break (their guard breaks)
-          // is GOOD for the player — no recovery; a plain block costs a short beat.
+          // Enemy soaked the hit on its guard (stamina block). Shield-break is
+          // GOOD for the player. Plain block: attacker MM bounce-back at 1.25×
+          // the dash used to open the attack + stunned reaction during bounce.
           this.sfx?.play("block", pos, { volume: 0.95 });
           this.blockShield(pos, result.defenderReaction === "stunned");
           this.vfx.burst(pos, 0xaaccff, 18, 3);
           if (result.defenderReaction === "stunned") {
             this.setCombatFlash("SHIELD BREAK!", 1.5);
           } else {
-            this.setCombatFlash("BLOCKED", 0.7);
-            this.reactWithClip(defenseClips(this.playerGroup()).parry, 0.1);
-            this.recoverFromFail(0.4, -1.4, pos);
+            this.bounceAttackerOffBlock(pos);
           }
           break;
         case "dodgeEvade":
@@ -2707,24 +2756,23 @@ export class Studio {
     if (isDefended(result.outcome)) this.respectWindow = 0.4;
 
     // Physics recoil scaled by the resolved outcome (0 on a clean parry/dodge).
+    // Active block (E): the ATTACKER takes the large MM bounce, not the blocker —
+    // so we minimize defender slide and shove the enemy origin instead.
     const push = chest.clone().sub(from);
     push.y = 0;
     if (push.lengthSq() < 1e-4) push.set(0, 0, 1);
     push.normalize();
     const recoil = outcomeForceScale(result.outcome) * force;
-    // Block forcefield + bounce-back: a BIG hit or combo finisher (isSkill, or a
-    // heavy physical blow) soaked on a RAISED guard clashes against a hex
-    // force-field that pops up around the blocker and shoves them apart with a
-    // long, LOW-friction slide. `push` (chest − attacker) is the separation
-    // normal — the vector "raycast" from the attack line into the guard sphere —
-    // so the blocker slides straight back off the shield instead of soaking it
-    // in place. Normal-weight hits keep the original short recoil.
-    const bigBlocked = this.blocking && isDefended(result.outcome) && (isSkill || force >= 8);
-    if (bigBlocked) {
-      // The shield-flash VFX is fired from playPlayerDefenseReaction (synced to
-      // the block SFX) so a guarded hit shows exactly one shield; here we keep
-      // only the bounce-back impulse — the blocker slides off the guard.
-      this.controller?.applyImpulse(push, Math.max(recoil, 7) * 0.7, 0.6, 2.5);
+    const blockedMelee =
+      this.blocking &&
+      (result.outcome === "blockStop" || result.outcome === "deflect") &&
+      result.defenderReaction !== "stunned";
+    if (blockedMelee) {
+      // Shove attacker back ~1.25× of their strike force (proxy for open MM).
+      const enemyBounceM = Math.max(0.9, force * 0.14 * BLOCK_BOUNCE_MM_MUL);
+      this.targets.shoveAway?.(from, chest, enemyBounceM, true);
+      // Minimal residual on defender — block soaks damage for stamina, not big slide.
+      this.controller?.applyImpulse(push, Math.min(1.0, recoil * 0.12), 0, 9);
     } else if (recoil > 0) {
       this.controller?.applyImpulse(push, recoil * 0.5, recoil > 8 ? 1.5 : 0);
     }
@@ -6759,10 +6807,12 @@ export class Studio {
   /** Wire keyboard skill/jump shortcuts that need engine-side actions. */
   handleKey(code: string) {
     if (code === "Space") {
-      // Ctrl+Space (block held) = air block: a hop with the guard kept up.
+      // E+Space (block held) = air block: a hop with the guard kept up.
       if (this.blocking) this.airBlock();
       else this.controller?.jump();
     }
+    // E (hold) = block (stamina). Ctrl kept as legacy alias.
+    else if (code === "KeyE") this.startBlock();
     else if (code === "ControlLeft" || code === "ControlRight") this.startBlock();
     else if (code === "KeyR") this.doHeavyAttack();
     else if (code === "KeyF") this.useSkill();

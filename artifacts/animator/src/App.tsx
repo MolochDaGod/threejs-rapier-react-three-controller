@@ -574,8 +574,7 @@ export default function App() {
         return;
       }
       if (e.code === "ControlLeft" || e.code === "ControlRight") {
-        // Ctrl (hold) = block; preventDefault suppresses browser Ctrl shortcuts
-        // (e.g. Ctrl+W) while guarding mid-fight.
+        // Legacy block alias; preventDefault suppresses browser Ctrl shortcuts.
         e.preventDefault();
         studioRef.current?.handleKey(e.code);
         return;
@@ -587,18 +586,18 @@ export default function App() {
         return;
       }
       if (e.code === "KeyE") {
-        // The door portal claims E first when standing at an interactable.
+        // Door portal claims E first when standing at an interactable.
         if (studioRef.current?.tryEnterDoor()) {
           e.preventDefault();
           return;
         }
-        // While the canvas has pointer-lock (in-game), E is the Block action.
-        // Only toggle the editor panel when we're NOT in pointer-lock.
+        // In combat (pointer-lock): E = hold block. Outside: editor panel.
         if (!document.pointerLockElement) {
           toggleDangerPanel("editor");
           return;
         }
-        // In pointer-lock: fall through so studio.handleKey("KeyE") fires below.
+        e.preventDefault();
+        // Fall through → studio.handleKey("KeyE") → startBlock()
       }
       if (e.code === "KeyC") {
         // In combat (pointer-lock): C = parry. Outside lock: open clips panel.
@@ -647,10 +646,12 @@ export default function App() {
         return;
       }
       if (e.code === "ControlLeft" || e.code === "ControlRight") {
-        // Ctrl (hold) = block; preventDefault suppresses browser Ctrl shortcuts.
         e.preventDefault();
         studioRef.current?.handleKey(e.code);
         return;
+      }
+      if (e.code === "KeyE") {
+        e.preventDefault();
       }
       studioRef.current?.handleKey(e.code);
     };
@@ -1786,7 +1787,7 @@ export default function App() {
             <div className="click-hint">
               <p>Click to enter — mouse to look</p>
               <p className="dim">
-                WASD move · Shift sprint · Space jump (×2) · LMB attack · C parry · Ctrl block · Ctrl+Space air block · X dodge · Q loadout · R heavy · Z / T combo · V kick · G evade · H grenade · F / 1-4 skills · RMB lock toggle · Tab soft-lock · Alt+Tab free cam · ` admin · E editor
+                WASD move · Shift sprint · Space jump (×2) · LMB attack · E block · C parry · E+Space air block · X dodge · Q loadout · R heavy · Z / T combo · V kick · G evade · H grenade · F / 1-4 skills · RMB lock · Tab soft-lock · ` admin
               </p>
             </div>
           )}

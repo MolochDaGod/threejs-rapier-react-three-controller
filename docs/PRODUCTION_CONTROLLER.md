@@ -36,10 +36,10 @@ Deep-link: ?door=characters | danger | editor | avatar | …
 | **Space** | Jump / double-jump |
 | **LMB** | Primary attack / combo |
 | **RMB** | Soft/hard lock focus |
-| **Ctrl** (hold) | Block |
+| **E** (hold) | **Block** (stamina; no damage if guard holds; melee attackers take 1.25× MM bounce + stun) |
+| **E+Space** | Air block hop |
 | **C** | **Parry** (timing window + projectile rebound) |
 | **Q** | Loadout cycle (2-weapon kits only) |
-| **E** | Interact / block assist (or editor when unlocked) |
 | **F** | Weapon skill |
 | **1–4** | Signature skills (clip + VFX) |
 | **R** | Skyfall / special |
@@ -69,6 +69,19 @@ Touch: on-screen move/look pads mirror the same combat graph.
 | **Spawn** | Height normalize to `CHARACTER_HEIGHT_M` (~2 m), min.Y → floor |
 
 Do **not** force biped hip strip on custom animals / non-human bosses with their own skeletons.
+
+## Block (E hold)
+
+| Rule | Behaviour |
+|------|-----------|
+| Input | **E** hold (Ctrl alias); stamina drain via CombatController |
+| Damage | Mitigated / stopped while guard holds (`blockStop`) |
+| Melee into block | Attacker bounce-back **1.25 ×** dash MM used to open the attack |
+| Attacker anim | **Stunned** reaction during the MM bounce |
+| Shield break | Still rewards attacker (no bounce — defender stunned) |
+| Defender | Minimal slide; forcefield flash; not the large knockback |
+
+Code: `Studio.bounceAttackerOffBlock` · `lastAttackDashM` · `Targets.shoveAway` (enemy into player block).
 
 ## Projectile parry rebound
 
