@@ -362,6 +362,14 @@ interface Projectile {
   life: number;
   damage: number;
   from: THREE.Vector3;
+  /** Caster chest at fire time — rebound aim target. */
+  casterPos: THREE.Vector3;
+  /** Owning enemy id (null when player-reflected). */
+  ownerId: number | null;
+  /** True after a successful weapon-collider parry rebound. */
+  reflected: boolean;
+  /** Base travel speed before / after rebound. */
+  speed: number;
 }
 
 const CHEST_Y = 1.1;
@@ -400,6 +408,20 @@ export class DungeonEnemies implements CombatTargets {
   private projMat: THREE.MeshBasicMaterial;
   /** Hook fired when a projectile/strike should spawn VFX (Studio supplies it). */
   onProjectileImpact: ((pos: THREE.Vector3) => void) | null = null;
+  /**
+   * Parry probe (Studio): when the player is in `parry` state and supplies a
+   * weapon capsule, incoming projectiles that touch the blade rebound at 2×
+   * toward the caster. Returns true if the host accepted the parry (anim/VFX).
+   */
+  tryParryProjectile:
+    | ((
+        pos: THREE.Vector3,
+        incomingVel: THREE.Vector3,
+        casterPos: THREE.Vector3,
+      ) => { vel: THREE.Vector3; point: THREE.Vector3 } | null)
+    | null = null;
+  /** Reflected bolt hit an enemy (Studio applies damage / VFX). */
+  onProjectileReflectedHit: ((pos: THREE.Vector3, damage: number) => void) | null = null;
 
   /** Shared skinned enemy templates (Belerick / Helcurt), loaded once each. */
   private glbTpls = new Map<
@@ -1624,7 +1646,7 @@ export class DungeonEnemies implements CombatTargets {
 
   private fireProjectile(e: Enemy, target: THREE.Vector3, damage: number) {
     const origin = this.chest(e);
-    const mesh = new THREE.Mesh(this.projGeo, this.projMat);
+    const mesh = new THREE.Mesh(this.projGeo, this.projMat.clone());
     mesh.position.copy(origin);
     this.scene.add(mesh);
     const dir = new THREE.Vector3().subVectors(target, origin);
@@ -1637,6 +1659,10 @@ export class DungeonEnemies implements CombatTargets {
       life: Math.min(2.5, dist / speed + 0.3),
       damage,
       from: origin.clone(),
+      casterPos: origin.clone(),
+      ownerId: e.id,
+      reflected: false,
+      speed,
     });
   }
 
@@ -1647,7 +1673,56 @@ export class DungeonEnemies implements CombatTargets {
       p.life -= dt;
       p.mesh.position.addScaledVector(p.vel, dt);
       let hit = false;
-      if (playerChest && ctx?.playerAlive) {
+
+      // ── Player parry rebound: weapon collider + parry state (Studio probe) ──
+      if (!p.reflected && this.tryParryProjectile && ctx?.playerAlive) {
+        const reb = this.tryParryProjectile(p.mesh.position, p.vel, p.casterPos);
+        if (reb) {
+          p.reflected = true;
+          p.ownerId = null;
+          p.vel.copy(reb.vel);
+          p.speed = reb.vel.length();
+          p.life = Math.max(p.life, 1.4);
+          p.damage = Math.round(p.damage * 1.25);
+          // Hot ricochet look
+          const mat = p.mesh.material as THREE.MeshBasicMaterial;
+          if (mat?.color) mat.color.setHex(0xfff0a0);
+          p.mesh.scale.setScalar(1.25);
+          // Snap to blade contact so the connect reads on the weapon
+          p.mesh.position.copy(reb.point);
+          continue;
+        }
+      }
+
+      if (p.reflected) {
+        // Home slightly more each frame toward original caster for a direct kill path
+        const toCaster = p.casterPos.clone().sub(p.mesh.position);
+        if (toCaster.lengthSq() > 0.01) {
+          toCaster.normalize();
+          p.vel.lerp(toCaster.multiplyScalar(p.speed), 0.12);
+          // Keep speed locked at 2× after steer
+          const sp = p.vel.length();
+          if (sp > 1e-4) p.vel.multiplyScalar(p.speed / sp);
+        }
+        // Hit any living enemy near the bolt (prefer original caster volume)
+        for (const e of this.enemies) {
+          if (e.dead) continue;
+          const chest = this.chest(e);
+          if (p.mesh.position.distanceTo(chest) < 0.85) {
+            const dmg = Math.max(1, Math.round(p.damage));
+            this.hitEnemy(
+              e,
+              { force: 2, damage: dmg, poiseDamage: Math.round(dmg * 0.7) },
+              p.mesh.position.clone(),
+              10,
+            );
+            this.onProjectileReflectedHit?.(p.mesh.position.clone(), dmg);
+            this.onProjectileImpact?.(p.mesh.position.clone());
+            hit = true;
+            break;
+          }
+        }
+      } else if (playerChest && ctx?.playerAlive) {
         if (p.mesh.position.distanceTo(playerChest) < 0.7) {
           ctx.dealToPlayer(p.mesh.position.clone(), 0.8, p.damage, 5, p.from, "bolt", false);
           this.onProjectileImpact?.(p.mesh.position.clone());

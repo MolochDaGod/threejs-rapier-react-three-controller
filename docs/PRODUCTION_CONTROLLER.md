@@ -69,6 +69,21 @@ Touch: on-screen move/look pads mirror the same combat graph.
 
 Do **not** force biped hip strip on custom animals / non-human bosses with their own skeletons.
 
+## Projectile parry rebound
+
+| Step | Behaviour |
+|------|-----------|
+| Input | **Q** → `CombatController.parry()` (timing window) |
+| Connect | Incoming bolt/spell impact near **weapon blade capsule** (mounted edgeA→edgeB) |
+| Anim | Deterministic hold-style **parry** clip + shield flash |
+| VFX | Bright impact burst + rebound bolt trail |
+| Rebound | **2× speed**, ~**180°** reverse, **85% home at caster** / 15% pure reverse |
+| Damage | Reflected shot damages original caster / enemies on contact |
+
+Dungeon bolts: mid-flight probe each frame. Danger Room spells/turret: impact gate wraps `castSpell` / `turretBolt`.
+
+Code: `three/combat/projectileParry.ts` · `DungeonEnemies` · `Studio.tryParryIncomingProjectile`.
+
 ## Camera SSOT (do not regress)
 
 | System | Role |

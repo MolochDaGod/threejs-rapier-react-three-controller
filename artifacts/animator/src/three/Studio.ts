@@ -83,6 +83,13 @@ import { InputState } from "./input";
 import { mountWeaponModel, unmountWeapon, type MountedWeapon } from "./Weapons";
 import { applyWeaponTuning } from "./weaponTuning";
 import { BladeCollisionSystem, type BladeContact } from "./combat/BladeCollisionSystem";
+import {
+  computeParryRebound,
+  isProjectileParryState,
+  pointHitsWeaponCollider,
+  type WeaponParryCollider,
+  PARRY_REBOUND_SPEED_MUL,
+} from "./combat/projectileParry";
 import { MaceThrowMachine, type MaceThrowEvent } from "./mace/maceThrow";
 import type { FireFxParams } from "./fxSettings";
 import { loadSound, saveSound, type SoundSettings } from "./soundSettings";
@@ -925,12 +932,18 @@ export class Studio {
         // Build a flat forward + facing quaternion from caster → target, then
         // route through the same aimed-spell VFX the player uses (homing onto the
         // aim point). The impact callback resolves the hit at the landing point.
+        // Parry-on-weapon-collider can cancel damage and fire a 2× reverse bolt.
+        const casterFrom = from.clone();
+        const wrapped = (center: THREE.Vector3) => {
+          if (this.tryParryIncomingProjectile(center, casterFrom, kind)) return;
+          onImpact(center);
+        };
         const fwd = target.clone().sub(from);
         fwd.y = 0;
         if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, 1);
         fwd.normalize();
         const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), fwd);
-        this.vfx.playSkill(kind, from.clone(), fwd, quat, target.clone(), onImpact);
+        this.vfx.playSkill(kind, from.clone(), fwd, quat, target.clone(), wrapped);
       },
       deployTurret: (at, faceDir, color, life) => {
         // Standing-chassis VFX only — the host (Targets) ticks the firing,
@@ -939,8 +952,8 @@ export class Studio {
       },
       turretBolt: (from, dir, dist, color, onLand) => {
         // Slow, oversized, dodgeable bolt — same VFX the player's turret fires.
-        // The bolt object is the damage producer: onLand resolves the host's
-        // faction-aware AoE where it lands, so a target off the line dodges it.
+        // Parry at impact redirects a 2× reverse shot at the turret muzzle.
+        const casterFrom = from.clone();
         this.vfx.muzzle(from.clone(), dir.clone(), color);
         this.vfx.bolt(
           from.clone(),
@@ -949,6 +962,7 @@ export class Studio {
           TURRET_BOLT_SPEED,
           dist + 0.5,
           (p) => {
+            if (this.tryParryIncomingProjectile(p, casterFrom, "bolt")) return;
             this.vfx.aoeBlast(p, color, 1.0);
             onLand(p);
           },
@@ -3798,6 +3812,140 @@ export class Studio {
   }
 
   /**
+   * Live weapon blade capsule for projectile parry (grip → tip + edge radius).
+   * Prefers mounted edge anchors; falls back to hand + tip length.
+   */
+  private weaponParryCollider(): WeaponParryCollider | null {
+    const m = this.mounted;
+    if (m?.edgeA && m?.edgeB) {
+      const a = m.edgeA.getWorldPosition(new THREE.Vector3());
+      const b = m.edgeB.getWorldPosition(new THREE.Vector3());
+      const radius = Math.max(0.12, m.edgeRadius > 0 ? m.edgeRadius * 1.35 : 0.16);
+      return { a, b, radius };
+    }
+    if (m?.tip) {
+      const tip = m.tip.getWorldPosition(new THREE.Vector3());
+      const base = (m.tip.parent ?? this.character?.root)?.getWorldPosition(new THREE.Vector3()) ??
+        tip.clone().setY(tip.y - 0.8);
+      return { a: base, b: tip, radius: 0.18 };
+    }
+    const hand = this.character?.rightHand;
+    if (!hand) return null;
+    hand.updateWorldMatrix(true, false);
+    const a = hand.getWorldPosition(new THREE.Vector3());
+    const b = a.clone().add(new THREE.Vector3(0, 0.9, 0));
+    return { a, b, radius: 0.2 };
+  }
+
+  /**
+   * Mid-flight dungeon bolt parry: requires CombatController `parry` + bolt on
+   * the weapon capsule. Returns new velocity (2×, toward caster) or null.
+   */
+  private probeParryProjectile(
+    pos: THREE.Vector3,
+    incomingVel: THREE.Vector3,
+    casterPos: THREE.Vector3,
+  ): { vel: THREE.Vector3; point: THREE.Vector3 } | null {
+    if (!isProjectileParryState(this.sparring.getPlayerState())) return null;
+    const col = this.weaponParryCollider();
+    if (!col) return null;
+    const contact = new THREE.Vector3();
+    if (!pointHitsWeaponCollider(pos, col, contact)) {
+      // Also accept near-miss on the tip when the projectile is slightly past the blade
+      if (pos.distanceTo(col.b) > col.radius * 1.8 && pos.distanceTo(col.a) > col.radius * 1.8) {
+        return null;
+      }
+      contact.copy(pos);
+    }
+    const reb = computeParryRebound(incomingVel, contact, casterPos, PARRY_REBOUND_SPEED_MUL);
+    this.playProjectileParrySuccess(reb.point, reb.dir, "bolt");
+    return { vel: reb.vel, point: reb.point };
+  }
+
+  /**
+   * Danger Room spell / turret bolt impact gate. If parrying with the weapon
+   * on the impact point, cancel the original hit and fire a reverse 2× bolt
+   * back at the caster (more direct path, deterministic parry anim + VFX).
+   */
+  private tryParryIncomingProjectile(
+    impact: THREE.Vector3,
+    casterPos: THREE.Vector3,
+    kind: SkillKind | string,
+  ): boolean {
+    if (!this.character || this.defeated) return false;
+    if (!isProjectileParryState(this.sparring.getPlayerState())) return false;
+    const col = this.weaponParryCollider();
+    if (!col) return false;
+    // Impact is near player chest; accept if weapon is raised in the path
+    // (distance to blade OR impact near player + parry window).
+    const onBlade = pointHitsWeaponCollider(impact, col);
+    const chest = this.character.root.position.clone();
+    chest.y += 1.0;
+    const nearPlayer = impact.distanceTo(chest) < 1.6;
+    const bladeNearImpact =
+      impact.distanceTo(col.a) < 1.1 || impact.distanceTo(col.b) < 1.1;
+    if (!onBlade && !(nearPlayer && bladeNearImpact)) return false;
+
+    const contact = onBlade
+      ? (() => {
+          const p = new THREE.Vector3();
+          pointHitsWeaponCollider(impact, col, p);
+          return p;
+        })()
+      : col.b.clone();
+
+    // Fake incoming velocity: from caster → impact (pre-rebound direction).
+    const incoming = impact.clone().sub(casterPos);
+    if (incoming.lengthSq() < 1e-4) incoming.set(0, 0, 1);
+    const inSpeed = 22;
+    incoming.normalize().multiplyScalar(inSpeed);
+
+    const reb = computeParryRebound(incoming, contact, casterPos, PARRY_REBOUND_SPEED_MUL);
+    this.playProjectileParrySuccess(reb.point, reb.dir, kind);
+
+    // Reverse bolt: 2× speed, direct at caster, damage on land
+    const flightDist = Math.max(2, contact.distanceTo(casterPos) + 1.2);
+    this.vfx.muzzle(contact.clone(), reb.dir.clone(), 0xfff0a0);
+    this.vfx.bolt(
+      contact.clone(),
+      reb.dir.clone(),
+      0xffe080,
+      reb.outSpeed,
+      flightDist,
+      (land) => {
+        this.vfx.aoeBlast(land, 0xffe080, 1.5);
+        this.vfx.burst(land, 0xfff0a0, 32, 6);
+        this.sparringBlast(land, 1.8, 18, 10);
+        this.setCombatFlash("REBOUND!", 0.6);
+      },
+    );
+    return true;
+  }
+
+  /** Deterministic parry anim + spark VFX when steel connects with a projectile. */
+  private playProjectileParrySuccess(
+    point: THREE.Vector3,
+    reboundDir: THREE.Vector3,
+    _kind: SkillKind | string,
+  ): void {
+    this.setCombatFlash("PARRY REBOUND!", 1.2);
+    this.sfx?.play("block", point, { volume: 1.1, rate: 1.25 });
+    this.sfx?.play("bladeHit", point, { volume: 0.9, rate: 1.15 });
+    // Cool connect: bright sparks + shock ring along the blade
+    this.vfx.impact(point, 0xfff8e0, 2.0);
+    this.vfx.burst(point, 0xffe080, 40, 7);
+    this.vfx.burst(point.clone().addScaledVector(reboundDir, 0.3), 0x9fdcff, 18, 4);
+    this.vfx.shockwave(new THREE.Vector3(point.x, Math.max(0.05, point.y - 0.4), point.z), 0xffd060, 1.8, 0.35);
+    this.blockShield(point, true);
+    // Deterministic parry flourish from hold-style defense set
+    this.reactWithClip(defenseClips(this.playerGroup()).parry, 0.08);
+    // Brief invuln so the original bolt can't double-hit after rebound
+    this.invuln = Math.max(this.invuln, 0.25);
+    this.respectWindow = Math.max(this.respectWindow, 0.45);
+    this.pulseSpellPostFx(0.35);
+  }
+
+  /**
    * Stable crescent index for the equipped weapon, hashed from its id, so the
    * same weapon always shows the SAME slash arc throughout (no per-swing random).
    */
@@ -6281,6 +6429,14 @@ export class Studio {
         this.vfx.shockwave(new THREE.Vector3(p.x, p.y + 0.05, p.z), 0xff5a6a, 3, 0.6);
       };
       enemies.onProjectileImpact = (p) => this.vfx.impact(p, 0xffe27a, 1.2);
+      enemies.tryParryProjectile = (pos, vel, casterPos) =>
+        this.probeParryProjectile(pos, vel, casterPos);
+      enemies.onProjectileReflectedHit = (pos, damage) => {
+        this.vfx.impact(pos, 0xfff0a0, 1.6);
+        this.vfx.burst(pos, 0xffe080, 28, 5);
+        this.sparringBlast(pos, 1.4, damage, 8);
+        this.setCombatFlash("REBOUND HIT!", 0.7);
+      };
       enemies.setDifficulty(this.difficulty);
       this.targets = enemies;
       this.wireTargetCombatHooks();
