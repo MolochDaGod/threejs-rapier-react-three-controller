@@ -25,10 +25,26 @@
  *     context programmatically (e.g. when a ray-cast hits a door mesh).
  */
 import { useEffect, type ReactNode } from "react";
+import "./grudgeCursors.css";
 
 // ── cursor context store (module-level, no React overhead) ────────────────────
 
-export type CursorCtx = "default" | "interact" | "combat" | "harvest";
+/** Extended contexts map to Toon RTS pack (public/cursors/01–20.png) */
+export type CursorCtx =
+  | "default"
+  | "interact"
+  | "combat"
+  | "harvest"
+  | "attack"
+  | "build"
+  | "magic"
+  | "ally"
+  | "enemy"
+  | "talk"
+  | "door"
+  | "shop"
+  | "wait"
+  | "forbidden";
 
 let _ctx: CursorCtx = "default";
 const _listeners = new Set<() => void>();
@@ -49,10 +65,20 @@ export function getCursorCtx(): CursorCtx {
 
 function bodyClass(ctx: CursorCtx): string {
   switch (ctx) {
-    case "combat":   return "cursor-combat";
-    case "interact": return "cursor-interact";
-    case "harvest":  return "cursor-harvest";
-    default:         return "cursor-default";
+    case "combat":     return "cursor-combat";
+    case "interact":   return "cursor-interact";
+    case "harvest":    return "cursor-harvest";
+    case "attack":     return "cursor-attack";
+    case "build":      return "cursor-build";
+    case "magic":      return "cursor-magic";
+    case "ally":       return "cursor-ally";
+    case "enemy":      return "cursor-enemy";
+    case "talk":       return "cursor-talk";
+    case "door":       return "cursor-door";
+    case "shop":       return "cursor-shop";
+    case "wait":       return "cursor-wait";
+    case "forbidden":  return "cursor-forbidden";
+    default:           return "cursor-default";
   }
 }
 
@@ -74,7 +100,12 @@ export function CursorManager({ children }: Props) {
   useEffect(() => {
     const apply = () => {
       const b = document.body;
-      b.classList.remove("cursor-default", "cursor-interact", "cursor-combat", "cursor-harvest");
+      const all = [
+        "cursor-default", "cursor-interact", "cursor-combat", "cursor-harvest",
+        "cursor-attack", "cursor-build", "cursor-magic", "cursor-ally", "cursor-enemy",
+        "cursor-talk", "cursor-door", "cursor-shop", "cursor-wait", "cursor-forbidden",
+      ];
+      b.classList.remove(...all);
       b.classList.add(bodyClass(_ctx));
     };
     apply();

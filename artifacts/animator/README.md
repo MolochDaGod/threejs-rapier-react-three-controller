@@ -1,69 +1,73 @@
-# Animator (Danger Room / Play Shell)
+# Animator (Danger Room / production controller)
 
-**Live:** https://threejs-rapier-react-three-controll.vercel.app  
+**Live:** https://threejs-rapier-react-three-controll.vercel.app/  
 **Package:** `@workspace/animator-app` · **Engine:** plain three.js + Rapier
 
-Grudge Studio **play shell**: third-person combat training, grudge6 races, voxel Explorer, doors to Realms / Characters / Dressing, Grudge ID on the landing page.
+Third-person **animation + combat studio** (X-Men-style Danger Room), voxel tools,
+Dressing Room, and **Ethereal Falls** 4-slot account character select.
 
-## About
+## Production character policy
 
-- **Drive** characters: WASD walk, **Shift sprint**, jump, LMB attack, F skill, 1–4 signatures  
-- **Grudge6 races** — modular Bip001 kits (armor/weapon mesh visibility + baked packs)  
-- **Explorer** — procedural Mixamo weapon animation library  
-- **Physics** — Rapier KCC / capsule depenetration vs room obstacles  
-- **Root lock** — clips do not own world XYZ (stable blends, no meshing teleports)  
-- **Fleet** — auth, characters, assets, multiplayer via production proxies  
+| Source | What players see |
+|--------|------------------|
+| **Campfire** (post sign-in) | Up to **4 account** heroes (fleet / charactersgrudox) |
+| **Admin / Playground picker** | Curated production cast only (`PLAYABLE_CHARACTERS`) |
 
-Full connection map: [`../../docs/PRODUCTION.md`](../../docs/PRODUCTION.md).
+**Not in production pickers:** Sensei (`karate-boss`), the **24 grudge6** race×class
+prefabs, ikkau/demo names, licensed lab-only skins.
 
-## What you can do
+Default guest shell: **Explorer**. Fleet ids that map to removed kits resolve safely to Explorer.
 
-- **Danger Room** combat sandbox + multiplayer hooks  
-- **Minecraft-style armor** (`I`) — see `docs/minecraft-armor-equipment.md`  
-- **Weapon skill kits** — F + 1–4 (mace2h exemplar + grudge kit aliases)  
-- **Wildlife**, skillwrite casting, avatar hats — see `docs/`  
-- **Doors hall** — Dressing, Realms (Mine-Loader), Characters GRUDOX  
+## Combat hotkeys
+
+| Key | Action |
+|-----|--------|
+| WASD · Shift | Move · sprint |
+| Space | Jump |
+| LMB · RMB | Attack · soft/hard lock |
+| Ctrl hold · C | Block · parry |
+| Q | Parry / loadout swap (hold: radial where enabled) |
+| F · 1–4 · R | Weapon skill · signatures · special |
+| I | Equipment |
+| Tab | Cycle target |
+
+Full SSOT: [`docs/PRODUCTION_CONTROLLER.md`](../../docs/PRODUCTION_CONTROLLER.md).
+
+## Weapon skills · VFX · hip / anim
+
+- Signature slots play **clip + VFX**; staffs use elemental casts; post **bloom** for spells  
+- **Hip grounding:** Mixamo/Explorer use `lockHorizontalRoot`; combat one-shots do **not** clamp on bent end frames (avoids look-down-through-terrain)  
+- Feet plant via grounder / dungeon sampler; bipeds feet-on-terrain, not forced on custom non-human rigs  
 
 ## Run
 
 ```bash
 pnpm --filter @workspace/animator-app run dev
 pnpm --filter @workspace/animator-app run typecheck
-pnpm --filter @workspace/animator-app run test
+pnpm --filter @workspace/animator-app run build
 ```
-
-## Production deploy
-
-```bash
-# From artifacts/animator — use Vercel CLI session (not a stale VERCEL_TOKEN)
-npx vercel deploy --prod --yes
-```
-
-Env template: `.env.production.example`  
-Rewrites: `vercel.json`
 
 ## Architecture (three.js, not R3F)
 
-| Module | Role |
-|--------|------|
-| `Studio.ts` | Scene owner, loop, weapons, skills |
-| `Controller.ts` | Third-person move/camera + locomotion intent |
-| `Character.ts` / `ExplorerCharacter.ts` / `grudge/GrudgeAvatar.ts` | Avatar implementations |
-| `physics/capsuleKcc.ts` | Shared Rapier capsule KCC |
-| `rig/rootLock.ts` | Bind-pose root XYZ freeze |
+- `src/three/Studio.ts` — scene, combat, skills, loop  
+- `src/three/Controller.ts` — third-person camera + movement  
+- `src/three/assets.ts` — production `PLAYABLE_CHARACTERS` + weapons  
+- `src/components/CampfireLobby.tsx` — Ethereal Falls 4-slot select  
+- `src/auth/fleetCharacter.ts` · `grudoxRoster.ts` — account SSOT  
+- `src/three/explorer/` — procedural rig, clip bank, hip lock  
 
-React (`Hud.tsx`, `LandingPage.tsx`, panels) is UI only.
+React is HUD/UI only; the engine owns the canvas.
 
-## Production connections (summary)
+## Entry modes
 
-| Service | Host |
-|---------|------|
-| Auth | id.grudge-studio.com |
-| Characters / bag | grudge-api-production (Railway) |
-| Assets | assets.grudge-studio.com |
-| Danger API | gameopen-production (Railway) |
-| Realms | mine-loader.vercel.app |
+| `?door=` | Surface |
+|----------|---------|
+| *(default)* | Landing → campfire characters |
+| `characters` | Ethereal Falls campfire |
+| `danger` | Danger Room combat |
+| `editor` | Dressing Room |
+| `voxel` · `lobby` · `avatar` · `ledmask` | World editor · multiplayer · avatar · LED mask |
 
-## Self-contained design
+## Armor
 
-Does not import `@workspace/*` into the browser bundle for the core engine path; explorer/animator code lives under `src/three/`. Shared fleet helpers live in `lib/fleet-client` for launch URLs.
+Minecraft-style slots (head / chest / legs / feet) — see `docs/minecraft-armor-equipment.md`.

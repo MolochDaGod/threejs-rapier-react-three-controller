@@ -12,7 +12,7 @@ export const GRUDOX_HOST = FLEET.grudox;
 export const OPEN_HOST = FLEET.gameopen;
 export const PLAY_SHELL =
   (typeof window !== "undefined" ? window.location.origin : "") ||
-  "https://threejs-rapier-react-three-controll.vercel.app";
+  "https://open.grudge-studio.com";
 
 /** Local App modes this shell can enter without leaving the origin. */
 export type LocalHubMode =
@@ -23,7 +23,17 @@ export type LocalHubMode =
   | "lobbyWorld"
   | "minegrudge"
   | "doors"
-  | "avatar";
+  | "avatar"
+  | "account"
+  | "ledmask"
+  | "genesis"
+  | "brawl"
+  | "survival"
+  | "mimic"
+  | "zones"
+  | "realms"
+  | "characters"
+  | "voxgrudge-native";
 
 export type HubDestinationId =
   | "island"
@@ -43,7 +53,10 @@ export type HubDestinationId =
   | "carrier"
   | "waters"
   | "warlords"
-  | "character-studio";
+  | "warlord-genesis"
+  | "character-studio"
+  | "dcq"
+  | "mine-loader";
 
 export interface HubLaunchContext {
   characterId?: string | null;
@@ -115,14 +128,14 @@ export const HUB_DESTINATIONS: HubDestination[] = [
   {
     id: "minegrudge-editor",
     label: "GRUDOX Realms",
-    blurb: "Live survival · build · combat · friends (mine-loader.vercel.app)",
+    blurb: "Live survival · build · combat · friends (mineloader.grudge-studio.com)",
     group: "play",
     localMode: "minegrudge",
   },
   {
     id: "voxel-editor",
-    label: "Quick Voxel Editor",
-    blurb: "Lightweight map authoring in this shell",
+    label: "Worldbuilder",
+    blurb: "Largest map editor · Play = Danger Room combat UX",
     group: "edit",
     localMode: "voxel",
   },
@@ -170,10 +183,24 @@ export const HUB_DESTINATIONS: HubDestination[] = [
   },
   {
     id: "voxgrudge",
-    label: "VoxGrudge World",
-    blurb: "Open voxel world",
+    label: "VoxGrudge Full World",
+    blurb: "Full open-world voxel survival",
     group: "arcade",
-    external: (ctx) => withHandoff(`${GRUDOX_HOST}/voxgrudge/`, ctx),
+    external: (ctx) => withHandoff("https://voxgrudge.vercel.app/", ctx),
+  },
+  {
+    id: "dcq",
+    label: "Dungeon Crawler Quest",
+    blurb: "Voxel dungeon RPG",
+    group: "play",
+    external: (ctx) => withHandoff("https://dcq.grudge-studio.com/", ctx),
+  },
+  {
+    id: "mine-loader",
+    label: "Mine-Loader Realms",
+    blurb: "Authoritative multiplayer voxel worlds",
+    group: "play",
+    external: (ctx) => withHandoff("https://mine-loader.vercel.app/", ctx),
   },
   {
     id: "arena-arcade",
@@ -202,6 +229,33 @@ export const HUB_DESTINATIONS: HubDestination[] = [
     blurb: "Full Warlords client",
     group: "fleet",
     external: (ctx) => withHandoff(FLEET.warlords, ctx),
+  },
+  {
+    id: "warlord-genesis",
+    label: "Warlord Genesis",
+    blurb: "3-lane MOBA / RTS with fleet character",
+    group: "fleet",
+    // Prefer same-origin Genesis picker (4 GRUDOX slots) then handoff to product
+    localMode: "genesis",
+    external: (ctx) => {
+      try {
+        // Same-origin Open /genesis — shows 4-slot charactersgrudox picker first
+        const u = new URL(`${PLAY_SHELL}/genesis`);
+        u.searchParams.set("open", "1");
+        u.searchParams.set("from", "charactersgrudox");
+        if (ctx.characterId) u.searchParams.set("characterId", ctx.characterId);
+        if (ctx.baseId) u.searchParams.set("baseId", ctx.baseId);
+        if (ctx.name) u.searchParams.set("characterName", ctx.name);
+        const token = ctx.token || readFleetToken();
+        if (token) {
+          u.searchParams.set("sso_token", token);
+          u.searchParams.set("grudge_token", token);
+        }
+        return u.toString();
+      } catch {
+        return `${PLAY_SHELL}/genesis?open=1&from=charactersgrudox`;
+      }
+    },
   },
   {
     id: "character-studio",

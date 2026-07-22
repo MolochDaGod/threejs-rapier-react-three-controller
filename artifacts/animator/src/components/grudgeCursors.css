@@ -1,0 +1,64 @@
+/**
+ * Grudge Toon RTS cursor pack — Danger Room / Animator / menus
+ * Assets: public/cursors/01–20.png
+ */
+
+:root {
+  --cursor-default: url("/cursors/01.png") 2 2, auto;
+  --cursor-ally: url("/cursors/02.png") 2 2, pointer;
+  --cursor-enemy: url("/cursors/03.png") 2 2, crosshair;
+  --cursor-harvest: url("/cursors/04.png") 4 4, crosshair;
+  --cursor-attack: url("/cursors/05.png") 4 4, crosshair;
+  --cursor-build: url("/cursors/06.png") 4 4, crosshair;
+  --cursor-magic: url("/cursors/07.png") 4 4, crosshair;
+  --cursor-hand: url("/cursors/08.png") 8 2, pointer;
+  --cursor-grab: url("/cursors/09.png") 8 4, grab;
+  --cursor-forbidden: url("/cursors/10.png") 12 12, not-allowed;
+  --cursor-door: url("/cursors/11.png") 4 4, pointer;
+  --cursor-wait: url("/cursors/12.png") 12 12, wait;
+  --cursor-defend: url("/cursors/13.png") 8 8, pointer;
+  --cursor-talk: url("/cursors/14.png") 4 4, pointer;
+  --cursor-point: url("/cursors/15.png") 8 2, pointer;
+  --cursor-heal: url("/cursors/16.png") 8 4, pointer;
+  --cursor-inspect: url("/cursors/17.png") 8 8, help;
+  --cursor-shop: url("/cursors/18.png") 8 8, pointer;
+}
+
+html, body {
+  cursor: var(--cursor-default);
+}
+
+body.cursor-default { cursor: var(--cursor-default) !important; }
+body.cursor-interact { cursor: var(--cursor-point) !important; }
+body.cursor-combat { cursor: none !important; }
+body.cursor-harvest { cursor: var(--cursor-harvest) !important; }
+body.cursor-attack { cursor: var(--cursor-attack) !important; }
+body.cursor-build { cursor: var(--cursor-build) !important; }
+body.cursor-magic { cursor: var(--cursor-magic) !important; }
+body.cursor-ally { cursor: var(--cursor-ally) !important; }
+body.cursor-enemy { cursor: var(--cursor-enemy) !important; }
+body.cursor-talk { cursor: var(--cursor-talk) !important; }
+body.cursor-door { cursor: var(--cursor-door) !important; }
+body.cursor-shop { cursor: var(--cursor-shop) !important; }
+body.cursor-wait { cursor: var(--cursor-wait) !important; }
+body.cursor-forbidden { cursor: var(--cursor-forbidden) !important; }
+
+[data-cursor="default"] { cursor: var(--cursor-default) !important; }
+[data-cursor="interact"] { cursor: var(--cursor-point) !important; }
+[data-cursor="combat"] { cursor: none !important; }
+[data-cursor="harvest"] { cursor: var(--cursor-harvest) !important; }
+[data-cursor="attack"] { cursor: var(--cursor-attack) !important; }
+[data-cursor="build"] { cursor: var(--cursor-build) !important; }
+[data-cursor="magic"] { cursor: var(--cursor-magic) !important; }
+[data-cursor="ally"] { cursor: var(--cursor-ally) !important; }
+[data-cursor="enemy"] { cursor: var(--cursor-enemy) !important; }
+[data-cursor="talk"] { cursor: var(--cursor-talk) !important; }
+[data-cursor="door"] { cursor: var(--cursor-door) !important; }
+[data-cursor="shop"] { cursor: var(--cursor-shop) !important; }
+
+a, button, [role="button"] {
+  cursor: var(--cursor-point) !important;
+}
+button:disabled, [aria-disabled="true"] {
+  cursor: var(--cursor-forbidden) !important;
+}

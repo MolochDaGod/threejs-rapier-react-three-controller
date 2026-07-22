@@ -9,14 +9,20 @@
 export const FLEET = {
   auth: "https://id.grudge-studio.com",
   assets: "https://assets.grudge-studio.com",
-  objectStore: "https://objectstore.grudge-studio.com/api/v1",
+  /** Definitions SSOT — info.grudge-studio.com (objectstore catalogs 404 as of 2026-07). */
+  definitions: "https://info.grudge-studio.com/api/v1",
+  objectStore: "https://info.grudge-studio.com/api/v1",
+  objectStoreLegacy: "https://objectstore.grudge-studio.com/api/v1",
   /** Character / account SSOT (never api.grudge-studio.com). */
   gameData: "https://grudge-api-production-0d46.up.railway.app",
   characterStudio: "https://character.grudge-studio.com",
-  /** Launcher + combat sandbox (fleet template). */
-  gameopen: "https://gameopen.vercel.app",
+  /** Canonical Open launcher + Animator suite (replaces threejs-rapier hub). */
+  gameopen: "https://open.grudge-studio.com",
+  gameopenAlias: "https://gameopen.vercel.app",
   warlords: "https://grudgewarlords.com",
   grudox: "https://grudox.grudge-studio.com",
+  mineLoaderApi: "https://mine-loader-api-production.up.railway.app",
+  arena: "https://grudge-arena.grudge-studio.com",
   /** Realtime (prefer env override). */
   gameopenWs: "wss://gameopen-production.up.railway.app",
   zoneWs: "wss://voxgrudge-grudox-room-production.up.railway.app",

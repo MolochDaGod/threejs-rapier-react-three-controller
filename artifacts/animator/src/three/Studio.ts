@@ -21,6 +21,7 @@ import { Controller } from "./Controller";
 import { Recoil, fovKick, screenCenterRay } from "./aim/AimSystem";
 import { leadTarget } from "./anim/predictiveLead";
 import { Vfx } from "./Vfx";
+import { createMysticalComposer, type MysticalComposer } from "./fx/postfx";
 import { AbilityOrchestrator } from "./abilities/abilityOrchestrator";
 import { deployAbility, getAbility, kitAbility, statusAbility, vfxSkill } from "./abilities/abilityRegistry";
 import { dispatchStatusRouting, routeStatusScope } from "./abilities/statusScopeRouting";
@@ -405,6 +406,11 @@ export class Studio {
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private timer = new THREE.Timer();
+  /**
+   * Production pmndrs post stack (bloom + grade + vignette + ACES). Null falls
+   * back to direct renderer.render — required for spell/weapon readability.
+   */
+  private postfx: MysticalComposer | null = null;
   /** Spatial combat SFX (impacts/whooshes/blocks + soft ambient bed). */
   private sfx: CombatSfx | null = null;
   /** Persisted sound mixer (mute + master/combat/ambient/klaxon levels). */
@@ -821,6 +827,10 @@ export class Studio {
     this.camera.position.set(0, 2.2, 3.5);
     this.camera.lookAt(0, 1, 0);
 
+    // Production post stack (HDR bloom for spell/weapon shaders + ACES). Must
+    // run after camera exists; falls back to direct render on failure.
+    this.initPostFx();
+
     this.room = new DangerRoom({ preset: loadRoomPreset() });
     this.scene.add(this.room.group);
     this.confirmDoorPlacement();
@@ -898,7 +908,11 @@ export class Studio {
       dealToPlayer: (center, radius, damage, force, from, kind, isSkill) =>
         this.resolveOpponentStrike(center, radius, damage, force, from, kind, isSkill),
       onWindup: (pos, kind) => this.vfx.burst(pos, SKILL_COLOR[kind] ?? 0xffb24d, 6, 1.6),
-      onCastCharge: (pos, kind) => this.vfx.castAura(pos, SKILL_COLOR[kind] ?? 0x9fd0ff),
+      onCastCharge: (pos, kind) => {
+        this.vfx.castAura(pos, SKILL_COLOR[kind] ?? 0x9fd0ff);
+        // Spell shaders need HDR bloom kick so fire/soul/dragon read on production.
+        this.pulseSpellPostFx(0.5);
+      },
       onStrike: (center, kind, radius, isSkill) => {
         const color = SKILL_COLOR[kind] ?? 0xffb24d;
         this.vfx.impact(center, color, 1.4);
@@ -5317,9 +5331,11 @@ export class Studio {
     this.abilities.cast(vfxSkill(fireKind, color, { target: "aimed" }), {
       onCast: () => {
         if (stage === 0) {
+          this.pulseSpellPostFx(0.65);
           this.vfx.castDragonAt(from, to, color, resolve);
         } else if (stage === 1) {
           this.vfx.flameCone(from, aimDir, color, 4);
+          this.pulseSpellPostFx(0.65);
           this.vfx.castDragonAt(from, to, color, resolve);
         } else {
           this.vfx.coneFlame(from, aimDir);
@@ -5466,6 +5482,45 @@ export class Studio {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.postfx?.setSize(w, h);
+  }
+
+  /**
+   * Production combat post stack — subtle bloom so fire/spell ShaderMaterials
+   * read correctly without washing the frame. Heavier grade reserved for
+   * pulseSpell() on cast.
+   */
+  private initPostFx() {
+    const prevTone = this.renderer.toneMapping;
+    try {
+      this.postfx = createMysticalComposer(this.renderer, this.scene, this.camera, {
+        bloomIntensity: 0.55,
+        bloomThreshold: 0.52,
+        bloomRadius: 0.58,
+        saturation: 0.06,
+        vignetteDarkness: 0.26,
+        chromatic: 0.00018,
+        grain: 0.02,
+      });
+      const w = this.container.clientWidth || window.innerWidth;
+      const h = this.container.clientHeight || window.innerHeight;
+      if (w > 0 && h > 0) this.postfx.setSize(w, h);
+    } catch (err) {
+      console.warn("[Studio] post-processing init failed; using direct render", err);
+      this.renderer.toneMapping = prevTone;
+      this.postfx = null;
+    }
+  }
+
+  /** Render via post stack when available (spell/weapon HDR bloom). */
+  private renderFrame(dt: number) {
+    if (this.postfx) this.postfx.render(dt);
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Call from ability casts so fire/soul/dragon spells kick bloom briefly. */
+  pulseSpellPostFx(durationSec = 0.55) {
+    this.postfx?.pulseSpell(durationSec);
   }
 
   /**
@@ -5527,7 +5582,7 @@ export class Studio {
       const views = this.targets instanceof Targets ? this.targets.fighterViews() : [];
       this.ale.updateReplay(rdt, views);
       this.ale.applyCamera(this.camera);
-      this.renderer.render(this.scene, this.camera);
+      this.renderFrame(rdt);
       this.hudAccum += rdt;
       if (this.hudAccum >= 0.1) {
         this.hudAccum = 0;
@@ -5544,7 +5599,7 @@ export class Studio {
     if (this.gated && !this.ready) {
       this.room.update(t, this.sfx?.getMusicPulse()?.intensity ?? 0);
       this.djBooth?.update(dt, this.sfx?.getMusicPulse() ?? null);
-      this.renderer.render(this.scene, this.camera);
+      this.renderFrame(dt);
       return;
     }
 
@@ -5938,7 +5993,7 @@ export class Studio {
     // duel can be watched from a selected POV/drone view without touching the
     // player Controller.
     this.ale.applyCamera(this.camera);
-    this.renderer.render(this.scene, this.camera);
+    this.renderFrame(dt);
 
     this.hudAccum += dt;
     if (this.hudAccum >= 0.1) {
@@ -8182,6 +8237,8 @@ export class Studio {
     this.detachNet();
     this.remoteRoot.clear();
     cancelAnimationFrame(this.raf);
+    this.postfx?.dispose();
+    this.postfx = null;
     this.renderer.domElement.removeEventListener("click", this.onClick);
     this.renderer.domElement.removeEventListener("mousedown", this.onMouseDown);
     window.removeEventListener("mouseup", this.onMouseUp);

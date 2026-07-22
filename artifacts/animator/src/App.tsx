@@ -27,7 +27,7 @@ import { ROOM_PRESETS, ROOM_PRESET_LIST, asRoomPresetId, loadRoomPreset, saveRoo
 import { loadDjShow, saveDjShow } from "./three/djShowSettings";
 import { loadSound, type SoundSettings } from "./three/soundSettings";
 import { musicStation } from "./three/audio/musicStation";
-import { djStationUrls, djStationTitles, djProducerTagUrl } from "./three/audio/djPlaylist";
+import { djStationUrls, djStationTitles } from "./three/audio/djPlaylist";
 import { loadDjStation, saveDjStation, type DjStationSettings } from "./three/djStationSettings";
 import {
   RADIO_STATIONS,
@@ -37,11 +37,16 @@ import {
   assertStation,
 } from "./three/audio/radioStations";
 import { LandingPage } from "./components/LandingPage";
+import { CampfireLobby } from "./components/CampfireLobby";
 import {
   readRememberedAnimatorCharacter,
   rememberAnimatorCharacter,
   resolveFleetPlayerLoadout,
 } from "./auth/fleetCharacter";
+import {
+  activateCampfireHero,
+  type GenesisHeroOption,
+} from "./auth/grudoxRoster";
 import { SoundMixer, SoundLevels, type SoundChannel } from "./components/SoundMixer";
 import { DjStationPanel, DjStationBody, type DjNowPlaying } from "./components/DjStationPanel";
 import type {
@@ -72,7 +77,6 @@ import { DoorSelect } from "./components/DoorSelect";
 import { EditorMode } from "./components/editor/EditorMode";
 import { Lobby } from "./components/Lobby";
 import { LobbyWorldMode } from "./components/LobbyWorldMode";
-import { CharactersGrudoxMode } from "./components/CharactersGrudoxMode";
 import { MineGrudgeEditorMode } from "./components/MineGrudgeEditorMode";
 import { LedMaskMode } from "./components/LedMaskMode";
 import { RoomGallery } from "./components/RoomGallery";
@@ -105,6 +109,7 @@ import "./components/dock/dock.css";
 
 type Mode =
   | "landing"
+  | "characters"
   | "doors"
   | "danger"
   | "voxel"
@@ -112,13 +117,12 @@ type Mode =
   | "editor"
   | "lobby"
   | "lobbyWorld"
-  | "characters"
   | "minegrudge"
   | "ledmask"
   | "avatar";
 
 // Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|minegrudge|…`
-// surface on load. Default entry is landing (Grudge ID); doors hall is home.
+// Default: landing (Grudge ID) → Ethereal Falls campfire (4 account character slots).
 function initialMode(): Mode {
   try {
     const d = new URLSearchParams(window.location.search).get("door");
@@ -138,7 +142,7 @@ function initialMode(): Mode {
     ) {
       if (d === "charactersgrudox") return "characters";
       if (d === "grudoxEditor") return "minegrudge";
-      return d;
+      return d as Mode;
     }
   } catch {
     /* no-op */
@@ -896,8 +900,6 @@ export default function App() {
         saveStationId("cpt-rac");
         setDjStationId("cpt-rac");
         musicStation.setStationName(RADIO_STATIONS[0].name);
-        // stationPlaylist sets the tag; hard-fallback must arm it too.
-        musicStation.setProducerTag(djProducerTagUrl());
         musicStation.setPlaylist(djStationUrls(), djStationTitles());
         setDjTitles(djStationTitles());
       })
@@ -1171,10 +1173,10 @@ export default function App() {
     }
     if (
       mode === "doors" ||
+      mode === "characters" ||
       mode === "voxel" ||
       mode === "lobby" ||
       mode === "lobbyWorld" ||
-      mode === "characters" ||
       mode === "minegrudge" ||
       mode === "avatar"
     ) {
@@ -1252,9 +1254,48 @@ export default function App() {
   }, []);
 
   if (mode === "landing") {
-    // The front door: Grudge ID sign-in, no shell chrome. Entering leads to
-    // the doors hall (the home surface).
-    return <LandingPage onEnter={() => setMode("doors")} />;
+    // Front door: Grudge ID → Ethereal Falls campfire (4 account character slots).
+    // Not the lab cast (ikkau / demo heroes) — only fleet / charactersgrudox seats.
+    return <LandingPage onEnter={() => setMode("characters")} />;
+  }
+
+  if (mode === "characters") {
+    const enterWithHero = (hero: GenesisHeroOption) => {
+      const animId = activateCampfireHero(hero);
+      setCharacterId(animId);
+      setFleetHeroName(hero.name);
+      rememberAnimatorCharacter(animId, hero.id);
+      studioRef.current?.setCharacter(animId);
+      setMode("danger");
+    };
+    return shell(
+      withScreenTheme(
+        <CampfireLobby
+          onExit={() => setMode("doors")}
+          onNavigate={(m) => {
+            if (m === "home" || m === "hub") setMode("doors");
+            else if (
+              m === "danger" ||
+              m === "voxel" ||
+              m === "editor" ||
+              m === "lobby" ||
+              m === "avatar" ||
+              m === "ledmask" ||
+              m === "doors"
+            ) {
+              setMode(m);
+            } else if (m === "account") {
+              // Foundry create is opened by CampfireLobby itself
+              setMode("avatar");
+            } else {
+              setMode("doors");
+            }
+          }}
+          onAvatarEdit={() => setMode("avatar")}
+          onPlayDanger={enterWithHero}
+        />,
+      ),
+    );
   }
 
   if (mode === "doors") {
@@ -1303,16 +1344,7 @@ export default function App() {
     );
   }
 
-  if (mode === "characters") {
-    return shell(
-      withScreenTheme(
-        <CharactersGrudoxMode
-          onExit={() => setMode("doors")}
-          onNavigate={(m) => setMode(m)}
-        />,
-      ),
-    );
-  }
+  // characters mode handled above via CampfireLobby (Ethereal Falls 4-slot).
 
   if (mode === "minegrudge") {
     return shell(

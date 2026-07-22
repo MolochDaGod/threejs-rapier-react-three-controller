@@ -46,6 +46,7 @@ const toolboxArt = `${import.meta.env.BASE_URL}emblem.png`;
 /** Every mode the shell can route to. Mirrors App's `Mode` union. */
 export type ShellMode =
   | "landing"
+  | "characters"
   | "doors"
   | "danger"
   | "voxel"
@@ -53,7 +54,6 @@ export type ShellMode =
   | "editor"
   | "lobby"
   | "lobbyWorld"
-  | "characters"
   | "minegrudge"
   | "ledmask"
   | "avatar";
@@ -67,13 +67,13 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { mode: "characters", label: "Characters", hint: "Ethereal Falls · 4 slots", icon: <Users size={20} />, tone: "#9d8bff" },
   { mode: "doors", label: "Home", hint: "Facility entrance", icon: <Home size={20} />, tone: "#7fb0ff" },
   { mode: "danger", label: "Danger Room", hint: "Combat sandbox", icon: <Swords size={20} />, tone: "#ff7a7a" },
   { mode: "voxel", label: "Voxel Editor", hint: "Build & test maps", icon: <Boxes size={20} />, tone: "#7ee0a0" },
   { mode: "editor", label: "Dressing Room", hint: "Dress up a rig", icon: <Shirt size={20} />, tone: "#ffb24d" },
   { mode: "lobby", label: "Lobby", hint: "Rooms & community", icon: <Users size={20} />, tone: "#9d8bff" },
   { mode: "lobbyWorld", label: "GRUDOX World", hint: "Persistent island", icon: <Globe2 size={20} />, tone: "#5fd48a" },
-  { mode: "characters", label: "Characters", hint: "Campfire roster", icon: <SquareUser size={20} />, tone: "#4fc3ff" },
   { mode: "minegrudge", label: "Realms", hint: "Survival multiplayer", icon: <Pickaxe size={20} />, tone: "#7ee0a0" },
   { mode: "avatar", label: "Avatar Edit", hint: "Cube head builder", icon: <SquareUser size={20} />, tone: "#ffd28a" },
   { mode: "ledmask", label: "LED Mask", hint: "LED Mask & rooms", icon: <ScanFace size={20} />, tone: "#5fe0ff" },
@@ -82,7 +82,9 @@ const NAV: NavItem[] = [
 /** The title pill reflects the active surface (play folds into the editor). */
 function activeNav(mode: ShellMode): NavItem {
   const voxel = NAV.find((n) => n.mode === "voxel")!;
+  const chars = NAV.find((n) => n.mode === "characters")!;
   if (mode === "play") return { ...voxel, label: "Playtest", hint: "Testing your map" };
+  if (mode === "landing") return { ...chars, label: "Sign in", hint: "Grudge ID" };
   return NAV.find((n) => n.mode === mode) ?? NAV[0];
 }
 

@@ -502,7 +502,11 @@ export class Character {
     this.beginSingle();
     action.reset();
     action.setLoop(THREE.LoopOnce, 1);
-    action.clampWhenFinished = true;
+    // Production: do NOT clamp combat one-shots on the end frame — bent hip /
+    // look-down end poses (greatsword / 2H multi-hits) freeze the mesh into
+    // terrain. Recover to idle after the timer; Mixer keeps the last frame only
+    // briefly while `oneShotEnd` elapses.
+    action.clampWhenFinished = false;
     action.enabled = true;
     action.setEffectiveTimeScale(1);
     action.setEffectiveWeight(1);

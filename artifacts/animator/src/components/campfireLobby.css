@@ -1,0 +1,471 @@
+/* Ethereal Falls campfire + charactersgrudox wooden-sign account page */
+
+.cfl-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #060c14;
+  color: #eaf4ff;
+}
+
+.cfl-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.cfl-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 30%, rgba(4, 8, 14, 0.55) 100%);
+  z-index: 1;
+}
+
+/* ── Brand head (helmet + logo) ─────────────────────────────────────────── */
+
+.cfl-head {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  text-align: center;
+  pointer-events: none;
+  max-width: min(420px, 70vw);
+}
+
+.cfl-helmet {
+  display: block;
+  margin: 0 auto;
+  width: min(88px, 18vw);
+  height: auto;
+  filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.65));
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cfl-logo {
+  display: block;
+  margin: -2px auto 0;
+  width: min(220px, 40vw);
+  height: auto;
+  filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.65));
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cfl-sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #c9b89a;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+  letter-spacing: 0.02em;
+}
+
+/* ── Top chrome ─────────────────────────────────────────────────────────── */
+
+.cfl-bar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-top: min(132px, 22vw);
+  background: linear-gradient(180deg, rgba(6, 12, 20, 0.55), transparent);
+  border: none;
+  pointer-events: none;
+}
+.cfl-bar > * {
+  pointer-events: auto;
+}
+
+.cfl-brand {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-size: 13px;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+}
+.cfl-brand span {
+  color: #5fe0ff;
+  margin-left: 2px;
+}
+.cfl-brand em {
+  display: block;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11px;
+  opacity: 0.65;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+.cfl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cfl-btn {
+  border-radius: 8px;
+  border: 1px solid rgba(196, 150, 86, 0.35);
+  background: rgba(18, 12, 8, 0.78);
+  color: #e8d9c2;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.cfl-btn:hover {
+  border-color: rgba(224, 184, 120, 0.7);
+  background: rgba(36, 24, 14, 0.9);
+}
+.cfl-btn.primary {
+  background: linear-gradient(180deg, rgba(120, 80, 36, 0.95), rgba(60, 38, 16, 0.98));
+  border-color: rgba(224, 184, 120, 0.55);
+  color: #ffe9c2;
+}
+.cfl-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Wooden sign menu (right rail) ──────────────────────────────────────── */
+
+.cfl-sign-menu {
+  position: absolute;
+  top: 50%;
+  right: 28px;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  z-index: 8;
+}
+
+.cfl-sign-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.15s;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.55));
+}
+.cfl-sign-btn img {
+  display: block;
+  width: 168px;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.cfl-sign-btn:hover:not(:disabled) {
+  transform: scale(1.07) rotate(-1.2deg);
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.7)) brightness(1.15);
+}
+.cfl-sign-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.cfl-sign-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.5) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.4));
+}
+
+.cfl-sign-platform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  width: 168px;
+  margin-top: 4px;
+  background: linear-gradient(180deg, rgba(79, 195, 255, 0.18), rgba(10, 19, 32, 0.92));
+  border: 1px solid rgba(79, 195, 255, 0.4);
+  border-radius: 8px;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.55));
+}
+.cfl-sign-platform:hover {
+  border-color: #4fc3ff;
+  background: linear-gradient(180deg, rgba(79, 195, 255, 0.28), rgba(12, 28, 48, 0.95));
+}
+.cfl-sign-label {
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  font-size: 14px;
+  color: #9fdcff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+/* ── Seat strip ─────────────────────────────────────────────────────────── */
+
+.cfl-slots {
+  position: absolute;
+  left: 14px;
+  bottom: 88px;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  max-width: min(720px, calc(100vw - 220px));
+  width: 100%;
+  padding: 0;
+}
+@media (max-width: 900px) {
+  .cfl-slots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: calc(100vw - 28px);
+    bottom: 120px;
+  }
+  .cfl-sign-menu {
+    right: 12px;
+    gap: 0;
+  }
+  .cfl-sign-btn img,
+  .cfl-sign-platform {
+    width: 122px;
+  }
+}
+
+.cfl-slot {
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid rgba(196, 150, 86, 0.28);
+  background: rgba(12, 9, 6, 0.78);
+  padding: 10px 12px;
+  color: #e8d9c2;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+.cfl-slot.on {
+  border-color: #e0b878;
+  box-shadow: 0 0 16px rgba(224, 184, 120, 0.28);
+  background: rgba(36, 24, 14, 0.9);
+}
+.cfl-slot.empty {
+  opacity: 0.65;
+}
+.cfl-slot-idx {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+}
+.cfl-slot strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+}
+.cfl-slot-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* ── Foot bar ───────────────────────────────────────────────────────────── */
+
+.cfl-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  background: linear-gradient(0deg, rgba(6, 8, 12, 0.92), rgba(6, 8, 12, 0.35));
+  border-top: 1px solid rgba(196, 150, 86, 0.18);
+}
+
+.cfl-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+}
+.cfl-pick b {
+  color: #ffd98a;
+  font-size: 15px;
+}
+.cfl-pick span {
+  font-size: 12px;
+  color: #9a8768;
+}
+.cfl-dim {
+  color: #9a8768;
+  font-size: 13px;
+}
+.cfl-foot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+
+.cfl-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(24, 16, 10, 0.94);
+  border: 1px solid rgba(224, 184, 120, 0.45);
+  color: #ffe9c2;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+/* ── Destination / platform panels ──────────────────────────────────────── */
+
+.cfl-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 6, 12, 0.78);
+  backdrop-filter: blur(8px);
+  padding: 16px;
+}
+
+.cfl-panel-inner {
+  width: min(560px, 100%);
+  max-height: min(88vh, 760px);
+  overflow: auto;
+  background: linear-gradient(180deg, rgba(24, 18, 12, 0.98), rgba(10, 8, 6, 0.98));
+  border: 1px solid rgba(196, 150, 86, 0.35);
+  border-radius: 16px;
+  padding: 20px 22px 16px;
+  color: #e8d9c2;
+  box-shadow: 0 22px 64px rgba(0, 0, 0, 0.55);
+}
+
+.cfl-panel-inner h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: #ffd76a;
+}
+
+.cfl-panel-sub {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #9a8768;
+}
+
+.cfl-panel-body {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #c9b89a;
+}
+
+.cfl-panel-hint {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: #7a6a52;
+  line-height: 1.45;
+}
+
+.cfl-dest-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cfl-dest-btn {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(196, 150, 86, 0.28);
+  background: rgba(28, 20, 12, 0.9);
+  color: #e8d9c2;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cfl-dest-btn strong {
+  font-size: 13px;
+  color: #ffe9c2;
+}
+.cfl-dest-btn span {
+  font-size: 11px;
+  color: #9a8768;
+  line-height: 1.35;
+  font-weight: 500;
+}
+.cfl-dest-btn:hover:not(:disabled) {
+  border-color: #e0b878;
+  background: rgba(40, 28, 16, 0.95);
+}
+.cfl-dest-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cfl-dest-btn.pvp {
+  border-color: rgba(255, 120, 100, 0.3);
+}
+.cfl-dest-btn.pvp:hover:not(:disabled) {
+  border-color: rgba(255, 140, 120, 0.65);
+}
+.cfl-dest-btn.arena {
+  border-color: rgba(79, 195, 255, 0.3);
+}
+.cfl-dest-btn.arena:hover:not(:disabled) {
+  border-color: #4fc3ff;
+}
+.cfl-dest-btn.gcs {
+  border-color: rgba(112, 225, 176, 0.45);
+  background: linear-gradient(180deg, rgba(22, 56, 45, 0.65), rgba(18, 14, 10, 0.95));
+}
+
+.cfl-hub-group {
+  margin-bottom: 14px;
+}
+.cfl-hub-group h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c9a86d;
+}
+
+.cfl-panel-close {
+  margin-top: 14px;
+  background: transparent;
+  border: none;
+  color: #9a8768;
+  cursor: pointer;
+  font-size: 13px;
+}
+.cfl-panel-close:hover {
+  color: #e0b878;
+}
+
+@media (max-width: 560px) {
+  .cfl-dest-grid {
+    grid-template-columns: 1fr;
+  }
+  .cfl-head {
+    max-width: 90vw;
+  }
+}

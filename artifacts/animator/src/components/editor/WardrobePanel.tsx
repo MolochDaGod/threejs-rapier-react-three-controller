@@ -3,7 +3,7 @@ import { Shirt, Upload, UserPlus, Sparkles, X } from "lucide-react";
 import type { EditorScene } from "../../three/editor/EditorScene";
 import type { EditorObjectSnapshot, EditorSnapshot } from "../../three/editor/types";
 import type { VoxelPart } from "../../three/explorer/rig";
-import { CHARACTERS } from "../../three/assets";
+import { PLAYABLE_CHARACTERS } from "../../three/assets";
 import { RACE_ASSETS, RACE_IDS, PRESET_IDS } from "../../three/grudge";
 import type { RaceId, PresetId } from "../../three/grudge";
 import { SHELLS, type ShellId } from "../../three/LedMaskShells";
@@ -159,7 +159,7 @@ function VoxelCharacterSection({
  * or one of the six Grudge races (with a gear preset) into the Dressing Room.
  */
 function CharacterLoader({ engine }: { engine: EditorScene }) {
-  const [catId, setCatId] = useState<string>(CHARACTERS[0]?.id ?? "explorer");
+  const [catId, setCatId] = useState<string>(PLAYABLE_CHARACTERS[0]?.id ?? "explorer");
   const [race, setRace] = useState<RaceId>(RACE_IDS[0]);
   const [preset, setPreset] = useState<PresetId>("warrior");
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -168,7 +168,7 @@ function CharacterLoader({ engine }: { engine: EditorScene }) {
       <label className="ed-label">Load character</label>
       <div className="ed-row">
         <select className="ed-select" value={catId} onChange={(e) => setCatId(e.target.value)}>
-          {CHARACTERS.map((c) => (
+          {PLAYABLE_CHARACTERS.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>

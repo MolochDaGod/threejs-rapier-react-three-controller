@@ -8,7 +8,55 @@ import { assetUrl } from "./assetHost";
 
 /** Resolve a public asset path under the configured asset host (see assetHost.ts). */
 export function asset(path: string): string {
+  if (/^([a-z]+:)?\/\//i.test(path) || path.startsWith("data:")) return path;
   return assetUrl(path);
+}
+
+/** Same-origin (+ optional CDN) candidates for resilient GLB loads. */
+export function assetCandidates(path: string): string[] {
+  if (!path) return [];
+  if (/^([a-z]+:)?\/\//i.test(path) || path.startsWith("data:")) return [path];
+  const rel = path.replace(/^\/+/, "");
+  const urls = [asset(rel)];
+  // Optional production CDN alias when local public/ is missing a prop.
+  if (!rel.startsWith("http")) {
+    urls.push(`https://assets.grudge-studio.com/${rel}`);
+  }
+  return [...new Set(urls)];
+}
+
+/** Try each path until a GLB/GLTF loads. */
+export async function loadGltfFirst(
+  paths: string | string[],
+  loader: {
+    loadAsync: (url: string) => Promise<{
+      scene: import("three").Object3D;
+      animations?: import("three").AnimationClip[];
+    }>;
+  },
+): Promise<{
+  scene: import("three").Object3D;
+  animations: import("three").AnimationClip[];
+  url: string;
+}> {
+  const pathList = Array.isArray(paths) ? paths : [paths];
+  let lastErr: unknown;
+  for (const p of pathList) {
+    if (!p) continue;
+    for (const url of assetCandidates(p)) {
+      try {
+        const gltf = await loader.loadAsync(url);
+        return {
+          scene: gltf.scene,
+          animations: gltf.animations ?? [],
+          url,
+        };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+  }
+  throw lastErr ?? new Error(`Failed to load: ${pathList.join(", ")}`);
 }
 
 export const CHARACTERS: CharacterDef[] = [
@@ -33,8 +81,6 @@ export const CHARACTERS: CharacterDef[] = [
       { label: "Freeze Dash", clip: "dash", kind: "slam", mode: "dash" },
       { label: "Power Throw", clip: "throw", kind: "muzzle" },
     ],
-    // F-skill deploys a bear trap: owner-only mesh, 2 m trigger, stuns enemies.
-    gadget: "bearTrap",
     handBone: "hand",
     modelYaw: 0,
     procedural: true,
@@ -114,28 +160,7 @@ export const CHARACTERS: CharacterDef[] = [
     handBone: "Hand",
     modelYaw: 0,
   },
-  {
-    id: "karate-boss",
-    name: "Sensei",
-    file: "models/karate-boss.glb",
-    scale: 1,
-    clips: {
-      idle: "idle",
-      walk: "walk",
-      run: "walk",
-      attack: "normal_attack",
-      jump: "superjump",
-      death: "death",
-    },
-    signatureSkills: [
-      { label: "Lightning Storm", clip: "Lightningstorm", kind: "nova" },
-      { label: "Ice Bolt", clip: "IceBolt", kind: "bolt" },
-      { label: "Freeze Dry", clip: "Freezedry", kind: "slam", mode: "dash" },
-      { label: "Dark Laser", clip: "Darklaser", kind: "muzzle", mode: "dash" },
-    ],
-    handBone: "right_arm_hand",
-    modelYaw: Math.PI,
-  },
+  // karate-boss / Sensei intentionally removed from production cast.
   {
     id: "orc",
     name: "Brute",
@@ -406,316 +431,24 @@ export const CHARACTERS: CharacterDef[] = [
       cannonRange: 26,
     },
   },
-  {
-    id: "spider-gwen",
-    name: "Spider-Gwen",
-    // Across-the-Spider-Verse rig (3ds Max Bip001 skeleton, NOT Mixamo) onboarded
-    // via convert-character (height/feet normalized, self-contained GLB). Driven
-    // entirely by its 26 native clips — the shared FBX library can't retarget onto
-    // a Bip001 rig, so locomotion/attacks/skills all point at embedded clip names.
-    file: "models/spider-gwen.glb",
-    scale: 1,
-    clips: {
-      idle: "Armature|hero_spidergwen01_S03@idle",
-      walk: "Armature|hero_spidergwen01_S03@walk",
-      run: "Armature|hero_spidergwen01_S03@walk",
-      attack: "Armature|hero_spidergwen01_S03@atk01",
-      death: "Armature|hero_spidergwen01_S03@die",
-      hurt: "Armature|hero_spidergwen01_S03@hit",
-    },
-    signatureSkills: [
-      { label: "Web Combo", clip: "Armature|hero_spidergwen01_S03@skill01-01", kind: "slash" },
-      { label: "Spider Spin", clip: "Armature|hero_spidergwen01_S03@skill02", kind: "nova" },
-      { label: "Web Snare", clip: "Armature|hero_spidergwen01_S03@skill03-01", kind: "bolt" },
-      { label: "Venom Strike", clip: "Armature|hero_spidergwen01_S03@skill04-01", kind: "muzzle" },
-    ],
-    // Bip001 rig: right hand is "Bip001 R Hand"; regex also fits the Bip01_R_Hand
-    // underscore variant for the other onboarded heroes.
-    handBone: "R[ _]Hand",
-    // First guess — flip to 0 if she moonwalks (feet step forward, body slides back).
-    modelYaw: Math.PI,
-  },
-  {
-    id: "iron-spider",
-    name: "Iron Spider",
-    // Infinity-War Iron Spider rig (~50-unit-tall Bip001 skeleton with extra
-    // `spider leg`/`spider body` bones) onboarded via convert-character (scaled to
-    // canonical height, feet grounded). 32 native clips drive it; the independent
-    // back-legs + procedural IK are a later task.
-    file: "models/iron-spider.glb",
-    scale: 1,
-    clips: {
-      idle: "Armature|hero_spiderman01_S05@idle",
-      walk: "Armature|hero_spiderman01_S05@walk",
-      run: "Armature|hero_spiderman01_S05@walk",
-      attack: "Armature|hero_spiderman01_S05@atk-01",
-      death: "Armature|hero_spiderman01_S05@die",
-      hurt: "Armature|hero_spiderman01_S05@hit",
-    },
-    signatureSkills: [
-      { label: "Iron Combo", clip: "Armature|hero_spiderman01_S05@skill01-01", kind: "slash" },
-      { label: "Leg Barrage", clip: "Armature|hero_spiderman01_S05@skill02-01", kind: "nova" },
-      { label: "Web Pull", clip: "Armature|hero_spiderman01_S05@skill03-01", kind: "bolt" },
-      { label: "Nano Strike", clip: "Armature|hero_spiderman01_S05@skill04-01", kind: "muzzle" },
-    ],
-    handBone: "R[ _]Hand",
-    modelYaw: Math.PI,
-  },
-  // ── Ikkaku Madarame (shared GLB, palette variants for different use cases) ──
-  {
-    id: "ikkaku-madarame",
-    name: "Ikkaku Madarame",
-    file: "models/ikkaku-madarame.glb",
-    scale: 1,
-    clips: {
-      idle: "idle",
-      walk: "walk",
-      run: "run",
-      attack: "attack",
-      jump: "jump",
-      death: "death",
-      hurt: "hurt",
-      block: "block",
-    },
-    signatureSkills: [
-      { label: "Hozukimaru Strike", clip: "attack", kind: "slash" },
-      { label: "Spin Assault", clip: "attack", kind: "nova" },
-      { label: "Dragon Crest", clip: "attack", kind: "thrust" },
-      { label: "Bankai Rush", clip: "run", kind: "slash", mode: "dash" },
-    ],
-    handBone: "R[ _]Hand|RightHand|hand_r",
-    modelYaw: Math.PI,
-    meshTint: 0xffffff,
-  },
-  {
-    id: "ikkaku-crimson",
-    name: "Ikkaku · Crimson",
-    file: "models/ikkaku-madarame.glb",
-    scale: 1,
-    clips: {
-      idle: "idle",
-      walk: "walk",
-      run: "run",
-      attack: "attack",
-    },
-    signatureSkills: [
-      { label: "Blood Spiral", clip: "attack", kind: "slash" },
-      { label: "Crimson Dash", clip: "run", kind: "slash", mode: "dash" },
-    ],
-    handBone: "R[ _]Hand|RightHand|hand_r",
-    modelYaw: Math.PI,
-    meshTint: 0xff6b6b,
-  },
-  {
-    id: "ikkaku-azure",
-    name: "Ikkaku · Azure",
-    file: "models/ikkaku-madarame.glb",
-    scale: 1,
-    clips: {
-      idle: "idle",
-      walk: "walk",
-      run: "run",
-      attack: "attack",
-    },
-    signatureSkills: [
-      { label: "Ice Spear", clip: "attack", kind: "thrust" },
-      { label: "Frost Spin", clip: "attack", kind: "nova" },
-    ],
-    handBone: "R[ _]Hand|RightHand|hand_r",
-    modelYaw: Math.PI,
-    meshTint: 0x6bb3ff,
-  },
-  {
-    id: "ikkaku-void",
-    name: "Ikkaku · Void",
-    file: "models/ikkaku-madarame.glb",
-    scale: 1,
-    clips: {
-      idle: "idle",
-      walk: "walk",
-      run: "run",
-      attack: "attack",
-    },
-    signatureSkills: [
-      { label: "Void Cut", clip: "attack", kind: "slash" },
-      { label: "Night Bankai", clip: "run", kind: "muzzle", mode: "dash" },
-    ],
-    handBone: "R[ _]Hand|RightHand|hand_r",
-    modelYaw: Math.PI,
-    meshTint: 0xb08cff,
-  },
-  {
-    id: "numbuh-1",
-    name: "Numbuh 1",
-    // FusionFall Numbuh 1 — spec/gloss materials converted to metal/rough on
-    // import so it renders without the missing-extension error. This Bip01 rig
-    // ships only locomotion clips (stand/walk/run), so it's a movement-focused
-    // character; `attack` falls back to its idle pose until combat clips are
-    // retargeted (a later task — needs a Bip01<->library bone-name map).
-    file: "models/numbuh-1.glb",
-    scale: 1,
-    clips: {
-      idle: "stand1",
-      walk: "walk",
-      run: "run",
-      // No native combat clip in this GLB — pin attack to stand1 so the catalog
-      // is red-clean; autoMap cannot invent a strike. Replace when Bip01 combat
-      // packs are retargeted onto this rig.
-      attack: "stand1",
-    },
-    signatureSkills: [],
-    handBone: "R[ _]Hand",
-    modelYaw: Math.PI,
-  },
-  {
-    // Rigid-hierarchy Sketchfab guard with a baked spiked 2H maul (`guardian_*`).
-    // Native clips: walk cycle + attack; combat kit is the mace2h weapon
-    // (2H GS combo on Explorer; SSOT skills: Smite / Whirlwind Slash / Crushing Blow).
-    id: "hippolin-guard",
-    name: "Hippolin Guard",
-    file: "models/hippolin-guard.glb",
-    scale: 1,
-    clips: {
-      // stop walking settles into a ready stance; walking is the main loco loop.
-      idle: "stop walking",
-      walk: "walking",
-      run: "walking",
-      attack: "attack",
-    },
-    // Labels from ObjectStore master-weaponSkills (GREATSWORD + MACE pools).
-    signatureSkills: [
-      // GREATSWORD secondary: Whirlwind Slash — slide gap-closer + spin AoE.
-      { label: "Whirlwind Slash", clip: "attack", kind: "nova", mode: "dash" },
-      // MACE ability: Smite — holy cast slam (weapon F skill on Explorer).
-      { label: "Smite", clip: "attack", kind: "nova" },
-      // MACE primary: Crushing Blow.
-      { label: "Crushing Blow", clip: "attack", kind: "slam" },
-      // GREATSWORD primary: Overhead Slash.
-      { label: "Overhead Slash", clip: "attack", kind: "slash" },
-    ],
-    handBone: "righthand|lefthand",
-    modelYaw: Math.PI,
-    defaultWeapon: "mace2h",
-    // Maul is part of the mesh hierarchy — do not mount a second library hammer.
-    bakedWeapon: true,
-    directionAssist: 45,
-    dashRating: 55,
-  },
+  // Lab-only licensed cast (Spider-Gwen / Iron Spider / Numbuh 1) removed from
+  // production picker. Account heroes live on the Ethereal Falls campfire
+  // (fleet / charactersgrudox) — never as a 24-prefab grudge6 grid.
 ];
 
-// ---- Heroes of Grudge (6 races × 4 classes = 24 playable prefabs) ----
-//
-// Each rig is a Bip001_* skeleton with a rich set of embedded class clips (they
-// self-animate — the shared FBX library can't retarget onto Bip001, so every
-// role/skill points at an embedded clip name). Rigs ship with *baked* weapon /
-// shield / quiver meshes; `hideNodes` hides those so the mounted LIBRARY weapon
-// is the only one visible. Combat runs on the existing MM system: each hero
-// carries a 2-weapon loadout swapped with "Q", and signatures play an embedded
-// clip + the shared VFX. Mages wield elemental staffs, which auto-cast from the
-// weapon's `element` data.
-
-type GrudgeClass = "knight" | "warrior" | "ranger" | "mage";
-
-interface GrudgeRace {
-  slug: string;
-  name: string;
-}
-
-const GRUDGE_RACES: GrudgeRace[] = [
-  { slug: "barbarians", name: "Barbarian" },
-  { slug: "dwarves", name: "Dwarf" },
-  { slug: "high-elves", name: "High Elf" },
-  { slug: "orcs", name: "Orc" },
-  { slug: "undead", name: "Undead" },
-  { slug: "western-kingdoms", name: "Kingdom" },
-];
-
-// One regex covers every race's baked weapon/shield/quiver node naming
-// (BRB_/DWF_/ELF_/ORC_/UD_/WK_ prefixes + L_shield_container / Quiver_container).
-const GRUDGE_HIDE = "weapon|shield|quiver|xtra|_container";
-
-interface GrudgeKit {
-  label: string;
-  loadout: WeaponId[];
-  offHand?: WeaponId;
-  clips: CharacterDef["clips"];
-  signatureSkills: CharacterDef["signatureSkills"];
-}
-
-const GRUDGE_KITS: Record<GrudgeClass, GrudgeKit> = {
-  knight: {
-    label: "Knight",
-    loadout: ["sword", "mace"],
-    offHand: "shield",
-    clips: { idle: "idle", walk: "walk", run: "run", attack: "sword_attack_c", jump: "jump", block: "sword_block" },
-    signatureSkills: [
-      { label: "Blade Rush", clip: "sword_dash_attack", kind: "slash", mode: "dash" },
-      { label: "Combo Finisher", clip: "sword_combo_finisher", kind: "slash" },
-      { label: "Shield Bash", clip: "shield_bash", kind: "slam" },
-      { label: "Rising Strike", clip: "unarmed_uppercut", kind: "thrust" },
-    ],
-  },
-  warrior: {
-    label: "Warrior",
-    loadout: ["greataxe", "spear"],
-    clips: { idle: "idle", walk: "walk", run: "run", attack: "sword_attack_c", jump: "jump", block: "sword_block" },
-    signatureSkills: [
-      { label: "War Charge", clip: "sword_dash_attack", kind: "slam", mode: "dash" },
-      { label: "Cleave", clip: "sword_combo_finisher", kind: "slash" },
-      { label: "Ground Slam", clip: "shield_bash", kind: "nova" },
-      { label: "Overhead Crush", clip: "unarmed_uppercut", kind: "slam" },
-    ],
-  },
-  ranger: {
-    label: "Ranger",
-    loadout: ["bow", "dagger"],
-    clips: { idle: "idle", walk: "walk", run: "run", attack: "attack", jump: "front_flip" },
-    signatureSkills: [
-      { label: "Aimed Shot", clip: "bow_aim_walk_fwd", kind: "bolt" },
-      { label: "Piercing Arrow", clip: "attack", kind: "bolt" },
-      { label: "Evasive Roll", clip: "front_flip", kind: "muzzle", mode: "dash" },
-      { label: "Rising Kick", clip: "unarmed_uppercut", kind: "thrust" },
-    ],
-  },
-  mage: {
-    label: "Mage",
-    // Elemental staffs auto-cast from WeaponDef.element (fire / storm), so the
-    // signature clips are cosmetic labels — the element cast owns the VFX.
-    loadout: ["staffFire", "staffStorm"],
-    clips: { idle: "idle", walk: "walk", run: "run", attack: "attack", jump: "front_flip" },
-    signatureSkills: [
-      { label: "Elemental Blast", clip: "attack", kind: "fireDragon" },
-      { label: "Cataclysm", clip: "attack", kind: "meteor" },
-      { label: "Arcane Nova", clip: "magic_walk_fwd", kind: "nova" },
-      { label: "Bolt", clip: "attack", kind: "bolt" },
-    ],
-  },
-};
-
-for (const race of GRUDGE_RACES) {
-  for (const cls of Object.keys(GRUDGE_KITS) as GrudgeClass[]) {
-    const kit = GRUDGE_KITS[cls];
-    CHARACTERS.push({
-      id: `grudge-${race.slug}-${cls}`,
-      name: `${race.name} ${kit.label}`,
-      file: `models/grudge/${race.slug}_${cls}.glb`,
-      scale: 1,
-      clips: kit.clips,
-      signatureSkills: kit.signatureSkills,
-      loadout: kit.loadout,
-      offHand: kit.offHand,
-      hideNodes: GRUDGE_HIDE,
-      // Bip001 rig: "Hand" matches both Bip001_R_Hand + Bip001_L_Hand (findHands
-      // classifies L/R), so the off-hand shield mounts to the left hand.
-      handBone: "Hand",
-      // Bip001 rigs are authored a quarter-turn off: with the plain Math.PI
-      // facing, walking forward played the walk-RIGHT strafe. Turn every grudge6
-      // model left 90° (rotation.y += π/2 is a left turn in three.js) so the
-      // mesh forward lines up with the movement direction.
-      modelYaw: Math.PI + Math.PI / 2,
-    });
-  }
-}
+/**
+ * Production picker roster — lab demos, Sensei, ikkau, and the 24 grudge6
+ * race×class prefabs are intentionally absent. Account characters come from
+ * fleet / campfire slots, not this catalog dump.
+ */
+export const PLAYABLE_CHARACTERS: CharacterDef[] = CHARACTERS.filter((c) => {
+  const id = c.id.toLowerCase();
+  const name = c.name.toLowerCase();
+  if (id === "karate-boss" || name === "sensei") return false;
+  if (id.startsWith("grudge-")) return false;
+  if (/ikkau|ikkaku/.test(id) || /ikkau|ikkaku/.test(name)) return false;
+  return true;
+});
 
 export function getWeapon(id: string): WeaponDef {
   return WEAPONS.find((w) => w.id === id) ?? WEAPONS[0];
@@ -730,6 +463,13 @@ export function weaponCombat(id: string): WeaponCombat {
   return resolveCombat(getWeapon(id));
 }
 
+/**
+ * Resolve a character def. Removed lab ids (Sensei, grudge-*, ikkau) fall back
+ * to Explorer so fleet handoff never crashes the Danger Room.
+ */
 export function getCharacter(id: string): CharacterDef {
-  return CHARACTERS.find((c) => c.id === id) ?? CHARACTERS[0];
+  const explorer = CHARACTERS.find((c) => c.id === "explorer") ?? CHARACTERS[0];
+  if (!id) return explorer;
+  if (/ikkau|ikkaku|karate-boss/i.test(id) || id.startsWith("grudge-")) return explorer;
+  return CHARACTERS.find((c) => c.id === id) ?? explorer;
 }

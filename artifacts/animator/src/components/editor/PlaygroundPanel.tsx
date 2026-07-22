@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { EditorScene } from "../../three/editor/EditorScene";
 import type { EditorSnapshot } from "../../three/editor/types";
 import { VFX_PRESETS } from "../../three/editor/vfxCatalog";
-import { CHARACTERS } from "../../three/assets";
+import { PLAYABLE_CHARACTERS, getCharacter } from "../../three/assets";
 import {
   RACE_IDS,
   RACE_ASSETS,
@@ -62,11 +62,13 @@ function Slider({
 export function PlaygroundPanel({ engine, snap }: Props) {
   const [race, setRace] = useState<RaceId>(RACE_IDS[0]);
   const [preset, setPreset] = useState<PresetId>("knight");
-  const [charId, setCharId] = useState<string>(CHARACTERS[0]?.id ?? "explorer");
+  const [charId, setCharId] = useState<string>(PLAYABLE_CHARACTERS[0]?.id ?? "explorer");
 
   const presetInfo = getPreset(race, preset);
   const chars = snap.grudgeChars;
-  const charName = CHARACTERS.find((c) => c.id === charId)?.name ?? "Character";
+  const charName =
+    PLAYABLE_CHARACTERS.find((c) => c.id === charId)?.name ??
+    getCharacter(charId).name;
   const canPlay = chars.length > 0 || snap.hasRig;
 
   return (
@@ -130,7 +132,7 @@ export function PlaygroundPanel({ engine, snap }: Props) {
             onChange={(e) => setCharId(e.target.value)}
             disabled={snap.playing}
           >
-            {CHARACTERS.map((c) => (
+            {PLAYABLE_CHARACTERS.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

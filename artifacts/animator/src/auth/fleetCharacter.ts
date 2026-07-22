@@ -16,6 +16,30 @@ import {
   readFleetToken as readCoreToken,
 } from "./fleetCore";
 
+/** Wire-name unit separator (fleet multiplayer display|animId|fleetId). */
+const WIRE_SEP = "\u001f";
+
+function encodeWireParts(displayName: string, characterId: string, fleetId: string): string {
+  return [displayName || "Player", characterId || "explorer", fleetId || "local"].join(WIRE_SEP);
+}
+
+function decodeWireParts(wire: string): {
+  displayName: string;
+  characterId: string | null;
+  fleetId: string | null;
+} {
+  if (!wire) return { displayName: "Player", characterId: null, fleetId: null };
+  if (!wire.includes(WIRE_SEP)) {
+    return { displayName: wire, characterId: null, fleetId: null };
+  }
+  const [displayName, characterId, fleetId] = wire.split(WIRE_SEP);
+  return {
+    displayName: displayName || "Player",
+    characterId: characterId || null,
+    fleetId: fleetId || null,
+  };
+}
+
 export {
   buildFleetLoginUrl,
   buildCharacterCreateUrl,
@@ -329,28 +353,20 @@ export function guestLoadout(): FleetPlayerLoadout {
 
 /** Wire name for multiplayer: display + animator id + fleet uuid (unit-separator). */
 export function encodeWirePlayerName(loadout: FleetPlayerLoadout): string {
-  return `${loadout.displayName}\u001f${loadout.characterId}\u001f${loadout.fleetId || "local"}`;
+  return encodeWireParts(
+    loadout.displayName,
+    loadout.characterId,
+    loadout.fleetId || "local",
+  );
 }
 
+/** Decode multiplayer wire name — fleet SSOT `@workspace/grudge-runtime`. */
 export function decodeWirePlayerName(wire: string): {
   displayName: string;
   characterId: string | null;
   fleetId: string | null;
 } {
-  const parts = wire.split("\u001f");
-  if (parts.length >= 2) {
-    return {
-      displayName: parts[0] || "Player",
-      characterId: parts[1] || null,
-      fleetId: parts[2] || null,
-    };
-  }
-  // Fallback: "Name|grudge-race-class"
-  const pipe = wire.split("|");
-  if (pipe.length >= 2 && pipe[1].startsWith("grudge-")) {
-    return { displayName: pipe[0], characterId: pipe[1], fleetId: null };
-  }
-  return { displayName: wire || "Player", characterId: null, fleetId: null };
+  return decodeWireParts(wire);
 }
 
 function parseCharactersPayload(raw: unknown): FleetCharacter[] {

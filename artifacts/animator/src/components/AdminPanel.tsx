@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CHARACTERS, WEAPONS } from "../three/assets";
+import { PLAYABLE_CHARACTERS, WEAPONS } from "../three/assets";
 import type {
   AleActor,
   AleCameraMode,
@@ -157,8 +157,11 @@ export function AdminPanel({
         <h3>
           <Icon name="animator" size={16} /> Character
         </h3>
+        <p className="panel-hint" style={{ fontSize: 11, opacity: 0.72, margin: "0 0 8px" }}>
+          Production cast only. Account heroes: Ethereal Falls campfire (after sign-in).
+        </p>
         <div className="grid2">
-          {CHARACTERS.map((c) => (
+          {PLAYABLE_CHARACTERS.map((c) => (
             <button
               key={c.id}
               className={`opt opt-icon ${c.id === characterId ? "active" : ""}`}
