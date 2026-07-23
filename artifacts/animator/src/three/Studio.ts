@@ -738,6 +738,13 @@ export class Studio {
    * hits a raised block: attacker bounces back at {@link BLOCK_BOUNCE_MM_MUL}× MM.
    */
   private lastAttackDashM = 0;
+  /**
+   * >0 while the player is in a block-bounce stun window. Space cancels into a
+   * stylish vertical backflip recover ready to blend skill-1 melee.
+   */
+  private blockBounceT = 0;
+  /** Grace after flip recover where skill slot 1 is free to blend off the bounce. */
+  private blockRecoverSkillOpenT = 0;
   /** Always-on soft-lock state: gentle aim assist toward the nearest/Tab'd foe.
    *  Alt+Tab turns it off (free camera); Tab / RMB re-arm it. */
   private softLockEnabled = true;
@@ -2514,18 +2521,63 @@ export class Studio {
     // Dash-style MM bounce (distance-based, not a weak velocity tick)
     const dur = THREE.MathUtils.clamp(0.22 + bounceDist * 0.08, 0.26, 0.42);
     this.controller.dash(away, bounceDist, dur, 0, 0.55);
-    // Lock offense while the bounce + stun reads
+    // Lock offense while the bounce + stun reads — Space can cancel into flip recover.
     this.recoverLock = Math.max(this.recoverLock, dur + 0.15);
     this.comboLock = Math.max(this.comboLock, dur + 0.15);
+    this.blockBounceT = Math.max(this.blockBounceT, dur + 0.22);
     this.comboTimer = 0;
     this.fireComboTimer = 0;
     this.fireComboIndex = 0;
-    // Stunned animation during the MM bounce
+    // Stunned animation during the MM bounce (until Space flip recover)
     this.playPlayerReaction("stunned");
-    this.setCombatFlash("BLOCK BOUNCE!", 0.85);
+    this.setCombatFlash("BLOCK BOUNCE! · SPACE FLIP", 1.0);
     this.sfx?.play("block", hitPos, { volume: 1.05, rate: 0.9 });
     this.vfx.burst(hitPos, 0xbfe4ff, 28, 5);
     this.vfx.shockwave(new THREE.Vector3(hitPos.x, 0.05, hitPos.z), 0x88c0ff, 2.0, 0.4);
+  }
+
+  /**
+   * Stylish vertical backflip recover during a block-bounce stun window.
+   * Space cancels the bounce stun, flips straight up, and opens a short window
+   * to blend skill-1 melee. Returns true when the flip was performed.
+   */
+  private tryBlockBounceFlipRecover(): boolean {
+    if (this.blockBounceT <= 0) return false;
+    if (!this.controller || !this.character || this.defeated || this.spectating) return false;
+
+    this.blockBounceT = 0;
+    // Free the offense gates so skill 1 can blend immediately after / during landing
+    this.recoverLock = 0;
+    this.comboLock = 0;
+    this.comboTimer = 0;
+
+    // Prefer stylish flip → front flip → kip-up reaction
+    let flipDur = 0.55;
+    if (this.character.hasClip("stylishFlip")) {
+      flipDur = this.character.playClipOnce("stylishFlip", 0.07) || 0.55;
+    } else if (this.character.hasClip("frontFlip")) {
+      flipDur = this.character.playClipOnce("frontFlip", 0.07) || 0.55;
+    } else if (this.character.reaction) {
+      if (!this.character.reaction("kipUp", 0.1)) this.playPlayerReaction("kipUp");
+      flipDur = 0.5;
+    } else {
+      this.playPlayerReaction("kipUp");
+      flipDur = 0.5;
+    }
+
+    // Straight-up backflip (no horizontal MM) — Controller.backflip
+    this.controller.backflip(Math.max(0.42, flipDur * 0.88), 1.65);
+    const origin = this.character.root.position.clone();
+    const up = new THREE.Vector3(0, 1, 0);
+    this.vfx.afterimage(this.character.root, origin, up, 1.2, 0xbfe4ff, 5, 0.35);
+    this.vfx.burst(origin.clone().setY(origin.y + 0.4), 0x9fdcff, 16, 3.5);
+    this.setCombatFlash("FLIP RECOVER!", 0.75);
+    this.sfx?.play("whooshLight", origin, { volume: 0.85, rate: 1.15 });
+
+    // Ready to blend skill-1 melee recover off the block bounce
+    this.blockRecoverSkillOpenT = Math.max(this.blockRecoverSkillOpenT, flipDur * 0.9 + 0.2);
+    this.respectWindow = Math.max(this.respectWindow, 0.4);
+    return true;
   }
 
   /**
@@ -3551,9 +3603,18 @@ export class Studio {
     if (this.mech.isPiloted) {
       return this.doMechSkill(signatureIndex);
     }
+    // Skill 1 (Digit1 / slot 0) after block-bounce flip recover can blend even if
+    // a residual recover lock remains (stylish recover → sig 1 chain).
+    const skill1FromFlip = signatureIndex === 0 && this.blockRecoverSkillOpenT > 0;
     // Skills are offense too — a blocked/parried/dodged swing taxes them as well,
     // so the defender's counter window can't be skill-cancelled out of.
-    if (this.recoverLock > 0) return false;
+    if (this.recoverLock > 0 && !skill1FromFlip) return false;
+    if (skill1FromFlip) {
+      // Consume the open window and clear residual locks for a clean blend.
+      this.blockRecoverSkillOpenT = 0;
+      this.recoverLock = 0;
+      this.comboLock = 0;
+    }
     const def = getCharacter(this.characterId);
     const isSig = signatureIndex != null;
 
@@ -6159,6 +6220,10 @@ export class Studio {
     if (this.skyfallCooldown > 0) this.skyfallCooldown = Math.max(0, this.skyfallCooldown - dt);
     if (this.comboLock > 0) this.comboLock = Math.max(0, this.comboLock - dt);
     if (this.recoverLock > 0) this.recoverLock = Math.max(0, this.recoverLock - dt);
+    if (this.blockBounceT > 0) this.blockBounceT = Math.max(0, this.blockBounceT - dt);
+    if (this.blockRecoverSkillOpenT > 0) {
+      this.blockRecoverSkillOpenT = Math.max(0, this.blockRecoverSkillOpenT - dt);
+    }
     // Swept-edge blade sweep for the active swing: continuous blade-vs-enemy
     // shield/weapon/body detection while the swing window is open.
     if (this.bladeWindow > 0) {
@@ -6807,6 +6872,8 @@ export class Studio {
   /** Wire keyboard skill/jump shortcuts that need engine-side actions. */
   handleKey(code: string) {
     if (code === "Space") {
+      // During block-bounce stun: stylish vertical backflip recover → skill-1 ready.
+      if (this.tryBlockBounceFlipRecover()) return;
       // E+Space (block held) = air block: a hop with the guard kept up.
       if (this.blocking) this.airBlock();
       else this.controller?.jump();

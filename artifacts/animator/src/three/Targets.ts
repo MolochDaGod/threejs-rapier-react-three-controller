@@ -475,6 +475,11 @@ interface Dummy {
   defendCd: number;
   /** Seconds left holding a proactively-raised CC block. */
   blockHold: number;
+  /**
+   * Countdown after a block-bounce shove; when it hits 0 the brain may stylish-
+   * flip recover (AI "Space" equivalent) and re-open for skill-1 style offense.
+   */
+  blockFlipT: number;
   pendingSkill: boolean;
   // ---- Ranged spell-cast pacing (the new aimed-projectile spells) ----
   /** Seconds until this fighter can cast another ranged spell (0 = ready). */
@@ -814,6 +819,7 @@ export class Targets implements CombatTargets {
       recoverT: 0,
       defendCd: 0,
       blockHold: 0,
+      blockFlipT: 0 as number,
       pendingSkill: false,
       // Stagger initial spell readiness so a fresh ring doesn't all cast at once.
       // Ranged/thrown fighters scale this down so shooting is their primary game.
@@ -1940,8 +1946,44 @@ export class Targets implements CombatTargets {
       if (stun) {
         d.cc.applyVulnerableState("stunned");
         d.avatar?.reaction?.("stunned", 0.1);
+        // AI "thinks" to stylish flip recover mid-bounce (~55% chance, slight delay)
+        if (Math.random() < 0.55) {
+          d.blockFlipT = 0.14 + Math.random() * 0.16;
+        } else {
+          d.blockFlipT = 0;
+        }
       }
     }
+  }
+
+  /**
+   * AI stylish flip recover off a block bounce (Space equivalent): hop up, cancel
+   * residual horizontal shove, play flip/kip clip, re-open for skill-1 style offense.
+   */
+  private doBlockBounceFlip(d: Dummy): void {
+    if (d.dead) return;
+    d.blockFlipT = 0;
+    // Kill most of the bounce slide; hop straight up
+    d.vel.x *= 0.25;
+    d.vel.z *= 0.25;
+    d.vel.y = Math.max(d.vel.y, 6.2);
+    d.flash = 0.2;
+    d.flashColor.copy(DEFEND_COLOR);
+    // Prefer stylish flip / kip-up; fall back to getUp
+    if (d.avatar?.reaction) {
+      if (
+        !d.avatar.reaction("stylishFlip", 0.08) &&
+        !d.avatar.reaction("kipUp", 0.1) &&
+        !d.avatar.reaction("getUp", 0.12)
+      ) {
+        d.avatar.reaction("stunned", 0.08);
+      }
+    }
+    // Brief attack ready — shorten defend CD so skill-1 style offense can follow
+    d.attackCd = Math.min(d.attackCd, 0.12);
+    d.defendCd = Math.min(d.defendCd, 0.2);
+    d.state = "idle";
+    d.stateT = 0.15;
   }
 
   launch(center: THREE.Vector3, radius: number, damage: number, upVel: number): number {
@@ -2866,6 +2908,12 @@ export class Targets implements CombatTargets {
       this.difficulty !== "passive" &&
       !this.hasTurret(d.id);
 
+    // Block-bounce stylish flip recover (AI Space equivalent)
+    if (d.blockFlipT > 0) {
+      d.blockFlipT -= dt;
+      if (d.blockFlipT <= 0) this.doBlockBounceFlip(d);
+    }
+
     // Holding a proactively-raised block: keep facing, drop it when it expires.
     // (The brain commits the block; this rides out its hold window.)
     if (cs === "block") {
@@ -3161,6 +3209,7 @@ export class Targets implements CombatTargets {
     d.attackCd = 0.6 + Math.random() * 1.2;
     d.defendCd = 0;
     d.blockHold = 0;
+    d.blockFlipT = 0;
     // Stagger spell readiness again so a revived fighter doesn't instantly cast
     // (role-scaled so ranged fighters resume shooting promptly).
     d.spellCd = (3 + Math.random() * 4) * d.castCdScale;

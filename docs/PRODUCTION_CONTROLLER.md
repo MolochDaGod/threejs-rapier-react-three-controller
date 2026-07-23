@@ -77,11 +77,13 @@ Do **not** force biped hip strip on custom animals / non-human bosses with their
 | Input | **E** hold (Ctrl alias); stamina drain via CombatController |
 | Damage | Mitigated / stopped while guard holds (`blockStop`) |
 | Melee into block | Attacker bounce-back **1.25 ×** dash MM used to open the attack |
-| Attacker anim | **Stunned** reaction during the MM bounce |
+| Attacker anim | **Stunned** during bounce |
+| **Space** mid-bounce | Stylish **vertical backflip** recover (`stylishFlip` / kip-up) → ready to blend **skill 1** |
+| AI mid-bounce | ~55% chance brain schedules the same flip recover (hop + clip) |
 | Shield break | Still rewards attacker (no bounce — defender stunned) |
 | Defender | Minimal slide; forcefield flash; not the large knockback |
 
-Code: `Studio.bounceAttackerOffBlock` · `lastAttackDashM` · `Targets.shoveAway` (enemy into player block).
+Code: `Studio.bounceAttackerOffBlock` · `tryBlockBounceFlipRecover` · `Targets.shoveAway` / `doBlockBounceFlip`.
 
 ## Projectile parry rebound
 

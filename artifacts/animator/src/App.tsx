@@ -1787,7 +1787,7 @@ export default function App() {
             <div className="click-hint">
               <p>Click to enter — mouse to look</p>
               <p className="dim">
-                WASD move · Shift sprint · Space jump (×2) · LMB attack · E block · C parry · E+Space air block · X dodge · Q loadout · R heavy · Z / T combo · V kick · G evade · H grenade · F / 1-4 skills · RMB lock · Tab soft-lock · ` admin
+                WASD · Shift sprint · Space jump · E block · C parry · Space mid-bounce flip recover · 1 skill blend · X dodge · Q loadout · R heavy · F/1-4 skills · H grenade · RMB lock
               </p>
             </div>
           )}
