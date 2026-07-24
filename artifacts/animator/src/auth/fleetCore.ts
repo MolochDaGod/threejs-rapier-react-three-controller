@@ -240,6 +240,19 @@ export function writeFleetToken(token: string): void {
   }
 }
 
+/** Clear all fleet JWT keys (account switch). Does not touch Puter SDK session. */
+export function clearFleetToken(): void {
+  if (typeof window === "undefined") return;
+  try {
+    for (const k of FLEET_TOKEN_KEYS) {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    }
+  } catch {
+    /* private mode */
+  }
+}
+
 /** Exchange short launch JWT for session when only grudge_token is present. */
 async function exchangeLaunchToken(launch: string): Promise<void> {
   try {

@@ -1,15 +1,17 @@
 /**
  * Grudge ID auth — Puter.js v2 SDK + fleet JWT bridge.
  *
- * "Grudge ID" is the user-facing name for identity:
+ * Wires into existing production stack (does NOT invent a parallel identity DB):
  *   1. Puter popup (username / email / guest) via puter.auth
- *   2. POST /api/auth/puter-sso (or /puter) → Railway JWT for characters/account
+ *   2. POST same-origin /api/auth/puter-sso|puter → Railway Postgres users/accounts
+ *      (id.grudge-studio.com rewrite → grudge-api-production)
  *   3. Optional full web SSO via id.grudge-studio.com (buildFleetLoginUrl)
  *
- * Guests are real Puter temp accounts; a later full sign-in upgrades in place.
+ * SSOT for characters/account bag remains Railway JWT on approved token keys.
+ * Puter UUID is stored only under puter_* keys — never as grudge_id.
  */
 
-import { apiUrl, readFleetToken, writeFleetToken } from "./fleetCore";
+import { apiUrl, clearFleetToken, readFleetToken, writeFleetToken } from "./fleetCore";
 
 export interface GrudgeUser {
   username: string;
@@ -72,26 +74,50 @@ function isCancel(err: unknown): boolean {
   return msg.includes("cancel") || msg.includes("close") || msg.includes("abort");
 }
 
-function storeAccountHints(user: GrudgeUser): void {
+/** Cache Puter identity only — never overwrite Railway grudge_id with puter uuid. */
+function storePuterHints(user: GrudgeUser): void {
   try {
-    if (user.uuid) {
-      localStorage.setItem("grudge_id", user.uuid);
-      localStorage.setItem("grudge_account_id", user.uuid);
-      localStorage.setItem("puter_uuid", user.uuid);
-    }
+    if (user.uuid) localStorage.setItem("puter_uuid", user.uuid);
     if (user.username) {
-      localStorage.setItem("grudge_username", user.username);
       localStorage.setItem("puter_username", user.username);
+      // Display hint only when we have no fleet username yet
+      if (!localStorage.getItem("grudge_username")) {
+        localStorage.setItem("grudge_username", user.username);
+      }
     }
   } catch {
     /* private mode */
   }
 }
 
+/** Persist Railway account fields from puter-sso / puter response (authoritative). */
+function storeGrudgeAccountFromAuth(data: {
+  grudgeId?: string;
+  grudge_id?: string;
+  username?: string;
+  userId?: string;
+  user?: { grudgeId?: string; username?: string; id?: string };
+}): void {
+  try {
+    const gid = data.grudgeId || data.grudge_id || data.user?.grudgeId;
+    if (gid) {
+      localStorage.setItem("grudge_id", gid);
+      localStorage.setItem("grudge_account_id", gid);
+    }
+    const name = data.username || data.user?.username;
+    if (name) localStorage.setItem("grudge_username", name);
+    const uid = data.userId || data.user?.id;
+    if (uid) localStorage.setItem("grudge_user_id", uid);
+  } catch {
+    /* */
+  }
+}
+
 /**
  * Exchange Puter identity for a Grudge fleet JWT (Railway characters/account).
- * Same-origin `/api/auth/*` → id.grudge-studio.com / Railway.
- * Returns true when a JWT is present after the attempt.
+ * Contract matches grudge-api `POST /api/auth/puter` + `/puter-sso`
+ * (puterUuid|puterId, puterUsername|displayName, email).
+ * Does not clear existing SSO JWTs on failure.
  */
 export async function linkPuterToGrudgeId(opts?: {
   force?: boolean;
@@ -99,6 +125,7 @@ export async function linkPuterToGrudgeId(opts?: {
 }): Promise<boolean> {
   if (typeof window === "undefined") return false;
 
+  // Prefer existing fleet SSO (web login / launcher handoff) — never clobber it.
   if (!opts?.force && readFleetToken()) {
     return true;
   }
@@ -121,76 +148,70 @@ export async function linkPuterToGrudgeId(opts?: {
     }
   }
 
-  const puterId = user.uuid || user.username;
-  const bodies: Record<string, unknown>[] = [
-    {
-      puterId,
-      puter_id: puterId,
-      uuid: user.uuid,
-      username: user.username,
-      email: user.email,
-      is_temp: user.is_temp,
-      provider: "puter",
-    },
-    {
-      puterId,
-      username: user.username,
-    },
-  ];
+  storePuterHints(user);
 
-  const endpoints = [
-    apiUrl("/api/auth/puter-sso"),
-    apiUrl("/api/auth/puter"),
-    apiUrl("/api/auth/grudge-bridge"),
-  ];
+  // Railway auth.ts accepts puterUuid || puterId and puterUsername || displayName.
+  const puterUuid = user.uuid || user.username || "";
+  const body = {
+    puterId: puterUuid,
+    puterUuid,
+    puterUsername: user.username,
+    displayName: user.username,
+    email: user.email,
+  };
+
+  // Prefer puter-sso (scoped SSO payload), then puter (SPA silent re-auth).
+  // Same-origin first so Vercel rewrites hit id → Railway without CORS splits.
+  const endpoints = [apiUrl("/api/auth/puter-sso"), apiUrl("/api/auth/puter")];
 
   for (const url of endpoints) {
-    for (const body of bodies) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        success?: boolean;
+        token?: string;
+        sessionToken?: string;
+        access_token?: string;
+        sso_token?: string;
+        grudge_token?: string;
+        grudgeId?: string;
+        grudge_id?: string;
+        username?: string;
+        userId?: string;
+        user?: { grudgeId?: string; username?: string; id?: string };
+      };
+      if (data.success === false) continue;
+      const token =
+        data.token ||
+        data.sessionToken ||
+        data.sso_token ||
+        data.access_token ||
+        data.grudge_token;
+      if (!token) continue;
+
+      writeFleetToken(token);
+      storeGrudgeAccountFromAuth(data);
       try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) continue;
-        const data = (await res.json()) as {
-          token?: string;
-          access_token?: string;
-          sso_token?: string;
-          grudge_token?: string;
-          grudge_id?: string;
-          grudgeId?: string;
-          username?: string;
-        };
-        const token =
-          data.sso_token || data.token || data.access_token || data.grudge_token;
-        if (token) {
-          writeFleetToken(token);
-          try {
-            if (user.uuid) localStorage.setItem(PUTER_LINK_FLAG, user.uuid);
-            const gid = data.grudge_id || data.grudgeId;
-            if (gid) {
-              localStorage.setItem("grudge_id", gid);
-              localStorage.setItem("grudge_account_id", gid);
-            }
-            if (data.username) localStorage.setItem("grudge_username", data.username);
-          } catch {
-            /* */
-          }
-          storeAccountHints(user);
-          return true;
-        }
+        if (user.uuid) localStorage.setItem(PUTER_LINK_FLAG, user.uuid);
       } catch {
-        /* try next */
+        /* */
       }
+      return true;
+    } catch {
+      /* try next endpoint */
     }
   }
 
-  // Soft success if JWT already present from SSO handoff
+  // Soft success if JWT already present from SSO handoff / prior session
   return !!readFleetToken();
 }
 
@@ -212,7 +233,7 @@ export async function signIn(opts?: { asGuest?: boolean }): Promise<GrudgeUser |
       throw new Error(res.error?.message || "Sign-in failed.");
     }
     const user = await p.auth.getUser();
-    storeAccountHints(user);
+    storePuterHints(user);
     // Bridge Puter → Railway JWT so /api/characters works for this account.
     await linkPuterToGrudgeId({ user, force: true });
     return user;
@@ -222,18 +243,29 @@ export async function signIn(opts?: { asGuest?: boolean }): Promise<GrudgeUser |
   }
 }
 
-export async function signOut(): Promise<void> {
+/**
+ * Sign out of Puter only by default.
+ * Pass `{ clearFleet: true }` when switching accounts (landing "Switch account").
+ */
+export async function signOut(opts?: { clearFleet?: boolean }): Promise<void> {
   const p = sdk();
-  if (!p) return;
-  try {
-    await p.auth.signOut();
-  } catch {
-    /* already signed out */
+  if (p) {
+    try {
+      await p.auth.signOut();
+    } catch {
+      /* already signed out */
+    }
   }
   try {
     localStorage.removeItem(PUTER_LINK_FLAG);
+    localStorage.removeItem("puter_uuid");
+    localStorage.removeItem("puter_username");
   } catch {
     /* */
+  }
+  if (opts?.clearFleet !== false) {
+    // Switching identity must drop JWT so roster does not leak across accounts.
+    clearFleetToken();
   }
 }
 
@@ -246,19 +278,17 @@ export async function getAccountConnectionStatus(): Promise<{
 }> {
   const puterUser = await restoreSession();
   let grudgeId: string | null = null;
-  let username: string | null = puterUser?.username ?? null;
+  let username: string | null = null;
   try {
+    // Prefer Railway grudge_id — never fall back to puter uuid as account id.
     grudgeId =
-      localStorage.getItem("grudge_id") ||
-      localStorage.getItem("grudge_account_id") ||
-      puterUser?.uuid ||
-      null;
+      localStorage.getItem("grudge_id") || localStorage.getItem("grudge_account_id") || null;
     username =
-      username ||
       localStorage.getItem("grudge_username") ||
+      puterUser?.username ||
       localStorage.getItem("puter_username");
   } catch {
-    /* */
+    username = puterUser?.username ?? null;
   }
   return {
     puterUser,

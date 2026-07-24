@@ -47,6 +47,7 @@ const toolboxArt = `${import.meta.env.BASE_URL}emblem.png`;
 export type ShellMode =
   | "landing"
   | "characters"
+  | "campfire"
   | "doors"
   | "danger"
   | "voxel"
@@ -85,6 +86,7 @@ function activeNav(mode: ShellMode): NavItem {
   const chars = NAV.find((n) => n.mode === "characters")!;
   if (mode === "play") return { ...voxel, label: "Playtest", hint: "Testing your map" };
   if (mode === "landing") return { ...chars, label: "Sign in", hint: "Grudge ID" };
+  if (mode === "campfire") return { ...chars, label: "Campfire", hint: "Ethereal Falls · 4 slots" };
   return NAV.find((n) => n.mode === mode) ?? NAV[0];
 }
 

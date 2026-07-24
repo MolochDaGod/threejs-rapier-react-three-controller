@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "installCommand": "cd ../.. && corepack enable && pnpm install --frozen-lockfile",
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist/public",
   "rewrites": [
@@ -49,6 +50,26 @@
     {
       "source": "/api/island/:path*",
       "destination": "https://grudge-api-production-0d46.up.railway.app/api/island/:path*"
+    },
+    {
+      "source": "/api/health",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/health"
+    },
+    {
+      "source": "/api/treaty",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/treaty"
+    },
+    {
+      "source": "/api/treaty/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/treaty/:path*"
+    },
+    {
+      "source": "/api/fleet",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/fleet"
+    },
+    {
+      "source": "/api/fleet/:path*",
+      "destination": "https://grudge-api-production-0d46.up.railway.app/api/fleet/:path*"
     },
     {
       "source": "/api/objectstore/:path*",

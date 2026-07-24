@@ -110,9 +110,10 @@ export function LandingPage({ onEnter }: Props) {
   const doSwitch = async () => {
     setError(null);
     setPhase("busy");
-    await signOut();
+    // Clear Puter + fleet JWT so the next account does not inherit roster/bag.
+    await signOut({ clearFleet: true });
     setUser(null);
-    setHasFleetJwt(!!readFleetToken());
+    setHasFleetJwt(false);
     setGrudgeIdHint(null);
     setPhase("signedOut");
   };

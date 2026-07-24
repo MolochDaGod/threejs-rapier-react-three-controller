@@ -38,6 +38,7 @@ import {
 } from "./three/audio/radioStations";
 import { LandingPage } from "./components/LandingPage";
 import { AirshipLobby } from "./components/AirshipLobby";
+import { CampfireLobby } from "./components/CampfireLobby";
 import {
   readRememberedAnimatorCharacter,
   rememberAnimatorCharacter,
@@ -110,6 +111,7 @@ import "./components/dock/dock.css";
 type Mode =
   | "landing"
   | "characters"
+  | "campfire"
   | "doors"
   | "danger"
   | "voxel"
@@ -121,9 +123,9 @@ type Mode =
   | "ledmask"
   | "avatar";
 
-// Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|minegrudge|landing|…`
+// Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|campfire|minegrudge|landing|…`
 // Default: landing (Puter / Grudge ID) → airship 4-crew → facility.
-// Characters mode is The Grudge airship plate (not campfire / not Ikkaku strip).
+// characters = The Grudge airship (production). campfire = Ethereal Falls (kept, not deleted).
 function initialMode(): Mode {
   try {
     const d = new URLSearchParams(window.location.search).get("door");
@@ -135,6 +137,7 @@ function initialMode(): Mode {
       d === "lobbyWorld" ||
       d === "characters" ||
       d === "charactersgrudox" ||
+      d === "campfire" ||
       d === "minegrudge" ||
       d === "grudoxEditor" ||
       d === "ledmask" ||
@@ -1181,6 +1184,7 @@ export default function App() {
     if (
       mode === "doors" ||
       mode === "characters" ||
+      mode === "campfire" ||
       mode === "voxel" ||
       mode === "lobby" ||
       mode === "lobbyWorld" ||
@@ -1266,39 +1270,59 @@ export default function App() {
     return <LandingPage onEnter={() => setMode("characters")} />;
   }
 
+  // Shared hero → Danger Room handoff (airship + campfire both use Railway roster).
+  const enterWithHero = (hero: GenesisHeroOption) => {
+    const animId = activateCampfireHero(hero);
+    setCharacterId(animId);
+    setFleetHeroName(hero.name);
+    rememberAnimatorCharacter(animId, hero.id);
+    studioRef.current?.setCharacter(animId);
+    setMode("danger");
+  };
+
+  const characterNavigate = (m: string) => {
+    if (m === "home" || m === "hub") setMode("doors");
+    else if (
+      m === "danger" ||
+      m === "voxel" ||
+      m === "editor" ||
+      m === "lobby" ||
+      m === "avatar" ||
+      m === "ledmask" ||
+      m === "doors" ||
+      m === "landing" ||
+      m === "characters" ||
+      m === "campfire"
+    ) {
+      setMode(m as Mode);
+    } else if (m === "account") {
+      setMode("avatar");
+    } else {
+      setMode("doors");
+    }
+  };
+
   if (mode === "characters") {
-    const enterWithHero = (hero: GenesisHeroOption) => {
-      const animId = activateCampfireHero(hero);
-      setCharacterId(animId);
-      setFleetHeroName(hero.name);
-      rememberAnimatorCharacter(animId, hero.id);
-      studioRef.current?.setCharacter(animId);
-      setMode("danger");
-    };
+    // Production crew select — Puter airship plate; does not delete CampfireLobby.
     return shell(
       withScreenTheme(
         <AirshipLobby
           onExit={() => setMode("landing")}
-          onNavigate={(m) => {
-            if (m === "home" || m === "hub") setMode("doors");
-            else if (
-              m === "danger" ||
-              m === "voxel" ||
-              m === "editor" ||
-              m === "lobby" ||
-              m === "avatar" ||
-              m === "ledmask" ||
-              m === "doors" ||
-              m === "landing"
-            ) {
-              setMode(m);
-            } else if (m === "account") {
-              // Foundry create is opened by AirshipLobby itself
-              setMode("avatar");
-            } else {
-              setMode("doors");
-            }
-          }}
+          onNavigate={characterNavigate}
+          onAvatarEdit={() => setMode("avatar")}
+          onPlayDanger={enterWithHero}
+        />,
+      ),
+    );
+  }
+
+  if (mode === "campfire") {
+    // Kept for deep-link / lab parity: ?door=campfire — same fleet roster SSOT.
+    return shell(
+      withScreenTheme(
+        <CampfireLobby
+          onExit={() => setMode("doors")}
+          onNavigate={characterNavigate}
           onAvatarEdit={() => setMode("avatar")}
           onPlayDanger={enterWithHero}
         />,

@@ -18,13 +18,15 @@
 | **ikkau / demo names** | Filtered in campfire roster + `getCharacter` |
 | Spider-Gwen · Iron Spider · Numbuh 1 | Licensed lab-only |
 
-**Account heroes** use the **Ethereal Falls campfire** (4 slots) after Grudge ID sign-in — Railway fleet + `animator.lobby.roster.v1`, not a fixed 24-kit grid.
+**Account heroes** use **The Grudge airship** (4 crew stations) after Puter / Grudge ID sign-in — Railway fleet Postgres + `animator.lobby.roster.v1`, not a fixed 24-kit grid. Ethereal Falls campfire remains at `?door=campfire` (same roster SSOT; not deleted).
+
+See also: `docs/PRODUCTION_WIRING_RAPER.md` (identity / DB / deploy — do not fork stacks).
 
 ## Entry flow
 
 ```
-Landing (Grudge ID) → characters (campfire 4-slot) → Danger / doors / play
-Deep-link: ?door=characters | danger | editor | avatar | …
+Landing (Puter + Grudge ID bridge) → characters (airship 4-crew) → Danger / doors / play
+Deep-link: ?door=landing | characters | campfire | danger | editor | avatar | …
 ```
 
 ## Combat hotkeys (Danger Room)
