@@ -1,7 +1,9 @@
 /**
- * Optional lab character strip — production entry is Ethereal Falls campfire
- * (`CampfireLobby` after Grudge ID). This UI must never feature Ikkaku/Madarame
- * or other removed lab cast; it only lists PLAYABLE_CHARACTERS.
+ * Optional lab character strip — product entry is Ethereal Falls campfire
+ * (`AirshipLobby` on `/` after landing and `?door=characters`). This UI must never feature
+ * Ikkaku/Madarame or other removed lab cast; it only lists PLAYABLE_CHARACTERS.
+ *
+ * Prefer AirshipLobby for production; this strip is a fallback / deep-link lab only.
  */
 import { useMemo, useState, type CSSProperties } from "react";
 import { PLAYABLE_CHARACTERS } from "../three/assets";
@@ -18,7 +20,7 @@ const FEATURED_IDS = [
   "centurion",
 ] as const;
 
-const BLOCKED_ID = /ikkau|ikkaku|madarame|karate-boss|sensei/i;
+const BLOCKED_ID = /ikkau|ikkaku|madarame|karate-boss|sensei|crimson|azure|void.?bankai/i;
 
 /** Poster art for the entry stage (PNG room/brand art — not GLB). */
 function posterFor(id: string): string {
@@ -98,9 +100,9 @@ export function CharacterSelect({ onSelect, initialId }: Props) {
       <div className="charselect-bg" aria-hidden />
       <header className="charselect-head">
         <p className="charselect-kicker">Grudge Studio</p>
-        <h1 className="charselect-title">Production cast</h1>
+        <h1 className="charselect-title">Lab cast (fallback)</h1>
         <p className="charselect-sub">
-          Lab strip only — account heroes use Ethereal Falls campfire after sign-in.
+          Account heroes use the Ethereal Falls campfire on the home page — not Ikkaku skins.
         </p>
       </header>
 

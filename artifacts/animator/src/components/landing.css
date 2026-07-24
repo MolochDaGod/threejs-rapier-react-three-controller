@@ -216,3 +216,21 @@
   color: #ffb3b3;
   font-size: 12.5px;
 }
+
+.landing-ok {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.landing-warn {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.landing-hint-warn {
+  color: #e8c877;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(40, 28, 8, 0.35);
+}

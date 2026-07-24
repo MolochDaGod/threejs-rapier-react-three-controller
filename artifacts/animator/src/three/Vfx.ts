@@ -1391,6 +1391,64 @@ export class Vfx {
   }
 
   /**
+   * Rising water/nature splash spiral under caster or heal target.
+   * Used by naturesHealing skillwrite preset.
+   */
+  castNatureHealingSpiral(
+    at: THREE.Vector3,
+    color = 0x4dff88,
+    opts?: { life?: number; peakHeight?: number; spin?: number; scale?: number },
+  ) {
+    const life = opts?.life ?? 1.3;
+    const peak = opts?.peakHeight ?? 2.1;
+    const spinSpeed = opts?.spin ?? 24;
+    const scale = opts?.scale ?? 1;
+    const group = new THREE.Group();
+    group.position.copy(at);
+    const geos: THREE.BufferGeometry[] = [];
+    const mats: THREE.Material[] = [];
+    const rings = 5;
+    for (let i = 0; i < rings; i++) {
+      const g = new THREE.TorusGeometry(0.22 * scale + i * 0.08 * scale, 0.035 * scale, 6, 18);
+      const m = new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.55,
+        transparent: true,
+        opacity: 0.75,
+        roughness: 0.4,
+        metalness: 0.1,
+      });
+      const ring = new THREE.Mesh(g, m);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.05 + i * 0.12;
+      group.add(ring);
+      geos.push(g);
+      mats.push(m);
+    }
+    this.burst(at.clone().setY(at.y + 0.4), color, 12, 2.2);
+    this.add({
+      obj: group,
+      age: 0,
+      life,
+      geos,
+      mats,
+      update: (e) => {
+        const t = e.age / e.life;
+        group.rotation.y += spinSpeed * 0.016;
+        for (let i = 0; i < group.children.length; i++) {
+          const ring = group.children[i] as THREE.Mesh;
+          ring.position.y = 0.05 + i * 0.12 + t * peak * (0.35 + i * 0.12);
+          const mat = ring.material as THREE.MeshStandardMaterial;
+          mat.opacity = Math.max(0, 0.75 * (1 - t));
+          mat.emissiveIntensity = 0.35 + (1 - t) * 0.6;
+        }
+        group.scale.setScalar(scale * (0.85 + t * 0.35));
+      },
+    });
+  }
+
+  /**
    * Nature roots: vines erupt at a point, hold, then wither.
    * Use for root/stun CC VFX (pair with slowed/stunned status).
    */

@@ -65,7 +65,7 @@ export const GRUDOX_GAMES: GrudoxGameDef[] = [
   {
     id: "characters",
     name: "Characters",
-    blurb: "Campfire roster & creator (charactersgrudox)",
+    blurb: "The Grudge airship · 4 crew stations (Puter plate)",
     url: "?door=characters",
   },
   {

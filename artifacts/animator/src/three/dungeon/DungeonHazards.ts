@@ -42,14 +42,15 @@ export class DungeonHazards {
   private hazards: HazardInstance[] = [];
   private pack: THREE.Object3D | null = null;
   private nextId = 1;
-  private seed: number;
+  /** Numeric RNG seed (not the async `seed()` placer method). */
+  private rngSeed: number;
   private onDamage: ((amount: number, at: THREE.Vector3, label: string) => void) | null = null;
   private onBomb: ((at: THREE.Vector3) => void) | null = null;
   private bakeSolid: ((mesh: THREE.Mesh) => void) | null = null;
 
   constructor(scene: THREE.Scene, seed = 42) {
     this.scene = scene;
-    this.seed = seed;
+    this.rngSeed = seed;
     this.group.name = "DungeonHazards";
     this.scene.add(this.group);
   }
@@ -70,15 +71,15 @@ export class DungeonHazards {
   async seed(surfaceNav: NavGrid, surfaceSpawn: THREE.Vector3, pitNav?: NavGrid, pitSpawn?: THREE.Vector3): Promise<void> {
     await this.ensurePack();
     if (!this.pack) return;
-    const rand = mulberry32(this.seed);
-    const counts = dungeonTrapCounts(this.seed);
+    const rand = mulberry32(this.rngSeed);
+    const counts = dungeonTrapCounts(this.rngSeed);
 
     this.placeOnNav(surfaceNav, surfaceSpawn, counts.surface, 7, rand, 2.8);
     if (pitNav && pitSpawn) {
       this.placeOnNav(pitNav, pitSpawn, counts.pit, 4, rand, 3.2);
     }
     console.info(
-      `[DungeonHazards] seeded ${this.hazards.length} traps (seed=${this.seed})`,
+      `[DungeonHazards] seeded ${this.hazards.length} traps (seed=${this.rngSeed})`,
     );
   }
 

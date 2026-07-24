@@ -37,7 +37,7 @@ import {
   assertStation,
 } from "./three/audio/radioStations";
 import { LandingPage } from "./components/LandingPage";
-import { CampfireLobby } from "./components/CampfireLobby";
+import { AirshipLobby } from "./components/AirshipLobby";
 import {
   readRememberedAnimatorCharacter,
   rememberAnimatorCharacter,
@@ -121,8 +121,9 @@ type Mode =
   | "ledmask"
   | "avatar";
 
-// Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|minegrudge|…`
-// Default: landing (Grudge ID) → Ethereal Falls campfire (4 account character slots).
+// Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|minegrudge|landing|…`
+// Default: landing (Puter / Grudge ID) → airship 4-crew → facility.
+// Characters mode is The Grudge airship plate (not campfire / not Ikkaku strip).
 function initialMode(): Mode {
   try {
     const d = new URLSearchParams(window.location.search).get("door");
@@ -138,7 +139,8 @@ function initialMode(): Mode {
       d === "grudoxEditor" ||
       d === "ledmask" ||
       d === "avatar" ||
-      d === "doors"
+      d === "doors" ||
+      d === "landing"
     ) {
       if (d === "charactersgrudox") return "characters";
       if (d === "grudoxEditor") return "minegrudge";
@@ -1259,8 +1261,8 @@ export default function App() {
   }, []);
 
   if (mode === "landing") {
-    // Front door: Grudge ID → Ethereal Falls campfire (4 account character slots).
-    // Not the lab cast (ikkau / demo heroes) — only fleet / charactersgrudox seats.
+    // Front door: Puter / Grudge ID → The Grudge airship (4 crew stations).
+    // Not the lab cast (ikkau / demo heroes) — only fleet / Foundry seats.
     return <LandingPage onEnter={() => setMode("characters")} />;
   }
 
@@ -1275,8 +1277,8 @@ export default function App() {
     };
     return shell(
       withScreenTheme(
-        <CampfireLobby
-          onExit={() => setMode("doors")}
+        <AirshipLobby
+          onExit={() => setMode("landing")}
           onNavigate={(m) => {
             if (m === "home" || m === "hub") setMode("doors");
             else if (
@@ -1286,11 +1288,12 @@ export default function App() {
               m === "lobby" ||
               m === "avatar" ||
               m === "ledmask" ||
-              m === "doors"
+              m === "doors" ||
+              m === "landing"
             ) {
               setMode(m);
             } else if (m === "account") {
-              // Foundry create is opened by CampfireLobby itself
+              // Foundry create is opened by AirshipLobby itself
               setMode("avatar");
             } else {
               setMode("doors");
@@ -1349,7 +1352,7 @@ export default function App() {
     );
   }
 
-  // characters mode handled above via CampfireLobby (Ethereal Falls 4-slot).
+  // characters mode handled above via AirshipLobby (The Grudge 4-crew).
 
   if (mode === "minegrudge") {
     return shell(
