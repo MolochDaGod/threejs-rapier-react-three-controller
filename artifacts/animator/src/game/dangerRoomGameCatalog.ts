@@ -73,7 +73,13 @@ export const DANGER_ROOM_GAME = {
       id: "racalvin",
       role: "npc",
       path: "models/racalvin.glb",
-      notes: "Resident DJ character",
+      notes: "Resident DJ · playable gunslinger; pet models/parrot-stylized.glb on shoulder",
+    },
+    {
+      id: "racalvin-parrot",
+      role: "prop",
+      path: "models/parrot-stylized.glb",
+      notes: "Canonical Racalvin companion — shoulder idle, attack/hover clips + emoji",
     },
     {
       id: "music-spread",

@@ -84,6 +84,13 @@ import { mountWeaponModel, unmountWeapon, type MountedWeapon } from "./Weapons";
 import { applyWeaponTuning } from "./weaponTuning";
 import { BladeCollisionSystem, type BladeContact } from "./combat/BladeCollisionSystem";
 import {
+  CombatStatusBoard,
+  PLAYER_STATUS_KEY,
+  damageProfileForWeapon,
+  hostileProcForProfile,
+  selfProcForProfile,
+} from "./combat/combatStacks";
+import {
   computeParryRebound,
   isParryableProjectileKind,
   isProjectileParryState,
@@ -97,6 +104,7 @@ import type { FireFxParams } from "./fxSettings";
 import { loadSound, saveSound, type SoundSettings } from "./soundSettings";
 import { loadControls, saveControls } from "./controlsSettings";
 import { getCharacter, getWeapon, weaponCombat } from "./assets";
+import { ParrotPet, RACALVIN_PARROT } from "./pets/ParrotPet";
 import { offHandEligible } from "./arsenal";
 import { ELEMENT_THEME } from "./arsenal/elements";
 import type { StaffElement } from "./types";
@@ -444,6 +452,11 @@ export class Studio {
    * Firebolt · Icewave · Stormfist · Nature/Holy/Arcane default — tinted on channel.
    */
   private castRunes = new CastRuneStones();
+  /**
+   * Shoulder companion pet (Racalvin's parrot). Only present when CharacterDef.pet
+   * is set — not a global stack, keyed off catalog data.
+   */
+  private parrotPet: ParrotPet | null = null;
   /** Flame Body remaining time (s); 0 = inactive. */
   private flameBodyT = 0;
   /**
@@ -734,6 +747,11 @@ export class Studio {
   private difficulty: Difficulty = "medium";
   private blocking = false;
   /**
+   * Multi-entity combat stacks (player buffs + per-enemy debuffs): frosted,
+   * bleed, shred, skill primes, arcane blink, etc. Drives HUD icons on frames.
+   */
+  private readonly combatBoard = new CombatStatusBoard();
+  /**
    * Dash distance (metres) of the most recent melee open — used when the swing
    * hits a raised block: attacker bounces back at {@link BLOCK_BOUNCE_MM_MUL}× MM.
    */
@@ -1009,9 +1027,15 @@ export class Studio {
         // flash + the fall→kip-up recovery sequence stay here.
         const clip = vulnerableReactionClip(this.playerGroup(), state as VulnerableState);
         if (state === "stunned") {
-          this.setCombatFlash("STUNNED", 1.8);
+          // Guard-break / shield-break: force drop E-block so we cannot re-soak
+          // hits while stunned (1.5s from combatModel.player.stunnedDuration).
+          this.blocking = false;
+          this.blockViaTouch = false;
+          this.setCombatFlash("STUNNED", 1.5);
           if (clip) this.reactWithClip(clip, 0.1);
         } else if (state === "fallen") {
+          this.blocking = false;
+          this.blockViaTouch = false;
           this.setCombatFlash("KNOCKED DOWN", 1.5);
           if (clip) this.reactWithClip(clip, 0.1);
           this.schedule(0.95, () => this.character?.reaction?.("fallen", 0.15, true));
@@ -1035,9 +1059,14 @@ export class Studio {
             break;
           case "blockStop":
             if (result.defenderReaction === "stunned") {
-              // Guard broke — escalate to a wall-crash stagger.
+              // Guard broke on low/no stamina (or shieldBreak attack): 1.5s stun,
+              // exhaustion stack, HP still diverted — attacker bounce is applied
+              // in resolveOpponentStrike regardless of defenderReaction.
               this.schedule(0.05, () => this.playPlayerReaction("wallCrash"));
               this.setCombatFlash("GUARD BROKEN!", 1.5);
+              this.status.apply("exhausted");
+              this.blocking = false;
+              this.blockViaTouch = false;
             }
             break;
         }
@@ -1327,6 +1356,7 @@ export class Studio {
         unmountWeapon(this.mountedOff);
         this.mountedOff = null;
       }
+      this.clearParrotPet();
       this.scene.remove(this.character.root);
       this.character.dispose();
     }
@@ -1344,6 +1374,8 @@ export class Studio {
     this.character.root.visible = !this.spectating;
     this.scene.add(this.character.root);
     this.characterId = id;
+    // Canonical companion (Racalvin parrot) when CharacterDef.pet is set.
+    void this.syncParrotPet(def);
     // The player's portrait key is stable per character, but the look can
     // change between spawns (Avatar Edit head, wardrobe skins) — drop the
     // cached thumbnail so the HUD frame re-captures this rig.
@@ -1873,6 +1905,8 @@ export class Studio {
     // Mid offense-fail recovery: the swing was blocked/parried/dodged and the
     // player is paying the lost-tempo beat — no new attack until it clears.
     if (this.recoverLock > 0) return;
+    // Racalvin's parrot (and any CharacterDef.pet) mirrors the strike.
+    this.parrotPet?.onAttack();
     // Staffs are RANGED casters, not melee: the light attack fires a themed
     // spline bolt instead of a melee combo. On the ground it carries a small
     // back-step (kiting), and while airborne / floating it casts in place. This
@@ -2213,8 +2247,11 @@ export class Studio {
         // connects, so a whiffed/blocked counter keeps its window alive.
         this.respectWindow = 0;
         this.setCombatFlash("COUNTER!", 0.6);
+        this.applyCombatStatus(PLAYER_STATUS_KEY, "perfectCounter");
       }
       if (landed) {
+        // Weapon-family stacks (bleed / trauma / shred / elemental charges).
+        this.applyWeaponHitProcs(this.targets.selectedView()?.id ?? null);
         // A connecting blow heats the combat-music bed (finishers hit harder).
         this.bumpMusicHeat(finisher ? 0.45 : 0.28);
         this.vfx.impact(center, color, strike.radius * (finisher ? 1.25 : 1));
@@ -2484,16 +2521,21 @@ export class Studio {
 
   private startBlock() {
     if (this.defeated) return;
+    // Cannot re-raise while stunned / shield-broken (1.5s guard-break window).
+    const st = this.sparring?.getPlayerState?.();
+    if (st === "stunned" || st === "fallen" || st === "dead") return;
     this.blocking = true;
-    // Single combat authority: raise the player CC's guard. Block is **E (hold)**
-    // — stamina drains while guarding; damage is mitigated. Melee attackers who
-    // connect into a raised block take a 1.25× MM bounce-back + stun reaction.
+    // Single combat authority: raise the player CC's guard. Block is **E (hold)**.
+    // Hits while holding spend stamina equal to damage (HP diverted). Release
+    // recovers stamina quickly. Low/no stamina on contact → shield-break (1.5s
+    // stun + Exhausted stack) while the attacker is still bounced.
     // Lock-on stays on RMB; soft-lock keeps facing during guard.
     this.sparring?.startBlock();
   }
   private endBlock() {
     this.blocking = false;
     this.blockViaTouch = false;
+    // CC endBlock starts the fast post-block stamina recovery window.
     this.sparring?.endBlock();
   }
 
@@ -2808,23 +2850,30 @@ export class Studio {
     if (isDefended(result.outcome)) this.respectWindow = 0.4;
 
     // Physics recoil scaled by the resolved outcome (0 on a clean parry/dodge).
-    // Active block (E): the ATTACKER takes the large MM bounce, not the blocker —
-    // so we minimize defender slide and shove the enemy origin instead.
+    // Active block (E): the ATTACKER takes the large MM bounce — including on
+    // shield-break. Guard-break stuns the defender (1.5s + Exhausted) but still
+    // diverts HP and bounces the attacker.
     const push = chest.clone().sub(from);
     push.y = 0;
     if (push.lengthSq() < 1e-4) push.set(0, 0, 1);
     push.normalize();
     const recoil = outcomeForceScale(result.outcome) * force;
     const blockedMelee =
-      this.blocking &&
-      (result.outcome === "blockStop" || result.outcome === "deflect") &&
-      result.defenderReaction !== "stunned";
+      result.outcome === "blockStop" || result.outcome === "deflect";
     if (blockedMelee) {
       // Shove attacker back ~1.25× of their strike force (proxy for open MM).
       const enemyBounceM = Math.max(0.9, force * 0.14 * BLOCK_BOUNCE_MM_MUL);
       this.targets.shoveAway?.(from, chest, enemyBounceM, true);
-      // Minimal residual on defender — block soaks damage for stamina, not big slide.
-      this.controller?.applyImpulse(push, Math.min(1.0, recoil * 0.12), 0, 9);
+      if (result.defenderReaction === "stunned") {
+        // Shield broke: small residual on defender + flash (exhaustion applied in
+        // onDummyHitResult). Attacker still bounced above.
+        this.controller?.applyImpulse(push, Math.min(1.4, recoil * 0.2 + 0.6), 0, 9);
+        this.vfx.burst(chest, 0xffc070, 22, 4);
+        this.vfx.shockwave(new THREE.Vector3(chest.x, 0.05, chest.z), 0xffa040, 1.6, 0.35);
+      } else {
+        // Clean block — stamina paid the damage; minimal defender slide.
+        this.controller?.applyImpulse(push, Math.min(1.0, recoil * 0.12), 0, 9);
+      }
     } else if (recoil > 0) {
       this.controller?.applyImpulse(push, recoil * 0.5, recoil > 8 ? 1.5 : 0);
     }
@@ -3598,11 +3647,16 @@ export class Studio {
   useSkill(signatureIndex?: number) {
     if (!this.character) return false;
     if (this.spectating) return false;
+    // Pet skill flair (hover / rise + emoji) — cheap, no combat authority.
+    this.parrotPet?.onSkill(signatureIndex);
     // Piloting the exo-armour: the skill bar fires the mech's bespoke kit
     // (Stomp on F, Plasma Cannon on 1, Grapple Throw on 2) instead of the pilot's.
     if (this.mech.isPiloted) {
       return this.doMechSkill(signatureIndex);
     }
+    // Free-skill buff (shred max) spends on the next skill cast.
+    const freeSkill = this.combatBoard.has(PLAYER_STATUS_KEY, "freeSkill");
+    const skillPrimed = this.combatBoard.has(PLAYER_STATUS_KEY, "skillPrimed");
     // Skill 1 (Digit1 / slot 0) after block-bounce flip recover can blend even if
     // a residual recover lock remains (stylish recover → sig 1 chain).
     const skill1FromFlip = signatureIndex === 0 && this.blockRecoverSkillOpenT > 0;
@@ -3658,7 +3712,9 @@ export class Studio {
     // "Hot Hands" fire spell-combo with its own combo lock — bypass the shared
     // skillCooldown gate like the sig kits do.
     if (def.arcane && this.weaponId === "staff" && !isSig) {
-      return this.doFireCombo();
+      const ok = this.doFireCombo();
+      if (ok) this.onSkillCastHooks(signatureIndex, freeSkill, skillPrimed);
+      return ok;
     }
 
     // Skillwrite presets on weapon skillKit (staffs): arm target / ground AOE
@@ -3673,10 +3729,14 @@ export class Studio {
           this.weaponId === "staffIce" &&
           (entry.preset.id === "frost_aoe_blink" || entry.preset.vfx === "frostAoe");
         if (this.skillCooldown > 0 && !frostBlinkReady) return false;
-        return this.armOrCastPreset(entry.preset);
+        const ok = this.armOrCastPreset(entry.preset);
+        if (ok) this.onSkillCastHooks(signatureIndex, freeSkill, skillPrimed);
+        return ok;
       }
       if (entry && entry.kind === "fireDragon" && w.element === "fire") {
-        return this.doElementalCast("fire");
+        const ok = this.doElementalCast("fire");
+        if (ok) this.onSkillCastHooks(signatureIndex, freeSkill, skillPrimed);
+        return ok;
       }
     }
 
@@ -4776,6 +4836,23 @@ export class Studio {
       this.vfx.aoeBlast(p, color, 2.0);
       this.sparringBlast(p, 2.0, 26, this.params.skillForce * 0.9);
       this.applyStatusScoped(theme.status, theme.scope);
+      // Elemental weapon stacks (frosted / smoldering / storm-arcane charges…).
+      this.applyWeaponHitProcs(this.targets.selectedView()?.id ?? null);
+      // Skybolt primed: auto-lightning from sky on this impact, then clear.
+      if (this.combatBoard.has(PLAYER_STATUS_KEY, "skyboltPrimed")) {
+        this.combatBoard.clear(PLAYER_STATUS_KEY, "skyboltPrimed");
+        this.status.clear("skyboltPrimed");
+        this.vfx.castLaserAt(
+          new THREE.Vector3(p.x, p.y + 14, p.z),
+          p,
+          0xffe14d,
+          (hit) => {
+            this.sparringBlast(hit, 2.4, 34, this.params.skillForce);
+            this.vfx.burst(hit, 0xfff080, 36, 6);
+          },
+        );
+        this.setCombatFlash("SKYBOLT!", 1.1);
+      }
     };
     this.abilities.cast(kitAbility(`elem:${element}`, "bolt", color, 0), {
       onImpact: () => {
@@ -6092,6 +6169,7 @@ export class Studio {
       }
     }
     this.character?.update(dt);
+    this.parrotPet?.update(dt);
     // Spine aim IK AFTER mixer + foot plant (needs live camera + weapon stance).
     if (this.character && this.controller) {
       const gun =
@@ -6267,6 +6345,8 @@ export class Studio {
     // do NOT regen it locally — the CombatController handles regen internally.
 
     this.vfx.update(dt);
+    // Combat stacks (frosted / bleed / shred / primes) tick independently of VFX.
+    this.combatBoard.update(dt);
     // Network snapshot cadence must stay real-time so slow-mo (a local tuning
     // tool) never throttles outbound multiplayer reports — drive it off `raw`.
     this.updateNet(raw);
@@ -6317,6 +6397,7 @@ export class Studio {
           maxHealth: tv.maxHealth,
           name: tv.name,
           portraitKey: portrait?.key ?? null,
+          statuses: this.boardStatusViews(tv.id),
         };
       }
     }
@@ -6363,6 +6444,7 @@ export class Studio {
           health: Math.round(tv.health),
           maxHealth: tv.maxHealth,
           hint: tv.bossHint ?? "",
+          statuses: this.boardStatusViews(tv.id),
         }
       : null;
     // OWR reticle ring + edge SFX: classify the nearest enemy vs the current
@@ -6430,7 +6512,8 @@ export class Studio {
       boss,
       clip: this.character?.currentClipName() ?? "",
       slots: this.getSlotBindings(),
-      statuses: this.status.views(),
+      // Merge aura controller + combat stack board so HUD shows full buff/debuff set.
+      statuses: this.mergePlayerStatusViews(),
       prompt: this.doorPrompt
         ? "Hit E to Enter"
         : this.inDungeon
@@ -6822,6 +6905,120 @@ export class Studio {
     this.abilities.cast(def, { onStatus: () => this.applyStatusScoped(id, scope) });
   }
 
+  // ── Combat stack board (weapon procs, primes, frame icons) ─────────────────
+
+  /** Convert combat-board entries into HUD {@link StatusView} chips. */
+  private boardStatusViews(key: string | number): import("./types").StatusView[] {
+    return this.combatBoard.views(key).map((v) => {
+      const def = STATUS_DEFS[v.id];
+      const stacks = v.stacks;
+      return {
+        id: v.id,
+        name: stacks > 1 ? `${def.name} ×${stacks}` : def.name,
+        kind: def.kind,
+        color: `#${def.color.toString(16).padStart(6, "0")}`,
+        glyph: def.glyph,
+        remaining: v.remaining,
+        duration: v.duration,
+        stacks: stacks > 1 ? stacks : undefined,
+      };
+    });
+  }
+
+  /** Merge aura StatusController views with player combat-board stacks (board wins on id). */
+  private mergePlayerStatusViews(): import("./types").StatusView[] {
+    const map = new Map<string, import("./types").StatusView>();
+    for (const s of this.status.views()) map.set(s.id, s);
+    for (const s of this.boardStatusViews(PLAYER_STATUS_KEY)) map.set(s.id, s);
+    return [...map.values()].sort((a, b) =>
+      a.kind === b.kind ? 0 : a.kind === "buff" ? -1 : 1,
+    );
+  }
+
+  /** Apply a status on the combat board + optional self VFX aura. */
+  private applyCombatStatus(key: string | number, id: StatusId): void {
+    const r = this.combatBoard.apply(key, id);
+    if (key === PLAYER_STATUS_KEY) {
+      this.status.apply(r.promoted ?? id);
+      if (r.promoted && r.promoted !== id) this.status.clear(id);
+    }
+    if (r.flash) this.setCombatFlash(r.flash, 1.0);
+    // Blunt max → stun the focused hostile
+    if (r.promoted === "stunned" && typeof key === "number") {
+      const head = this.targets.selectedView()?.head;
+      if (head) this.targets.reactAt(head, "stunned");
+    }
+  }
+
+  /**
+   * On a confirmed landed hit: apply hostile weapon debuff to the target and
+   * self-buff stacks (shred / storm / arcane / holy) for the equipped profile.
+   */
+  private applyWeaponHitProcs(hostileId: number | null): void {
+    const profile = damageProfileForWeapon(this.weaponId);
+    const hostile = hostileProcForProfile(profile);
+    if (hostile && hostileId != null) this.applyCombatStatus(hostileId, hostile);
+    const self = selfProcForProfile(profile);
+    if (self) this.applyCombatStatus(PLAYER_STATUS_KEY, self);
+  }
+
+  /**
+   * After a successful skill cast: skill-1 charges toward empower; consume free
+   * skill / skill primed.
+   */
+  private onSkillCastHooks(
+    signatureIndex: number | undefined,
+    freeSkill: boolean,
+    skillPrimed: boolean,
+  ): void {
+    if (freeSkill) {
+      this.combatBoard.clear(PLAYER_STATUS_KEY, "freeSkill");
+      this.status.clear("freeSkill");
+      this.setCombatFlash("FREE SKILL!", 0.7);
+    }
+    if (skillPrimed) {
+      this.combatBoard.clear(PLAYER_STATUS_KEY, "skillPrimed");
+      this.status.clear("skillPrimed");
+      this.setCombatFlash("EMPOWERED SKILL!", 0.85);
+      const p = this.character?.root.position;
+      if (p) this.vfx.shockwave(new THREE.Vector3(p.x, 0.05, p.z), 0xffd060, 2.2, 0.4);
+    }
+    // Skill slot 1 / F ability: build skillCharge → skillPrimed every 5th.
+    if (signatureIndex === 0 || signatureIndex === undefined) {
+      this.applyCombatStatus(PLAYER_STATUS_KEY, "skillCharge");
+    }
+  }
+
+  /**
+   * Arcane Blink dodge: multi-cast soul bolts + small AoE at the locked enemy
+   * (or ahead of the dodge). Called when X is pressed with arcaneBlink primed.
+   */
+  private fireArcaneBlinkBurst(): void {
+    if (!this.character) return;
+    const origin = this.character.root.position.clone();
+    origin.y += 1.2;
+    const tv = this.targets.selectedView();
+    const target = tv
+      ? tv.head.clone()
+      : origin.clone().addScaledVector(this.controller?.forward() ?? new THREE.Vector3(0, 0, 1), 8);
+    target.y = Math.max(target.y, 0.6);
+    const color = 0xb15cff;
+    for (let i = 0; i < 3; i++) {
+      const delay = i * 0.07;
+      this.schedule(delay, () => {
+        if (this.disposed || !this.character) return;
+        const from = this.character.root.position.clone();
+        from.y += 1.2 + i * 0.08;
+        this.vfx.castSoulAt(from, target, color, (hit) => {
+          this.sparringBlast(hit, 1.6, 14, this.params.skillForce * 0.7);
+          this.vfx.burst(hit, color, 14, 3);
+        });
+      });
+    }
+    this.vfx.aoeBlast(target, color, 1.8);
+    this.applyWeaponHitProcs(tv?.id ?? null);
+  }
+
   /**
    * Apply a status by scope, mirroring the historical {@link applyStatus}
    * routing exactly: ally buffs follow the Shift+Tab ally (AOE splashes onto
@@ -6889,8 +7086,18 @@ export class Studio {
     }
     else if (code === "KeyX") {
       // Dodge-roll: direction from camera forward (or back-step if no dir key held).
+      // Arcane Blink primed: 1.5× distance + multi-cast arcane AoE spline at foe.
+      const blink = this.combatBoard.has(PLAYER_STATUS_KEY, "arcaneBlink");
       const dir = this.controller ? this.controller.forward().clone() : new THREE.Vector3(0, 0, 1);
       this.sparring.dodge({ x: dir.x, z: dir.z });
+      const dist = blink ? 4.8 : 3.2;
+      if (this.controller) this.controller.dash(dir, dist, blink ? 0.28 : 0.22, 0, 0.45);
+      if (blink) {
+        this.combatBoard.clear(PLAYER_STATUS_KEY, "arcaneBlink");
+        this.status.clear("arcaneBlink");
+        this.fireArcaneBlinkBurst();
+        this.setCombatFlash("ARCANE BLINK!", 1.0);
+      }
       // "dodge" is not an AnimRole — fall back to hurt (a quick flinch-step).
       if (this.character?.hasRole("hurt")) this.character.playRoleOnce("hurt", 0.08);
     }
@@ -8509,9 +8716,44 @@ export class Studio {
     this.wildlife?.setNav(nav);
   }
 
+  /**
+   * Load / attach CharacterDef.pet (Racalvin parrot). Safe no-op when unset.
+   * Does not invent a second pet system — only catalog-declared companions.
+   */
+  private async syncParrotPet(def: ReturnType<typeof getCharacter>): Promise<void> {
+    this.clearParrotPet();
+    if (!def.pet || !this.character) return;
+    const pet = new ParrotPet({
+      ...RACALVIN_PARROT,
+      file: def.pet.file,
+      heightM: def.pet.heightM ?? RACALVIN_PARROT.heightM,
+      offset: def.pet.offset ?? RACALVIN_PARROT.offset,
+    });
+    try {
+      await pet.load();
+      if (this.disposed || !this.character || this.characterId !== def.id) {
+        pet.dispose();
+        return;
+      }
+      pet.attach(this.character.root);
+      this.parrotPet = pet;
+      // Tiny cheer so the bird is obvious on spawn (emoji 🦜👑).
+      pet.cheer("🦜👑");
+    } catch (err) {
+      console.warn("[Studio] pet load failed", def.pet.id, err);
+      pet.dispose();
+    }
+  }
+
+  private clearParrotPet(): void {
+    this.parrotPet?.dispose();
+    this.parrotPet = null;
+  }
+
   dispose() {
     this.disposed = true;
     this.clearBearTraps();
+    this.clearParrotPet();
     this.wildlife?.dispose();
     this.wildlife = null;
     this.castCtrl.dispose();

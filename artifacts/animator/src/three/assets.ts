@@ -159,6 +159,14 @@ export const CHARACTERS: CharacterDef[] = [
     ],
     handBone: "Hand",
     modelYaw: 0,
+    // Canonical companion: stylized animated parrot on the Pirate King's shoulder.
+    // Idle / preen on shoulder; attack + hover clips + emoji on combat.
+    pet: {
+      id: "racalvin-parrot",
+      file: "models/parrot-stylized.glb",
+      heightM: 0.36,
+      offset: { x: 0.11, y: 0.06, z: 0.04 },
+    },
   },
   // karate-boss / Sensei intentionally removed from production cast.
   {

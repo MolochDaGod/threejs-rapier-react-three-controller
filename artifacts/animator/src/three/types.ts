@@ -60,7 +60,7 @@ export type SkillKind =
   | "soul"
   | "laser";
 
-/** Status effects (ported from the CC0 BinbunVFX packs). */
+/** Status effects (ported from the CC0 BinbunVFX packs + weapon proc stacks). */
 export type StatusKind = "buff" | "debuff";
 export type StatusId =
   | "burning"
@@ -75,7 +75,48 @@ export type StatusId =
   /** Movement slow (ice/venom snakes, earth roots). */
   | "slowed"
   /** Brief hard CC (storm/holy snakes, roots peak). */
-  | "stunned";
+  | "stunned"
+  /**
+   * Guard-break exhaustion stack (max 3). Applied when E-block is used with
+   * low/no stamina and the shield breaks — damage is still diverted and the
+   * attacker is still bounced.
+   */
+  | "exhausted"
+  // ── Weapon / school combat stacks (see combat/combatStacks.ts) ────────────
+  /** Ice staff: −1% speed per stack; 5 stacks → next ice freezes. */
+  | "frosted"
+  /** Fire staff smolder; 5 stacks → next fire engulfs. */
+  | "smoldering"
+  /** Fire promotion: heavy burn. */
+  | "engulfed"
+  /** Storm caster charge; 5th → skybolt primed. */
+  | "chargedStorm"
+  /** Storm promotion: next cast pulls lightning from sky. */
+  | "skyboltPrimed"
+  /** Arcane caster charge; 3rd → arcane blink dodge mode. */
+  | "arcaneCharge"
+  /** Arcane: next X-dodge = 1.5× distance + arcane AoE spline. */
+  | "arcaneBlink"
+  /** Blade-edge bleed stacks. */
+  | "bleeding"
+  /** Blunt trauma slow; 5th → stun + reset. */
+  | "bluntTrauma"
+  /** Point weapons: self shred (−stamina cost); 6th free skill. */
+  | "shred"
+  /** Free next skill (no stamina) from shred max. */
+  | "freeSkill"
+  /** Nature venom stacks. */
+  | "venom"
+  /** Holy self blessing stacks. */
+  | "blessed"
+  /** Skill-1 use charge toward empower. */
+  | "skillCharge"
+  /** Next skill is empowered (from skillCharge max / every 5th skill-1). */
+  | "skillPrimed"
+  /** Brief perfect-counter window after a defended exchange. */
+  | "perfectCounter"
+  /** Stealth / smoke phantom visibility mode. */
+  | "invisible";
 
 /**
  * Elemental school of a magic staff. Each element is its own staff weapon type
@@ -103,6 +144,8 @@ export interface StatusView {
   glyph: string;
   remaining: number;
   duration: number;
+  /** Stack count when the status stacks (e.g. exhausted ×1–3). */
+  stacks?: number;
 }
 
 /**
@@ -886,6 +929,20 @@ export interface CharacterDef {
    * meshes so the mounted library weapon is the only one visible.
    */
   hideNodes?: string;
+  /**
+   * Optional shoulder companion pet (e.g. Racalvin the Pirate King's parrot).
+   * Loaded with the character; idle on shoulder; reacts to attacks/skills.
+   */
+  pet?: {
+    /** Id for logs / HUD — e.g. `racalvin-parrot`. */
+    id: string;
+    /** Path relative to BASE_URL (no leading slash). */
+    file: string;
+    /** Target pet height in meters (default ~0.36). */
+    heightM?: number;
+    /** Local offset from shoulder bone / anchor. */
+    offset?: { x: number; y: number; z: number };
+  };
 }
 
 /**
@@ -1092,6 +1149,8 @@ export interface HudSnapshot {
      * letter fallback.
      */
     portraitKey: string | null;
+    /** Active buff/debuff icons (stacks) for the locked hostile. */
+    statuses?: StatusView[];
   } | null;
   /**
    * The Shift+Tab-selected ally's on-screen health frame (head projected to
@@ -1115,7 +1174,14 @@ export interface HudSnapshot {
    * The locked boss-tier hostile (e.g. "Moloch Da God") for the distinct boss
    * health bar, or null when no boss is the selected hostile.
    */
-  boss: { name: string; health: number; maxHealth: number; hint: string } | null;
+  boss: {
+    name: string;
+    health: number;
+    maxHealth: number;
+    hint: string;
+    /** Boss-frame status icons (stacks / primed procs). */
+    statuses?: StatusView[];
+  } | null;
   /** Name of the animation clip currently playing on the character. */
   clip: string;
   /** Resolved action-slot bindings (primary / F / 1-4) for the HUD. */

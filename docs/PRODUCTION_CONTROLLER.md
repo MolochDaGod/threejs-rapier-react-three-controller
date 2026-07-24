@@ -8,7 +8,7 @@
 | Included | Role |
 |----------|------|
 | Explorer · LED Monk | Procedural voxel / guest shell |
-| Racalvin · Brute · Striker · Tera-Kasi | GLB combat exemplars |
+| Racalvin · Brute · Striker · Tera-Kasi | GLB combat exemplars (Racalvin: shoulder parrot pet) |
 | Archmage · Soulbinder · Tank | Procedural weapon-skill kits |
 
 | **Removed from production** | Why |
