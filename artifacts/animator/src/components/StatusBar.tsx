@@ -41,7 +41,10 @@ export function StatusBar({ statuses, editBind }: { statuses: StatusView[]; edit
             </span>
             <div className="status-meta">
               <div className="status-row">
-                <span className="status-name">{s.name}</span>
+                <span className="status-name">
+                  {s.name}
+                  {(s.stacks ?? 0) > 1 ? ` ×${s.stacks}` : ""}
+                </span>
                 <span className="status-time">{Math.ceil(s.remaining)}s</span>
               </div>
               <div className="status-track">

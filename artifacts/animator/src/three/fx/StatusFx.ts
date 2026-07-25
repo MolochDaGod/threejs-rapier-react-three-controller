@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { StatusId, StatusKind, StatusView } from "../types";
+import { STACK_RULES } from "../combat/combatStacks";
 import { runeRingTexture, softDiscTexture, unitGroundPlane } from "./fxTextures";
 
 /**
@@ -42,7 +43,26 @@ export const STATUS_DEFS: Record<StatusId, StatusDef> = {
   shielded: { id: "shielded", name: "Shielded", kind: "buff", color: 0x5ad0ff, color2: 0xd6f4ff, glyph: "⬡", duration: 10, style: "orbit" },
   haste: { id: "haste", name: "Haste", kind: "buff", color: 0x9a7aff, color2: 0xe6dcff, glyph: "✱", duration: 8, style: "spark" },
   slowed: { id: "slowed", name: "Slowed", kind: "debuff", color: 0x6a9aaa, color2: 0xc0e0ee, glyph: "◌", duration: 5, style: "orbit" },
-  stunned: { id: "stunned", name: "Stunned", kind: "debuff", color: 0xffe14d, color2: 0xffffff, glyph: "✶", duration: 2.5, style: "spark" },
+  stunned: { id: "stunned", name: "Stunned", kind: "debuff", color: 0xffe14d, color2: 0xffffff, glyph: "✶", duration: 1.5, style: "spark" },
+  exhausted: { id: "exhausted", name: "Exhausted", kind: "debuff", color: 0xc4a574, color2: 0xffe8c0, glyph: "▽", duration: 12, style: "orbit" },
+  // Weapon / school stacks
+  frosted: { id: "frosted", name: "Frosted", kind: "debuff", color: 0xa8e0ff, color2: 0xe8f8ff, glyph: "❄", duration: 10, style: "orbit" },
+  smoldering: { id: "smoldering", name: "Smoldering", kind: "debuff", color: 0xff7030, color2: 0xffc090, glyph: "♨", duration: 10, style: "rise" },
+  engulfed: { id: "engulfed", name: "Engulfed", kind: "debuff", color: 0xff2200, color2: 0xffaa44, glyph: "▣", duration: 4, style: "rise" },
+  chargedStorm: { id: "chargedStorm", name: "Storm Charge", kind: "buff", color: 0xffe14d, color2: 0xffffff, glyph: "⚡", duration: 12, style: "spark" },
+  skyboltPrimed: { id: "skyboltPrimed", name: "Skybolt", kind: "buff", color: 0xfff6a0, color2: 0xffffff, glyph: "ϟ", duration: 6, style: "spark" },
+  arcaneCharge: { id: "arcaneCharge", name: "Arcane Charge", kind: "buff", color: 0xb15cff, color2: 0xe4b6ff, glyph: "◇", duration: 14, style: "orbit" },
+  arcaneBlink: { id: "arcaneBlink", name: "Arcane Blink", kind: "buff", color: 0xd0a0ff, color2: 0xffffff, glyph: "◎", duration: 10, style: "orbit" },
+  bleeding: { id: "bleeding", name: "Bleeding", kind: "debuff", color: 0xe02040, color2: 0xff8090, glyph: "🩸", duration: 8, style: "rise" },
+  bluntTrauma: { id: "bluntTrauma", name: "Trauma", kind: "debuff", color: 0x9a8a6a, color2: 0xd8c8a0, glyph: "◉", duration: 8, style: "orbit" },
+  shred: { id: "shred", name: "Shred", kind: "buff", color: 0x70d0ff, color2: 0xd0f0ff, glyph: "✂", duration: 12, style: "spark" },
+  freeSkill: { id: "freeSkill", name: "Free Skill", kind: "buff", color: 0x40ffc0, color2: 0xe0fff0, glyph: "★", duration: 8, style: "spark" },
+  venom: { id: "venom", name: "Venom", kind: "debuff", color: 0x50c030, color2: 0xc0ff90, glyph: "☣", duration: 9, style: "rise" },
+  blessed: { id: "blessed", name: "Blessed", kind: "buff", color: 0xffe08a, color2: 0xfff8d0, glyph: "✙", duration: 10, style: "rise" },
+  skillCharge: { id: "skillCharge", name: "Skill Charge", kind: "buff", color: 0x90b0ff, color2: 0xd0e0ff, glyph: "①", duration: 20, style: "orbit" },
+  skillPrimed: { id: "skillPrimed", name: "Skill Primed", kind: "buff", color: 0xffd060, color2: 0xfff0c0, glyph: "✦", duration: 12, style: "spark" },
+  perfectCounter: { id: "perfectCounter", name: "Perfect Counter", kind: "buff", color: 0x60ffc0, color2: 0xe0fff0, glyph: "⛨", duration: 3, style: "spark" },
+  invisible: { id: "invisible", name: "Invisible", kind: "buff", color: 0xa0b0c8, color2: 0xe8f0ff, glyph: "◌", duration: 4, style: "orbit" },
 };
 
 export const STATUS_IDS = Object.keys(STATUS_DEFS) as StatusId[];
@@ -318,6 +338,8 @@ export class StatusController {
   private timers = new Map<StatusId, { remaining: number; duration: number }>();
   /** Optional position source per aura (a routed cast follows its target). */
   private anchors = new Map<StatusId, Array<(() => THREE.Vector3) | null>>();
+  /** Stack counts for stackable statuses (see STACK_RULES). */
+  private stacks = new Map<StatusId, number>();
   /** How a new aura is built — overridable so the timer/pool/anchor logic can
    *  be driven without a canvas/WebGL context (see {@link StatusAuraFactory}). */
   private makeAura: StatusAuraFactory;
@@ -345,8 +367,16 @@ export class StatusController {
     const def = STATUS_DEFS[id];
     if (!def) return;
     const list = anchors.length > 0 ? anchors : [null];
-    this.timers.set(id, { remaining: def.duration, duration: def.duration });
+    const rule = STACK_RULES[id];
+    const duration = rule?.duration ?? def.duration;
+    this.timers.set(id, { remaining: duration, duration });
     this.anchors.set(id, list);
+    if (rule) {
+      const prev = this.stacks.get(id) ?? 0;
+      this.stacks.set(id, Math.min(rule.maxStacks, prev + 1));
+    } else {
+      this.stacks.set(id, 1);
+    }
     // Resize the aura pool to match the anchor count (reuse, grow, or trim).
     const existing = this.auras.get(id) ?? [];
     for (let i = list.length; i < existing.length; i++) existing[i].dispose();
@@ -355,9 +385,15 @@ export class StatusController {
     this.auras.set(id, next);
   }
 
+  /** Current stack count (0 if inactive). */
+  getStacks(id: StatusId): number {
+    return this.timers.has(id) ? this.stacks.get(id) ?? 1 : 0;
+  }
+
   clear(id: StatusId) {
     this.timers.delete(id);
     this.anchors.delete(id);
+    this.stacks.delete(id);
     for (const a of this.auras.get(id) ?? []) a.dispose();
     this.auras.delete(id);
   }
@@ -395,14 +431,17 @@ export class StatusController {
       const t = this.timers.get(id);
       if (!t) continue;
       const def = STATUS_DEFS[id];
+      const stacks = this.stacks.get(id);
+      const name = stacks && stacks > 1 ? `${def.name} ×${stacks}` : def.name;
       out.push({
         id,
-        name: def.name,
+        name,
         kind: def.kind,
         color: `#${def.color.toString(16).padStart(6, "0")}`,
         glyph: def.glyph,
         remaining: t.remaining,
         duration: t.duration,
+        stacks: stacks && stacks > 1 ? stacks : undefined,
       });
     }
     return out.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "buff" ? -1 : 1));
@@ -413,5 +452,6 @@ export class StatusController {
     this.auras.clear();
     this.timers.clear();
     this.anchors.clear();
+    this.stacks.clear();
   }
 }

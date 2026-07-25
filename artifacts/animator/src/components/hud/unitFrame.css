@@ -384,3 +384,95 @@
 .studio.hud-themed .uf-ghost {
   background: color-mix(in srgb, var(--hud-text) 55%, transparent);
 }
+
+/* --- status / buff / debuff icon row --- */
+.uf-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 0 4px;
+  max-width: 240px;
+}
+.uf-status-dense {
+  gap: 3px;
+  max-width: 100%;
+  justify-content: center;
+}
+.uf-status-icon {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--status-color, #ccc) 70%, #000);
+  background:
+    radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--status-color, #ccc) 45%, #1a1a1a), #0a0a0c 75%);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.7),
+    0 2px 4px rgba(0, 0, 0, 0.55),
+    inset 0 0 8px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.uf-status-icon.status-buff {
+  box-shadow:
+    0 0 6px color-mix(in srgb, var(--status-color, #6affa0) 40%, transparent),
+    0 0 0 1px rgba(0, 0, 0, 0.7);
+}
+.uf-status-icon.status-debuff {
+  box-shadow:
+    0 0 6px color-mix(in srgb, var(--status-color, #ff5a4e) 35%, transparent),
+    0 0 0 1px rgba(0, 0, 0, 0.7);
+}
+.uf-status-glyph {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--status-color, #eee);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  user-select: none;
+}
+.uf-status-stack {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: #0a0a0e;
+  border: 1px solid var(--status-color, #ccc);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  font-family: monospace;
+  line-height: 11px;
+  text-align: center;
+}
+.uf-status-timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: left center;
+  background: var(--status-color, #ccc);
+  opacity: 0.85;
+}
+.uf-boss .uf-ring {
+  background: conic-gradient(
+    from 210deg,
+    #8a2a1a,
+    #f0b060 18%,
+    #a04020 40%,
+    #ffe0a0 55%,
+    #8a2a1a 75%,
+    #d07040 90%,
+    #8a2a1a
+  );
+}
+.uf-boss .uf-name {
+  color: #ffd9c2;
+  letter-spacing: 0.12em;
+}

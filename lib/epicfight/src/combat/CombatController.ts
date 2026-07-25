@@ -60,6 +60,13 @@ export class CombatController {
   private stunnedTimer = 0;
   /** True while block is held (block state drains stamina per second). */
   private blockHeld = false;
+  /**
+   * Seconds of boosted stamina regen after releasing block. Hits while guarding
+   * spend stamina equal to damage; releasing guard recovers that pool quickly.
+   */
+  private postBlockRegenT = 0;
+  private readonly postBlockRegenMul = 2.8;
+  private readonly postBlockRegenDuration = 1.4;
 
   constructor(cfg: CombatConfig, moveset: Moveset, events: CombatEvents = {}) {
     this.cfg = cfg;
@@ -275,8 +282,11 @@ export class CombatController {
   }
 
   /**
-   * Raise a block stance. Holds until {@link endBlock} or stamina is depleted.
-   * Allowed from idle (not during attack windup/active or invulnerable states).
+   * Raise a block stance. Holds until {@link endBlock}.
+   * Allowed even at low / zero stamina — the next hit then **guard-breaks**
+   * (stunned + exhaustion on the host) while still diverting HP and bouncing
+   * the attacker. Allowed from idle (not during attack windup/active or
+   * invulnerable states).
    */
   startBlock(): void {
     if (
@@ -293,21 +303,28 @@ export class CombatController {
       const recoveryStart = m ? m.windup + m.active : 0;
       if (this.timer < recoveryStart) return;
     }
-    if (this.stamina < this.cfg.block.staminaCostOnRaise) {
+    // Raise cost is paid if we have any stamina; empty pool still raises so the
+    // first blocked hit can shield-break instead of being a free HP hit.
+    if (this.stamina > 0) {
+      this.spendStamina(Math.min(this.cfg.block.staminaCostOnRaise, this.stamina));
+    } else {
       this.events.onStaminaBlocked?.();
-      return;
     }
-    this.spendStamina(this.cfg.block.staminaCostOnRaise);
+    this.postBlockRegenT = 0;
     this.blockHeld = true;
     this.setState("block");
     this.timer = 0;
     this.events.onBlock?.(true);
   }
 
-  /** Release a block stance. */
+  /** Release a block stance. Starts a short, fast stamina recovery window. */
   endBlock(): void {
     if (!this.blockHeld) return;
     this.blockHeld = false;
+    // Quick recover after release — hits while holding E spent stamina as the
+    // damage amount; this window tops the pool back up rapidly.
+    this.regenDelay = 0.08;
+    this.postBlockRegenT = this.postBlockRegenDuration;
     if (this.state === "block") this.toIdle();
     this.events.onBlock?.(false);
   }
@@ -349,8 +366,12 @@ export class CombatController {
     const defense = this.buildDefensePayload();
     const result = resolveDefense(payload, defense, this.invincible);
 
+    // Block tax: while holding guard, stamina absorbs the hit's damage amount.
+    // Low / empty stamina → guard break (stunned) while HP stays diverted.
+    const taxed = this.applyBlockStaminaTax(result, payload);
+
     // If we have an open crit window and the outcome is a hit, upgrade to crit.
-    const finalResult = this.applyCritUpgrade(result);
+    const finalResult = this.applyCritUpgrade(taxed);
 
     this.processDefensiveResult(finalResult, payload);
     this.events.onDefensiveOutcome?.(finalResult);
@@ -418,13 +439,18 @@ export class CombatController {
       this.critWindowTimer = Math.max(0, this.critWindowTimer - dt);
     }
 
-    // Stamina regen.
+    // Stamina regen — paused while holding block (hits pay the damage amount;
+    // release starts a boosted recovery window via endBlock).
+    if (this.postBlockRegenT > 0) {
+      this.postBlockRegenT = Math.max(0, this.postBlockRegenT - dt);
+    }
     if (this.regenDelay > 0) {
       this.regenDelay = Math.max(0, this.regenDelay - dt);
-    } else if (this.stamina < this.cfg.maxStamina) {
+    } else if (!this.blockHeld && this.stamina < this.cfg.maxStamina) {
+      const mul = this.postBlockRegenT > 0 ? this.postBlockRegenMul : 1;
       this.stamina = Math.min(
         this.cfg.maxStamina,
-        this.stamina + this.cfg.staminaRegenPerSec * dt,
+        this.stamina + this.cfg.staminaRegenPerSec * mul * dt,
       );
       this.events.onStaminaChange?.(this.stamina, this.cfg.maxStamina);
     }
@@ -440,14 +466,12 @@ export class CombatController {
       if (this.bufferTimer <= 0) this.buffered = null;
     }
 
-    // Block stance stamina drain.
-    if (this.blockHeld && this.state === "block") {
+    // Block stance passive drain (light). Hits while guarding also spend
+    // stamina equal to damage; at 0 stamina the guard stays up so the next
+    // contact can resolve as a shield-break instead of a free HP hit.
+    if (this.blockHeld && this.state === "block" && this.stamina > 0) {
       this.stamina = Math.max(0, this.stamina - this.cfg.block.staminaDrainPerSec * dt);
       this.events.onStaminaChange?.(this.stamina, this.cfg.maxStamina);
-      if (this.stamina <= 0) {
-        // Ran out of stamina — force the block to drop.
-        this.endBlock();
-      }
     }
 
     switch (this.state) {
@@ -608,6 +632,47 @@ export class CombatController {
       };
     }
     return result;
+  }
+
+  /**
+   * While guarding, stamina absorbs the incoming damage amount (HP diverted).
+   * If stamina is low / empty (cannot cover the full cost), the guard still
+   * diverts HP and keeps a blockStop bounce path for the host, but the defender
+   * is shield-broken → stunned. Attack-flagged shieldBreak keeps the same path.
+   */
+  private applyBlockStaminaTax(result: DefensiveResult, payload: AttackPayload): DefensiveResult {
+    const guarding = this.blockHeld || this.state === "block";
+    if (!guarding) return result;
+    if (result.outcome !== "blockStop" && result.outcome !== "deflect") return result;
+
+    // Block tax: every 5 damage points costs 1 stamina (ceil).
+    const cost = Math.max(0, Math.ceil(Math.max(0, payload.damage) / 5));
+    const alreadyBreak = result.defenderReaction === "stunned";
+    // Evaluate *before* spend — draining to exactly 0 is a clean block, not a break.
+    const insufficient = this.stamina <= 0 || (cost > 0 && this.stamina < cost);
+
+    // Spend stamina (clamped); HP stays diverted (damageDealt 0).
+    if (cost > 0) this.spendStamina(cost);
+
+    if (alreadyBreak || insufficient) {
+      // Empty any remainder on break so the next guard starts from zero.
+      if (this.stamina > 0) this.spendStamina(this.stamina);
+      return {
+        ...result,
+        // Normalize to blockStop so hosts always bounce the attacker on break.
+        outcome: "blockStop",
+        damageDealt: 0,
+        poiseDamageDealt: 0,
+        defenderReaction: "stunned",
+        critWindow: true,
+      };
+    }
+
+    return {
+      ...result,
+      damageDealt: 0,
+      poiseDamageDealt: 0,
+    };
   }
 
   /** Apply health/poise damage and state transitions from a resolved result. */

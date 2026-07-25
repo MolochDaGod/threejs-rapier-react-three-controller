@@ -11,7 +11,40 @@ import {
   vitalAnimSettled,
   type VitalAnim,
 } from "../../hud/vitalAnim";
+import type { StatusView } from "../../three/types";
 import "./unitFrame.css";
+
+/** Compact icon row for buffs/debuffs/primes with stack count badges. */
+export function StatusIconRow({
+  statuses,
+  dense,
+}: {
+  statuses?: StatusView[];
+  dense?: boolean;
+}) {
+  if (!statuses?.length) return null;
+  return (
+    <div className={`uf-status-row${dense ? " uf-status-dense" : ""}`}>
+      {statuses.map((s) => (
+        <div
+          key={s.id}
+          className={`uf-status-icon status-${s.kind}`}
+          style={{ ["--status-color" as string]: s.color }}
+          title={`${s.name} · ${Math.ceil(s.remaining)}s`}
+        >
+          <span className="uf-status-glyph">{s.glyph}</span>
+          {(s.stacks ?? 0) > 1 && <span className="uf-status-stack">{s.stacks}</span>}
+          <span
+            className="uf-status-timer"
+            style={{
+              transform: `scaleX(${s.duration > 0 ? Math.max(0, s.remaining / s.duration) : 0})`,
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Animate a live vital value with a rAF loop that only runs while a tween is
@@ -84,7 +117,7 @@ export interface UnitFrameProps {
   /** Portrait on the left (player) or mirrored on the right (target). */
   side: "left" | "right";
   /** Drives the HP fill palette (green friendly / red hostile). */
-  variant: "player" | "target";
+  variant: "player" | "target" | "boss";
   name: string;
   /** Small dimmed line under the name (weapon label / relationship). */
   sub?: string;
@@ -94,14 +127,30 @@ export interface UnitFrameProps {
   badge?: ReactNode;
   hp: { value: number; max: number };
   energy: { value: number; max: number };
+  /** Buff / debuff / primed-proc icons with optional stack counts. */
+  statuses?: StatusView[];
 }
 
-export function UnitFrame({ side, variant, name, sub, portrait, badge, hp, energy }: UnitFrameProps) {
+export function UnitFrame({
+  side,
+  variant,
+  name,
+  sub,
+  portrait,
+  badge,
+  hp,
+  energy,
+  statuses,
+}: UnitFrameProps) {
   const hpAnim = useVitalAnim(hp.value, hp.max);
   const energyAnim = useVitalAnim(energy.value, energy.max);
   const hurt = hpAnim.flashT > 0;
+  const hpKind =
+    variant === "player" ? "hp-friendly" : variant === "boss" ? "hp-hostile" : "hp-hostile";
   return (
-    <div className={`uf uf-${variant} ${side === "right" ? "uf-flip" : ""} ${hurt ? "uf-hurt" : ""}`}>
+    <div
+      className={`uf uf-${variant === "boss" ? "target uf-boss" : variant} ${side === "right" ? "uf-flip" : ""} ${hurt ? "uf-hurt" : ""}`}
+    >
       <div className="uf-portrait">
         <div className="uf-ring">
           <div className="uf-ring-inner">{portrait}</div>
@@ -117,13 +166,9 @@ export function UnitFrame({ side, variant, name, sub, portrait, badge, hp, energ
             {sub && <span className="uf-sub">{sub}</span>}
           </div>
         </div>
-        <UnitBar
-          kind={variant === "player" ? "hp-friendly" : "hp-hostile"}
-          anim={hpAnim}
-          value={hp.value}
-          max={hp.max}
-        />
+        <UnitBar kind={hpKind} anim={hpAnim} value={hp.value} max={hp.max} />
         <UnitBar kind="energy" anim={energyAnim} value={energy.value} max={energy.max} />
+        <StatusIconRow statuses={statuses} />
       </div>
       {hurt && (
         <div

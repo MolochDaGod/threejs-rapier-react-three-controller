@@ -8,7 +8,7 @@ import {
 import { WEAPON_ICON } from "../three/icons";
 import { Icon } from "./Icon";
 const tightBarArt = `${import.meta.env.BASE_URL}hud-tight-bar.png`;
-import { UnitFrame } from "./hud/UnitFrame";
+import { StatusIconRow, UnitFrame } from "./hud/UnitFrame";
 import type { HudEditApi, HudPanelBinding } from "../hud/useHudEditor";
 import type { HudPanelId } from "../hud/hudConfig";
 import {
@@ -303,13 +303,14 @@ function TargetFrame({
   target,
   accent = "hostile",
 }: {
-  // Typed off the ally shape (no `id`/`portraitKey`): this frame is stateless,
-  // so it accepts both the hostile target (which carries extra fields for
-  // tween keying and portraits) and allies.
-  target: NonNullable<HudSnapshot["selectedAllyTarget"]>;
+  // Hostile target may carry statuses; ally shape is a subset.
+  target: NonNullable<HudSnapshot["selectedAllyTarget"]> & {
+    statuses?: HudSnapshot["statuses"];
+  };
   accent?: "hostile" | "ally";
 }) {
   const pct = Math.max(0, Math.min(100, (target.health / target.maxHealth) * 100));
+  const statuses = "statuses" in target ? target.statuses : undefined;
   return (
     <div
       className={`tframe tframe-${accent}`}
@@ -324,6 +325,11 @@ function TargetFrame({
       <div className="tframe-track">
         <div className="tframe-fill" style={{ width: `${pct}%` }} />
       </div>
+      {statuses && statuses.length > 0 && (
+        <div style={{ marginTop: 3, transform: "scale(0.9)", transformOrigin: "left top" }}>
+          <StatusIconRow statuses={statuses} dense />
+        </div>
+      )}
     </div>
   );
 }
@@ -455,6 +461,7 @@ function TargetStatusFrame({ hud, edit }: { hud: HudSnapshot; edit?: HudEditApi 
         badge={<span>☠</span>}
         hp={{ value: hud.enemyHealth, max: hud.enemyMaxHealth }}
         energy={{ value: hud.enemyStamina, max: hud.enemyMaxStamina }}
+        statuses={hud.selectedTarget?.statuses}
       />
       <div className="uf-footer uf-flip-footer">
         <EnemyPoiseBar value={hud.enemyPoise} max={hud.enemyMaxPoise} crit={isCrit} />
@@ -529,7 +536,7 @@ function BossBar({ boss }: { boss: NonNullable<HudSnapshot["boss"]> }) {
         bottom: 92,
         left: "50%",
         transform: "translateX(-50%)",
-        width: "min(560px, 60vw)",
+        width: "min(620px, 70vw)",
         textAlign: "center",
         fontFamily: "monospace",
         pointerEvents: "none",
@@ -537,37 +544,58 @@ function BossBar({ boss }: { boss: NonNullable<HudSnapshot["boss"]> }) {
     >
       <div
         style={{
-          fontSize: 15,
-          fontWeight: 800,
-          letterSpacing: "0.22em",
+          fontSize: 16,
+          fontWeight: 900,
+          letterSpacing: "0.24em",
           color: "#ffd9c2",
-          textShadow: "0 0 10px rgba(255,80,40,0.7), 0 1px 3px rgba(0,0,0,0.8)",
-          marginBottom: 5,
+          textShadow: "0 0 12px rgba(255,80,40,0.75), 0 1px 3px rgba(0,0,0,0.85)",
+          marginBottom: 6,
         }}
       >
-        {boss.name.toUpperCase()}
+        ✦ {boss.name.toUpperCase()} ✦
       </div>
+      {/* Boss status icons above the HP bar */}
+      {boss.statuses && boss.statuses.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            marginBottom: 6,
+          }}
+        >
+          <StatusIconRow statuses={boss.statuses} dense />
+        </div>
+      )}
       <div
         style={{
-          height: 14,
-          background: "rgba(8,4,6,0.82)",
-          border: "1px solid rgba(255,90,60,0.55)",
-          borderRadius: 4,
+          height: 16,
+          background: "rgba(8,4,6,0.88)",
+          border: "1px solid rgba(255,90,60,0.65)",
+          borderRadius: 5,
           overflow: "hidden",
-          boxShadow: "0 0 14px rgba(255,60,30,0.35)",
+          boxShadow:
+            "0 0 16px rgba(255,60,30,0.4), inset 0 0 0 1px rgba(255,200,120,0.12)",
         }}
       >
         <div
           style={{
             height: "100%",
             width: `${hp}%`,
-            background: "linear-gradient(90deg,#ff3b1f,#a30d0d)",
-            boxShadow: "0 0 12px rgba(255,70,40,0.6) inset",
+            background: "linear-gradient(90deg,#ff5a2f,#ff3b1f 40%,#a30d0d)",
+            boxShadow: "0 0 14px rgba(255,70,40,0.65) inset",
             transition: "width 0.25s",
           }}
         />
       </div>
-      <div style={{ fontSize: 10, color: "#ffb59c", opacity: 0.85, marginTop: 3 }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: "#ffb59c",
+          opacity: 0.9,
+          marginTop: 4,
+          letterSpacing: "0.08em",
+        }}
+      >
         {boss.health} / {boss.maxHealth}
       </div>
       {boss.hint && (
@@ -702,6 +730,7 @@ export function Hud({ hud, edit }: Props) {
           badge={<Icon name={WEAPON_ICON[hud.weapon]} size={18} />}
           hp={{ value: hud.health, max: hud.maxHealth }}
           energy={{ value: hud.stamina, max: hud.maxStamina }}
+          statuses={hud.statuses}
         />
         <div className="uf-footer">
           <div style={{ width: 150 }}>

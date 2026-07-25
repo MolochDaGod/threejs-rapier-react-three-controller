@@ -26,9 +26,12 @@ const ARCHETYPE_CONFIG: Record<FighterArchetype, Partial<CombatConfig>> = {
     maxPoise: 60,
     poiseRegenPerSec: 15,
     staggerDuration: 0.55,
-    stunnedDuration: 1.8,
+    // Guard-break / shield-break stun is 1.5s (E-block empty stamina or shieldBreak).
+    stunnedDuration: 1.5,
     fallenDuration: 1.4,
     critWindowDuration: 2.0,
+    // Passive hold drain is light — blocked hits spend stamina equal to damage.
+    block: { staminaCostOnRaise: 4, staminaDrainPerSec: 4, force: 2 },
   },
   grunt: {
     maxHealth: 100,

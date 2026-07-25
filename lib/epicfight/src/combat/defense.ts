@@ -15,9 +15,10 @@
  *   └─ def.force < atk.force    → hit           (full damage)
  * PARRY (timing > deflect window) → hit (missed the window)
  *
- * BLOCK (stamina available)
- *   ├─ attack.shieldBreak       → blockStop  (defender: stunned)
- *   ├─ def.force ≥ atk.force    → blockStop  (motion halted, no knockback)
+ * BLOCK (CombatController taxes stamina = attack damage after resolve)
+ *   ├─ attack.shieldBreak       → blockStop  (defender: stunned; HP diverted)
+ *   ├─ low/no stamina (host)    → blockStop  (defender: stunned + exhaustion; HP diverted; bounce kept)
+ *   ├─ def.force ≥ atk.force    → blockStop  (stamina pays damage; HP diverted; bounce)
  *   └─ def.force < atk.force    → hit        (broke through block)
  *
  * DODGE

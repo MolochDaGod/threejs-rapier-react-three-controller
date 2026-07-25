@@ -447,12 +447,58 @@ describe("CombatController.startBlock() / endBlock()", () => {
     expect(blockEvents).toEqual([true, false]);
   });
 
-  it("block drops automatically when stamina is exhausted", () => {
+  it("keeps block up when passive drain empties stamina (next hit guard-breaks)", () => {
     const c = setup({ maxStamina: 10, staminaRegenPerSec: 0, block: { staminaCostOnRaise: 0, staminaDrainPerSec: 20, force: 2 } });
     c.startBlock();
     expect(c.getState()).toBe("block");
-    advance(c, 1.0); // drains all 10 stamina at 20/s → 0.5s
-    expect(c.getState()).toBe("idle");
+    advance(c, 1.0); // drains all 10 stamina at 20/s → empty pool
+    expect(c.getStamina()).toBe(0);
+    // Guard stays raised so the next contact can resolve as a shield-break.
+    expect(c.getState()).toBe("block");
+  });
+
+  it("spends stamina at 5 damage = 1 stamina on a clean block (HP diverted)", () => {
+    const c = setup({ maxStamina: 100, staminaRegenPerSec: 0, block: { staminaCostOnRaise: 0, staminaDrainPerSec: 0, force: 2 } });
+    c.startBlock();
+    const before = c.getStamina();
+    const result = c.applyAttack(atk({ force: 1, damage: 25 }));
+    expect(result.outcome).toBe("blockStop");
+    expect(result.damageDealt).toBe(0);
+    expect(result.defenderReaction).toBe("none");
+    expect(c.getHealth()).toBe(100);
+    // ceil(25/5) = 5
+    expect(c.getStamina()).toBe(before - 5);
+  });
+
+  it("guard-breaks when blocking with insufficient stamina (still no HP damage)", () => {
+    const stuns: number[] = [];
+    const c = setup(
+      { maxStamina: 5, staminaRegenPerSec: 0, stunnedDuration: 1.5, block: { staminaCostOnRaise: 0, staminaDrainPerSec: 0, force: 2 } },
+      undefined,
+      { onStunned: () => stuns.push(1) },
+    );
+    c.startBlock();
+    // ceil(40/5)=8 > 5 stamina → guard break
+    const result = c.applyAttack(atk({ force: 1, damage: 40 }));
+    expect(result.outcome).toBe("blockStop");
+    expect(result.damageDealt).toBe(0);
+    expect(result.defenderReaction).toBe("stunned");
+    expect(c.getState()).toBe("stunned");
+    expect(c.getHealth()).toBe(100);
+    expect(c.getStamina()).toBe(0);
+    expect(stuns.length).toBe(1);
+  });
+
+  it("boosts stamina regen after endBlock (fast recovery)", () => {
+    const c = setup({ maxStamina: 100, staminaRegenPerSec: 20, staminaRegenDelay: 0.5, block: { staminaCostOnRaise: 0, staminaDrainPerSec: 0, force: 2 } });
+    c.startBlock();
+    // ceil(40/5)=8 stamina spent
+    c.applyAttack(atk({ force: 1, damage: 40 }));
+    expect(c.getStamina()).toBe(92);
+    c.endBlock();
+    // post-block delay is ~0.08s then 2.8× regen — after 0.5s expect well above normal
+    advance(c, 0.5);
+    expect(c.getStamina()).toBeGreaterThan(95);
   });
 });
 
