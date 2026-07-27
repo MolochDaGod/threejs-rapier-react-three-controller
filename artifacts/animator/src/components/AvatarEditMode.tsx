@@ -7,7 +7,28 @@
  * and survives race hops (each race keeps its own last build).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Check, ClipboardCopy, ClipboardPaste, Dices, DoorOpen, Download, Eye, EyeOff, Move3d, RotateCcw, Sparkles, UserCheck } from "lucide-react";
+import {
+  Camera,
+  Check,
+  ClipboardCopy,
+  ClipboardPaste,
+  Dices,
+  DoorOpen,
+  Download,
+  Eye,
+  EyeOff,
+  Library,
+  Move3d,
+  Package,
+  RotateCcw,
+  Save,
+  Shirt,
+  Sparkles,
+  Trash2,
+  User,
+  UserCheck,
+  Users,
+} from "lucide-react";
 import { HeadStage } from "../three/avatar/HeadStage";
 import { composeHead } from "../three/avatar/composeHead";
 import {
@@ -49,7 +70,28 @@ import {
 } from "../three/avatar/catalog";
 import { loadPlayerHeadConfig, savePlayerHeadConfig } from "../three/avatar/playerHead";
 import { cssHex } from "../three/avatar/pixels";
+import {
+  decodePrefab,
+  encodePrefab,
+  exportPrefabsJson,
+  generatePrefab,
+  generateSquad,
+  loadPrefabs,
+  makePrefabFromFace,
+  raceHeightM,
+  removePrefab,
+  upsertPrefab,
+  type CharacterPrefab,
+  type PrefabRole,
+} from "../three/avatar/npcPrefab";
+import {
+  AvatarFittingRoom,
+  defaultFittingState,
+  type FittingState,
+} from "./AvatarFittingRoom";
 import "./avatarEdit.css";
+
+type EditTab = "face" | "fitting" | "prefabs";
 
 interface Props {
   onExit: () => void;
@@ -98,6 +140,11 @@ export function AvatarEditMode({ onExit }: Props) {
     const race = loadLastRace();
     return buildsRef.current[race] ?? defaultConfig(race);
   });
+  const [tab, setTab] = useState<EditTab>("face");
+  const [fitting, setFitting] = useState<FittingState>(() =>
+    defaultFittingState(loadLastRace()),
+  );
+  const [prefabs, setPrefabs] = useState<CharacterPrefab[]>(() => loadPrefabs());
   const mountRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HeadStage | null>(null);
   const [stageFailed, setStageFailed] = useState(false);
@@ -164,6 +211,16 @@ export function AvatarEditMode({ onExit }: Props) {
 
   const switchRace = useCallback((race: RaceId) => {
     setCfg(buildsRef.current[race] ?? defaultConfig(race));
+    setFitting((f) => ({
+      ...defaultFittingState(race),
+      role: f.role,
+      prefabName: f.prefabName,
+      weaponId: f.weaponId,
+      offHandId: f.offHandId,
+      armorSetId: f.armorSetId,
+      armorLoadout: f.armorLoadout,
+      gearPresetId: f.gearPresetId,
+    }));
   }, []);
 
   const race = useMemo(() => raceDef(cfg.race), [cfg.race]);
@@ -237,7 +294,7 @@ export function AvatarEditMode({ onExit }: Props) {
     const code = encodeConfig(cfg);
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(code).then(
-        () => notice("Code copied"),
+        () => notice("Face code (AV1) copied"),
         () => window.prompt("Copy your avatar code:", code),
       );
     } else {
@@ -246,9 +303,27 @@ export function AvatarEditMode({ onExit }: Props) {
   }, [cfg, notice]);
 
   const importCode = useCallback(() => {
-    const raw = window.prompt("Paste an avatar code:");
+    const raw = window.prompt("Paste AV1 face code or AVP1 prefab code:");
     if (!raw) return;
-    const parsed = decodeConfig(raw.trim());
+    const trimmed = raw.trim();
+    const prefab = decodePrefab(trimmed);
+    if (prefab) {
+      setCfg(prefab.face);
+      setFitting({
+        role: prefab.role,
+        heightScale: prefab.heightScale,
+        bodyScaleXZ: prefab.bodyScaleXZ,
+        armorSetId: prefab.armorSetId,
+        armorLoadout: prefab.armorLoadout,
+        weaponId: prefab.weaponId,
+        offHandId: prefab.offHandId,
+        gearPresetId: prefab.gearPresetId ?? "none",
+        prefabName: prefab.name,
+      });
+      notice(trimmed.startsWith("AVP1.") ? "Prefab imported" : "Face imported");
+      return;
+    }
+    const parsed = decodeConfig(trimmed);
     if (!parsed) {
       notice("That code didn't parse");
       return;
@@ -257,12 +332,99 @@ export function AvatarEditMode({ onExit }: Props) {
     notice("Avatar imported");
   }, [notice]);
 
+  const savePrefab = useCallback(() => {
+    const prefab = makePrefabFromFace(cfg, fitting.role, {
+      name: fitting.prefabName || undefined,
+      heightScale: fitting.heightScale,
+      bodyScaleXZ: fitting.bodyScaleXZ,
+      armorSetId: fitting.armorSetId,
+      armorLoadout: fitting.armorLoadout,
+      weaponId: fitting.weaponId,
+      offHandId: fitting.offHandId,
+      gearPresetId: fitting.gearPresetId === "none" ? undefined : fitting.gearPresetId,
+      tags: [cfg.race, fitting.role, "avatar-edit"],
+    });
+    const list = upsertPrefab(prefab);
+    setPrefabs(list);
+    const code = encodePrefab(prefab);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(code).catch(() => {});
+    }
+    notice(`Prefab saved · ${code.slice(0, 18)}…`);
+    setTab("prefabs");
+  }, [cfg, fitting, notice]);
+
+  const copyPrefabCode = useCallback(() => {
+    const prefab = makePrefabFromFace(cfg, fitting.role, {
+      name: fitting.prefabName || undefined,
+      heightScale: fitting.heightScale,
+      bodyScaleXZ: fitting.bodyScaleXZ,
+      armorSetId: fitting.armorSetId,
+      armorLoadout: fitting.armorLoadout,
+      weaponId: fitting.weaponId,
+      offHandId: fitting.offHandId,
+      gearPresetId: fitting.gearPresetId === "none" ? undefined : fitting.gearPresetId,
+    });
+    const code = encodePrefab(prefab);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(code).then(
+        () => notice("Deploy prefab code (AVP1) copied"),
+        () => window.prompt("Copy prefab code:", code),
+      );
+    } else {
+      window.prompt("Copy prefab code:", code);
+    }
+  }, [cfg, fitting, notice]);
+
+  const genOne = useCallback(
+    (role: PrefabRole) => {
+      const p = generatePrefab(role, cfg.race);
+      setCfg(p.face);
+      setFitting({
+        role: p.role,
+        heightScale: p.heightScale,
+        bodyScaleXZ: p.bodyScaleXZ,
+        armorSetId: p.armorSetId,
+        armorLoadout: p.armorLoadout,
+        weaponId: p.weaponId,
+        offHandId: p.offHandId,
+        gearPresetId: p.gearPresetId ?? "none",
+        prefabName: p.name,
+      });
+      notice(`Generated ${role} · ${p.face.race}`);
+    },
+    [cfg.race, notice],
+  );
+
+  const genSquadAndSave = useCallback(() => {
+    const squad = generateSquad(5, ["ally", "enemy", "enemy", "vendor", "npc"]);
+    let list = loadPrefabs();
+    for (const p of squad) list = upsertPrefab(p);
+    setPrefabs(list);
+    notice(`Saved squad of ${squad.length} prefabs`);
+    setTab("prefabs");
+  }, [notice]);
+
+  const exportAll = useCallback(() => {
+    const json = exportPrefabsJson(prefabs);
+    const blob = new Blob([json], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `character-prefabs-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    notice("Exported prefabs JSON");
+  }, [prefabs, notice]);
+
   // On mount: reflect whether the current build is already the saved head.
   useEffect(() => {
     const saved = loadPlayerHeadConfig();
     if (saved && JSON.stringify(saved) === JSON.stringify(cfg)) setSavedToCharacter(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const faceCode = useMemo(() => encodeConfig(cfg), [cfg]);
+  const heightM = raceHeightM(cfg.race, fitting.heightScale);
 
   return (
     <div className="avatar-edit">
@@ -272,7 +434,9 @@ export function AvatarEditMode({ onExit }: Props) {
         </button>
         <div className="ae-title">
           <span className="ae-brand">AVATAR EDIT</span>
-          <span className="ae-sub">Cube modular head builder</span>
+          <span className="ae-sub">
+            Face · Fitting Room · Prefabs · {heightM.toFixed(2)} m
+          </span>
         </div>
         <div className="ae-actions">
           <button className="ae-act" onClick={() => setCfg(randomConfig(cfg.race))} title="Randomize this race">
@@ -290,11 +454,17 @@ export function AvatarEditMode({ onExit }: Props) {
           <button className="ae-act" onClick={snapshot3d} title="Download a 3D portrait snapshot" disabled={stageFailed}>
             <Camera size={15} /> 3D shot
           </button>
-          <button className="ae-act" onClick={copyCode} title="Copy this build as a shareable code">
-            <ClipboardCopy size={15} /> Copy code
+          <button className="ae-act" onClick={copyCode} title="Copy AV1 face code">
+            <ClipboardCopy size={15} /> Face code
           </button>
-          <button className="ae-act" onClick={importCode} title="Import a shared avatar code">
+          <button className="ae-act" onClick={copyPrefabCode} title="Copy AVP1 deploy prefab code">
+            <Package size={15} /> Prefab code
+          </button>
+          <button className="ae-act" onClick={importCode} title="Import AV1 or AVP1 code">
             <ClipboardPaste size={15} /> Import
+          </button>
+          <button className="ae-act" onClick={savePrefab} title="Save face + fit as deploy prefab">
+            <Save size={15} /> Save prefab
           </button>
           <button
             className={`ae-act ae-save ${savedToCharacter ? "on" : ""}`}
@@ -308,8 +478,118 @@ export function AvatarEditMode({ onExit }: Props) {
         {codeNotice && <div className="ae-notice">{codeNotice}</div>}
       </header>
 
+      <nav className="ae-tabs" aria-label="Avatar editor sections">
+        <button
+          type="button"
+          className={`ae-tab ${tab === "face" ? "on" : ""}`}
+          onClick={() => setTab("face")}
+        >
+          <User size={14} /> Face
+        </button>
+        <button
+          type="button"
+          className={`ae-tab ${tab === "fitting" ? "on" : ""}`}
+          onClick={() => setTab("fitting")}
+        >
+          <Shirt size={14} /> Fitting Room
+        </button>
+        <button
+          type="button"
+          className={`ae-tab ${tab === "prefabs" ? "on" : ""}`}
+          onClick={() => setTab("prefabs")}
+        >
+          <Library size={14} /> Prefabs
+          {prefabs.length > 0 && <span className="ae-tab-count">{prefabs.length}</span>}
+        </button>
+      </nav>
+
       <div className="ae-body">
         <aside className="ae-panel">
+          {tab === "fitting" && (
+            <AvatarFittingRoom face={cfg} value={fitting} onChange={setFitting} />
+          )}
+
+          {tab === "prefabs" && (
+            <div className="ae-prefabs">
+              <section className="ae-sec">
+                <h3>
+                  <Users size={13} /> Generate
+                </h3>
+                <p className="ae-fit-blurb">
+                  Roll face + armor + weapon for deploy roles. Uses race systems and{" "}
+                  <code>AV1</code> / <code>AVP1</code> codes.
+                </p>
+                <div className="ae-chips">
+                  {(["enemy", "ally", "npc", "vendor", "boss"] as PrefabRole[]).map((r) => (
+                    <button key={r} type="button" className="ae-chip" onClick={() => genOne(r)}>
+                      + {r}
+                    </button>
+                  ))}
+                </div>
+                <div className="ae-prefab-actions">
+                  <button type="button" className="ae-act" onClick={genSquadAndSave}>
+                    <Sparkles size={14} /> Squad ×5
+                  </button>
+                  <button type="button" className="ae-act" onClick={exportAll} disabled={!prefabs.length}>
+                    <Download size={14} /> Export JSON
+                  </button>
+                </div>
+              </section>
+              <section className="ae-sec">
+                <h3>Saved ({prefabs.length})</h3>
+                {!prefabs.length && (
+                  <p className="ae-fit-blurb">No prefabs yet — Save prefab from Face/Fitting, or generate a squad.</p>
+                )}
+                <ul className="ae-prefab-list">
+                  {prefabs.map((p) => (
+                    <li key={p.id} className="ae-prefab-row">
+                      <button
+                        type="button"
+                        className="ae-prefab-main"
+                        onClick={() => {
+                          setCfg(p.face);
+                          setFitting({
+                            role: p.role,
+                            heightScale: p.heightScale,
+                            bodyScaleXZ: p.bodyScaleXZ,
+                            armorSetId: p.armorSetId,
+                            armorLoadout: p.armorLoadout,
+                            weaponId: p.weaponId,
+                            offHandId: p.offHandId,
+                            gearPresetId: p.gearPresetId ?? "none",
+                            prefabName: p.name,
+                          });
+                          setTab("face");
+                          notice(`Loaded ${p.name}`);
+                        }}
+                      >
+                        <span className="nm">{p.name}</span>
+                        <span className="meta">
+                          {p.role} · {p.face.race} · {raceHeightM(p.face.race, p.heightScale).toFixed(2)} m ·{" "}
+                          {p.weaponId}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ae-prefab-del"
+                        title="Delete prefab"
+                        onClick={() => setPrefabs(removePrefab(p.id))}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+              <section className="ae-sec">
+                <h3>Face code (current)</h3>
+                <code className="ae-code-block">{faceCode}</code>
+              </section>
+            </div>
+          )}
+
+          {tab === "face" && (
+          <>
           <section className="ae-sec">
             <h3>Race</h3>
             <div className="ae-races">
@@ -568,6 +848,8 @@ export function AvatarEditMode({ onExit }: Props) {
                 ))}
             </div>
           </section>
+          </>
+          )}
         </aside>
 
         <div className="ae-stage" ref={mountRef}>

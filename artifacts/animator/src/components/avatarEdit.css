@@ -23,6 +23,205 @@
   backdrop-filter: blur(8px);
 }
 
+/* Top sub-tabs: Face | Fitting Room | Prefabs */
+.ae-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(127, 176, 255, 0.1);
+  background: rgba(8, 10, 16, 0.55);
+}
+.ae-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 176, 255, 0.18);
+  background: transparent;
+  color: #8a97b0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ae-tab:hover {
+  color: #dfe6f2;
+  border-color: rgba(127, 176, 255, 0.35);
+}
+.ae-tab.on {
+  color: #0b0e14;
+  background: linear-gradient(135deg, #ffd28a, #e8a84a);
+  border-color: transparent;
+}
+.ae-tab-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 10px;
+}
+.ae-tab.on .ae-tab-count {
+  background: rgba(0, 0, 0, 0.2);
+  color: #1a1208;
+}
+
+.ae-fit-blurb {
+  font-size: 12px;
+  color: #8a97b0;
+  line-height: 1.45;
+  margin: 0 0 10px;
+}
+.ae-fit-blurb code {
+  font-size: 11px;
+  color: #ffd28a;
+}
+.ae-fit-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #b8c2d6;
+}
+.ae-fit-row input[type="range"] {
+  width: 100%;
+  accent-color: #ffd28a;
+}
+.ae-fit-input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(127, 176, 255, 0.2);
+  background: rgba(0, 0, 0, 0.35);
+  color: #e8eef8;
+  font-size: 13px;
+}
+.ae-armor-sets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.ae-armor-card {
+  text-align: left;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 176, 255, 0.16);
+  background: rgba(127, 176, 255, 0.05);
+  color: #c5d0e6;
+  cursor: pointer;
+}
+.ae-armor-card .nm {
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+}
+.ae-armor-card .meta {
+  display: block;
+  font-size: 11px;
+  color: #7d8aa5;
+  margin-top: 2px;
+}
+.ae-armor-card.on {
+  border-color: rgba(255, 210, 138, 0.55);
+  background: rgba(255, 210, 138, 0.12);
+  color: #ffd28a;
+}
+.ae-armor-slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ae-armor-slot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 11px;
+  color: #9db0cc;
+}
+.ae-armor-slot code {
+  color: #cfe0ff;
+  font-size: 10px;
+}
+.ae-wgroup {
+  margin-top: 8px;
+}
+.ae-prefab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ae-prefab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 42vh;
+  overflow: auto;
+}
+.ae-prefab-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.ae-prefab-main {
+  flex: 1;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 176, 255, 0.14);
+  background: rgba(127, 176, 255, 0.06);
+  color: #dfe6f2;
+  cursor: pointer;
+}
+.ae-prefab-main .nm {
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+}
+.ae-prefab-main .meta {
+  display: block;
+  font-size: 11px;
+  color: #7d8aa5;
+  margin-top: 2px;
+}
+.ae-prefab-main:hover {
+  border-color: rgba(255, 210, 138, 0.4);
+}
+.ae-prefab-del {
+  width: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 100, 100, 0.25);
+  background: rgba(255, 80, 80, 0.08);
+  color: #f0a0a0;
+  cursor: pointer;
+}
+.ae-code-block {
+  display: block;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  font-size: 10px;
+  word-break: break-all;
+  color: #9ec0ff;
+  line-height: 1.4;
+  max-height: 120px;
+  overflow: auto;
+}
+
 .ae-exit {
   display: grid;
   place-items: center;
