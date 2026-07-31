@@ -1,9 +1,11 @@
 /**
- * Landing page — app front door before airship crew / facility.
+ * Landing page — app front door before Ethereal Falls voxel 4-slot / facility.
  *
  * Puter.js under the hood for Grudge ID (username / email / guest).
  * After Puter sign-in we bridge to a Railway fleet JWT so characters
  * and account bag APIs work. Alternate path: full Grudge ID web SSO.
+ *
+ * No airship deck here — production select is CampfireLobbyScene (three.js voxel).
  */
 import { useEffect, useState } from "react";
 const emblemArt = `${import.meta.env.BASE_URL}emblem.png`;
@@ -21,11 +23,10 @@ import {
   readFleetToken,
   FLEET,
 } from "../auth/fleetCore";
-import { LandingHeroStage } from "./LandingHeroStage";
 import "./landing.css";
 
 interface Props {
-  /** Proceed into airship character select. */
+  /** Proceed into voxel 4-slot character select (CampfireLobby). */
   onEnter: () => void;
 }
 
@@ -122,9 +123,9 @@ export function LandingPage({ onEnter }: Props) {
   const displayName = user?.username || grudgeIdHint || "Captain";
 
   return (
-    <div className="landing">
-      {/* Full-bleed 3D stage: hero orbit behind glass panel */}
-      <LandingHeroStage />
+    <div className="landing landing--falls">
+      {/* Atmospheric CSS backdrop — no airship / floating-islands WebGL on the door */}
+      <div className="landing-sky" aria-hidden />
       <div className="landing-vignette" aria-hidden />
 
       <div className="landing-inner">
@@ -132,10 +133,10 @@ export function LandingPage({ onEnter }: Props) {
         <h1 className="landing-brand">
           GRUDGE<span className="landing-brand-accent">STUDIO</span>
         </h1>
-        <p className="landing-tag">Animator · Airship Crew · Danger Room</p>
+        <p className="landing-tag">Animator · Ethereal Falls · Danger Room</p>
         <p className="landing-about">
-          Sign in with Puter / Grudge ID, board <strong>The Grudge</strong> airship for your 4
-          crew seats, then enter combat. Production at{" "}
+          Sign in with Puter / Grudge ID, pick from your <strong>4 voxel hero seats</strong> at
+          Ethereal Falls, then enter combat. Production at{" "}
           <span className="landing-mono">threejs-rapier-react-three-controll.vercel.app</span>.
         </p>
 
@@ -204,18 +205,18 @@ export function LandingPage({ onEnter }: Props) {
                 </>
               ) : (
                 <>
-                  Welcome aboard, <strong>{displayName}</strong>
+                  Welcome, <strong>{displayName}</strong>
                 </>
               )}
             </div>
             {!hasFleetJwt && (
               <p className="landing-hint landing-hint-warn">
-                Fleet JWT missing — characters may not load. Use Grudge ID web SSO or relink from
-                the airship account panel.
+                Fleet JWT missing — characters may not load. Use Grudge ID web SSO or connect from
+                the campfire account panel.
               </p>
             )}
             <button className="landing-btn landing-btn-primary" onClick={onEnter}>
-              Board the airship
+              Enter Ethereal Falls
             </button>
             {!hasFleetJwt && (
               <button className="landing-btn" onClick={doGrudgeIdWeb}>

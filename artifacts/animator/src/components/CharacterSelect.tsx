@@ -1,9 +1,9 @@
 /**
- * Optional lab character strip — product entry is Ethereal Falls campfire
- * (`AirshipLobby` on `/` after landing and `?door=characters`). This UI must never feature
- * Ikkaku/Madarame or other removed lab cast; it only lists PLAYABLE_CHARACTERS.
+ * Optional lab character strip — product entry is Ethereal Falls
+ * (`CampfireLobby` / CampfireLobbyScene on `/` after landing and `?door=characters`).
+ * Never feature Ikkaku/Madarame or other removed lab cast; only PLAYABLE_CHARACTERS.
  *
- * Prefer AirshipLobby for production; this strip is a fallback / deep-link lab only.
+ * Prefer CampfireLobby for production; this strip is a fallback / deep-link lab only.
  */
 import { useMemo, useState, type CSSProperties } from "react";
 import { PLAYABLE_CHARACTERS } from "../three/assets";

@@ -72,12 +72,45 @@ In browser:
 4. F / 1–4 skills fire VFX + attack motion  
 5. Character does not mesh through room obstacles  
 
+## Character systems (Avatar · Fitting · Prefabs)
+
+See **[PRODUCTION_CHARACTER_SYSTEMS.md](./PRODUCTION_CHARACTER_SYSTEMS.md)** for the unified production loadout (`AV1` / `AVP1`, armor stand, weapons, SI height).
+
+## Production fleet matrix (this session surface)
+
+| System | Repo / artifact | Live | Notes |
+|--------|-----------------|------|--------|
+| **Danger Room / Animator** | `threejs-rapier-react-three-controller` → `artifacts/animator` | https://threejs-rapier-react-three-controll.vercel.app | Character SSOT, AV1/AVP1, Fitting Room, combat |
+| **Sprite Attack (Fighter 2D)** | `Grudge-RPG-Sprite-Attack` | https://grudge-rpg-sprite-attack.vercel.app/#fighter | Blend/motion/VFX production |
+| **Mine-Loader Realms** | `Mine-Loader` | https://mine-loader.vercel.app | Water Taiga Village lobby default |
+| **Grudge ID** | id worker | https://id.grudge-studio.com | SSO |
+| **Characters API** | Railway | `grudge-api-production-0d46…` | Account heroes |
+| **Assets CDN** | R2 | https://assets.grudge-studio.com | GLB/textures |
+
+### Deploy all production surfaces
+
+```bash
+# 1) Animator (character pipeline + Danger Room)
+cd F:\GitHub\threejs-rapier-react-three-controller\threejs-rapier-react-three-controller\artifacts\animator
+pnpm run build
+npx vercel deploy --prod --yes
+
+# 2) Fighter (already on GitHub→Vercel when main is clean)
+# cd F:\GitHub\Grudge-RPG-Sprite-Attack && git push origin main
+
+# 3) Mine-Loader (lobby / realms)
+# cd F:\GitHub\Mine-Loader && git push origin main
+```
+
+Smoke: Animator landing cinema → Avatar Edit → Save production loadout → Danger → Admin **Spawn production prefabs**.
+
 ## Related fleet URLs
 
 | Surface | URL |
 |---------|-----|
 | Mine-Loader | https://mine-loader.vercel.app |
 | Gameopen / Dressing | https://gameopen.vercel.app |
+| Sprite Attack Fighter | https://grudge-rpg-sprite-attack.vercel.app/#fighter |
 | Warlords | https://grudgewarlords.com |
 | Assets | https://assets.grudge-studio.com |
 | ID | https://id.grudge-studio.com |

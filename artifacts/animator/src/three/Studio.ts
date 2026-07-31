@@ -68,6 +68,7 @@ import { type ReadinessSnapshot } from "./loading/readiness";
 import { BootGate } from "./loading/bootGate";
 import { PhysicsSystem } from "./PhysicsSystem";
 import { PunchingBags } from "./PunchingBags";
+import { listProductionSpawnSpecs } from "./avatar/productionLoadout";
 import {
   aoeFalloff,
   meleeStrike,
@@ -2466,6 +2467,58 @@ export class Studio {
       p.z + Math.sin(angle) * 7,
     );
     this.targets.spawnAt(pos, weaponId, "enemy", { scale: 1.7, arch: "boss" });
+  }
+
+  /**
+   * Spawn from a production AVP1 spawn spec (Fitting Room / prefab library).
+   * Uses scale + boss arch from {@link ProductionSpawnSpec}; attaches Explorer avatar.
+   */
+  spawnFromProductionSpec(spec: {
+    weaponId: WeaponId;
+    faction: Faction;
+    scale?: number;
+    arch?: "grunt" | "boss";
+  }): void {
+    if (!(this.targets instanceof Targets)) return;
+    const p = this.character?.root.position ?? new THREE.Vector3();
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 5.5 + Math.random() * 2.5;
+    const pos = new THREE.Vector3(
+      p.x + Math.cos(angle) * radius,
+      0,
+      p.z + Math.sin(angle) * radius,
+    );
+    this.targets.spawnAt(pos, spec.weaponId, spec.faction, {
+      scale: spec.scale ?? 1,
+      arch: spec.arch ?? "grunt",
+      avatar: true,
+    });
+  }
+
+  /**
+   * Drop saved production prefabs (or race-matched fillers) into the Danger Room.
+   * Returns how many fighters were requested.
+   */
+  spawnProductionPrefabs(opts?: { fillGenerated?: number; max?: number }): number {
+    const max = Math.max(1, Math.min(12, opts?.max ?? 8));
+    const specs = listProductionSpawnSpecs({
+      fillGenerated: opts?.fillGenerated ?? 4,
+    }).slice(0, max);
+    for (const s of specs) {
+      this.spawnFromProductionSpec({
+        weaponId: s.weaponId,
+        faction: s.faction,
+        scale: s.scale,
+        arch: s.arch,
+      });
+    }
+    if (specs.length) {
+      console.info(
+        "[Studio] production prefabs spawned",
+        specs.map((s) => `${s.role}:${s.name}`).join(", "),
+      );
+    }
+    return specs.length;
   }
 
   /** Remove every spawned NPC (both factions). */

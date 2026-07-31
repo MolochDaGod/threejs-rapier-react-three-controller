@@ -68,7 +68,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { mode: "characters", label: "Characters", hint: "The Grudge · airship crew", icon: <Users size={20} />, tone: "#9d8bff" },
+  { mode: "characters", label: "Characters", hint: "Ethereal Falls · voxel 4-slot", icon: <Users size={20} />, tone: "#9d8bff" },
   { mode: "doors", label: "Home", hint: "Facility entrance", icon: <Home size={20} />, tone: "#7fb0ff" },
   { mode: "danger", label: "Danger Room", hint: "Combat sandbox", icon: <Swords size={20} />, tone: "#ff7a7a" },
   { mode: "voxel", label: "Voxel Editor", hint: "Build & test maps", icon: <Boxes size={20} />, tone: "#7ee0a0" },

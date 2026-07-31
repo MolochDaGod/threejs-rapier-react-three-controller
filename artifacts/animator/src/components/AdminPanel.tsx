@@ -84,6 +84,8 @@ interface Props {
   onDifficulty: (d: Difficulty) => void;
   onSpawn: (weaponId: WeaponId, faction: Faction) => void;
   onSpawnBoss: (weaponId: WeaponId) => void;
+  /** Avatar Edit production prefabs → sparring roster. */
+  onSpawnProductionPrefabs?: () => number;
   onClearNpcs: () => void;
   onClose: () => void;
   /** Live AI-vs-AI duel snapshot, or null when no duel is running. */
@@ -127,6 +129,7 @@ export function AdminPanel({
   onDifficulty,
   onSpawn,
   onSpawnBoss,
+  onSpawnProductionPrefabs,
   onClearNpcs,
   onClose,
   duel,
@@ -239,6 +242,22 @@ export function AdminPanel({
             </button>
           ))}
         </div>
+        {onSpawnProductionPrefabs && (
+          <button
+            className="opt"
+            onClick={() => {
+              const n = onSpawnProductionPrefabs();
+              if (n === 0) {
+                console.info(
+                  "[Admin] No production prefabs — save in Avatar Edit → Fitting Room",
+                );
+              }
+            }}
+            title="Spawn fighters from Avatar Edit prefab library / production loadout"
+          >
+            Spawn production prefabs (AVP1)
+          </button>
+        )}
         <button className="opt opt-clear" onClick={onClearNpcs}>
           Clear all NPCs
         </button>

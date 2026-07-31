@@ -85,6 +85,10 @@ import {
   type PrefabRole,
 } from "../three/avatar/npcPrefab";
 import {
+  buildProductionLoadout,
+  saveProductionLoadout,
+} from "../three/avatar/productionLoadout";
+import {
   AvatarFittingRoom,
   defaultFittingState,
   type FittingState,
@@ -286,9 +290,41 @@ export function AvatarEditMode({ onExit }: Props) {
 
   const saveToCharacter = useCallback(() => {
     savePlayerHeadConfig(cfg);
+    // Production SSOT: face + fitting room loadout for Danger / Explorer / fleet
+    saveProductionLoadout(
+      buildProductionLoadout({
+        face: cfg,
+        role: fitting.role,
+        heightScale: fitting.heightScale,
+        bodyScaleXZ: fitting.bodyScaleXZ,
+        armorSetId: fitting.armorSetId,
+        armorLoadout: fitting.armorLoadout,
+        weaponId: fitting.weaponId,
+        offHandId: fitting.offHandId,
+        gearPresetId:
+          fitting.gearPresetId === "none" ? undefined : fitting.gearPresetId,
+        prefabName: fitting.prefabName || undefined,
+      }),
+    );
     setSavedToCharacter(true);
-    notice("Saved — your Explorer wears this head");
-  }, [cfg, notice]);
+    notice("Production loadout saved — face, armor, weapons, scale");
+  }, [cfg, fitting, notice]);
+
+  // Fitting Room: armor mannequin beside the cube head
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (tab === "fitting") {
+      stage.setFittingMode(true, fitting.armorLoadout);
+    } else {
+      stage.setFittingMode(false);
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "fitting") return;
+    stageRef.current?.setArmorLoadout(fitting.armorLoadout);
+  }, [tab, fitting.armorLoadout]);
 
   const copyCode = useCallback(() => {
     const code = encodeConfig(cfg);
@@ -346,11 +382,26 @@ export function AvatarEditMode({ onExit }: Props) {
     });
     const list = upsertPrefab(prefab);
     setPrefabs(list);
+    saveProductionLoadout(
+      buildProductionLoadout({
+        face: cfg,
+        role: fitting.role,
+        heightScale: fitting.heightScale,
+        bodyScaleXZ: fitting.bodyScaleXZ,
+        armorSetId: fitting.armorSetId,
+        armorLoadout: fitting.armorLoadout,
+        weaponId: fitting.weaponId,
+        offHandId: fitting.offHandId,
+        gearPresetId:
+          fitting.gearPresetId === "none" ? undefined : fitting.gearPresetId,
+        prefabName: fitting.prefabName || prefab.name,
+      }),
+    );
     const code = encodePrefab(prefab);
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(code).catch(() => {});
     }
-    notice(`Prefab saved · ${code.slice(0, 18)}…`);
+    notice(`Prefab + production saved · ${code.slice(0, 18)}…`);
     setTab("prefabs");
   }, [cfg, fitting, notice]);
 

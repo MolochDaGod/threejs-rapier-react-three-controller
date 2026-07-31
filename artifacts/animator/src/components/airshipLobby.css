@@ -4,20 +4,22 @@
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: #0a1528;
+  /* WebGL stage paints sky — no static airship plate */
+  background: #6eb6e8;
   color: #e8eef8;
   font-family: Inter, system-ui, sans-serif;
   user-select: none;
 }
 
-.air-plate {
-  position: absolute;
+.air-stage-3d {
+  position: absolute !important;
   inset: 0;
-  background-image: url("/backgrounds/scene_airship.png");
-  background-size: cover;
-  background-position: center bottom;
-  background-repeat: no-repeat;
   z-index: 0;
+  pointer-events: none;
+}
+
+.air-plate {
+  display: none; /* retired: PNG plate replaced by FloatingIslandsDeckStage */
 }
 
 .air-dim {

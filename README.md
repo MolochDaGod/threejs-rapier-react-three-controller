@@ -4,13 +4,14 @@
 
 pnpm monorepo for the browser **Animator / Danger Room** — plain
 [three.js](https://threejs.org) + [Rapier](https://rapier.rs), React HUD only
-(no R3F). Entry: Grudge ID → **Ethereal Falls** 4-slot account select → combat.
+(no R3F). Entry: Grudge ID → **Ethereal Falls** voxel **4-slot** (`CampfireLobbyScene`) → combat.
 
 ### Production cast policy
 
 - **Included** curated playable kits (Explorer, combat exemplars, casters/tank).
 - **Removed:** Sensei, **24 grudge6** race×class prefabs, ikkau/demo options.
-- **Account heroes** from fleet/campfire slots — not a lab catalog dump.
+- **Removed from product door:** airship / floating-islands crew select (`AirshipLobby` retired).
+- **Account heroes** from fleet + **CampfireLobby** seats (three.js voxel Explorer rigs) — not a lab catalog dump.
 
 See `docs/PRODUCTION_CONTROLLER.md` (hotkeys, skills/VFX, hip grounding).
 
@@ -18,7 +19,7 @@ See `docs/PRODUCTION_CONTROLLER.md` (hotkeys, skills/VFX, hip grounding).
 
 | Artifact | Preview path | What it is |
 | --- | --- | --- |
-| **Animator** | `/` | Production controller: campfire select, Danger Room combat, weapons/skills, Dressing Room, voxel tools. |
+| **Animator** | `/` | Production controller: Ethereal Falls voxel 4-slot, Danger Room combat, weapons/skills, Dressing Room, voxel tools. |
 | **API Server** | `/api` | Express backend (PostgreSQL + Drizzle, OpenAPI). Shared netcode. |
 | **Canvas / mockup-sandbox** | `/__mockup` | Internal component preview (not product). |
 

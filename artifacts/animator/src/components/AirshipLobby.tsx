@@ -1,11 +1,11 @@
 /**
  * The Grudge — airship 4-slot crew select.
  *
- * Puter GrudgeWar plate (`scene_airship.png`) + deck % stations
- * (helm / main battery / fore guns / crow rope). Roster from Railway
- * fleet characters after Puter → Grudge ID session.
+ * 3D floating islands + airship deck cinema (FloatingIslandsDeckStage).
+ * Four deck stations with pathfinding walk. Roster from Railway after
+ * Puter → Grudge ID session.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   activateCampfireHero,
   buildGenesisHeroOptions,
@@ -27,6 +27,10 @@ import {
   linkPuterToGrudgeId,
   type GrudgeUser,
 } from "../auth/grudgeAuth";
+import {
+  FloatingIslandsDeckStage,
+  type FloatingIslandsDeckStageHandle,
+} from "./FloatingIslandsDeckStage";
 import "./airshipLobby.css";
 
 interface Props {
@@ -74,6 +78,7 @@ function returnCharactersUrl(): string {
 }
 
 export function AirshipLobby({ onExit, onNavigate, onAvatarEdit, onPlayDanger }: Props) {
+  const deckRef = useRef<FloatingIslandsDeckStageHandle>(null);
   const [fleet, setFleet] = useState<FleetCharacter[]>([]);
   const [heroes, setHeroes] = useState<GenesisHeroOption[]>([]);
   const [selected, setSelected] = useState(0);
@@ -197,7 +202,13 @@ export function AirshipLobby({ onExit, onNavigate, onAvatarEdit, onPlayDanger }:
 
   return (
     <div className="air-root">
-      <div className="air-plate" aria-hidden />
+      {/* 3D floating islands + deck (replaces scene_airship.png plate) */}
+      <FloatingIslandsDeckStage
+        ref={deckRef}
+        mode="deck"
+        selectedStation={selected}
+        className="air-stage-3d"
+      />
       <div className="air-dim" aria-hidden />
 
       <div className="air-bar">
@@ -244,8 +255,10 @@ export function AirshipLobby({ onExit, onNavigate, onAvatarEdit, onPlayDanger }:
               className={`air-station${on ? " on" : ""}${hero ? "" : " empty"}`}
               style={{ left: `${station.left}%`, top: `${station.top}%` }}
               onClick={() => {
-                if (hero) setSelected(i);
-                else createInEmptySlot(i);
+                if (hero) {
+                  setSelected(i);
+                  deckRef.current?.walkToStation(i);
+                } else createInEmptySlot(i);
               }}
               title={hero ? `${hero.name} · ${station.role}` : `Empty · ${station.role}`}
             >

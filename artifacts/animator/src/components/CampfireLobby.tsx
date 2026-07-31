@@ -471,14 +471,15 @@ export function CampfireLobby({ onExit, onNavigate, onAvatarEdit, onPlayDanger }
       <canvas ref={canvasRef} className="cfl-canvas" />
       <div className="cfl-vignette" aria-hidden />
 
-      {/* Top brand — charactersgrudox helmet + wordmark */}
+      {/* Top brand — charactersgrudox helmet + wordmark (this IS the landing home) */}
       <div className="cfl-head">
         <img className="cfl-helmet" src={MENU("grudge-helmet.png")} alt="" />
         <img className="cfl-logo" src={MENU("grudge-logo.png")} alt="GRUDGE" />
+        <p className="cfl-kicker">Grudge Studio · 4 hero seats</p>
         <p className="cfl-sub">
           {active
-            ? "Your heroes — pick a seat, then launch from the wooden signs"
-            : "Gather your band — first hero free · Account to create more"}
+            ? "Your voxel band — pick a seat, then launch from the wooden signs"
+            : "Voxel 4-character campfire — first hero free · Account to create more"}
         </p>
       </div>
 

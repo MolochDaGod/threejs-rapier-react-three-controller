@@ -37,7 +37,6 @@ import {
   assertStation,
 } from "./three/audio/radioStations";
 import { LandingPage } from "./components/LandingPage";
-import { AirshipLobby } from "./components/AirshipLobby";
 import { CampfireLobby } from "./components/CampfireLobby";
 import {
   readRememberedAnimatorCharacter,
@@ -124,8 +123,9 @@ type Mode =
   | "avatar";
 
 // Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|campfire|minegrudge|landing|…`
-// Default: landing (Puter / Grudge ID) → airship 4-crew → facility.
-// characters = The Grudge airship (production). campfire = Ethereal Falls (kept, not deleted).
+// Default: landing (Puter / Grudge ID) → Ethereal Falls voxel 4-slot → facility.
+// characters / campfire / charactersgrudox = CampfireLobbyScene (three.js voxel seats).
+// airship door is retired → same voxel 4-slot (do not mount AirshipLobby).
 function initialMode(): Mode {
   try {
     const d = new URLSearchParams(window.location.search).get("door");
@@ -138,6 +138,7 @@ function initialMode(): Mode {
       d === "characters" ||
       d === "charactersgrudox" ||
       d === "campfire" ||
+      d === "airship" ||
       d === "minegrudge" ||
       d === "grudoxEditor" ||
       d === "ledmask" ||
@@ -145,7 +146,7 @@ function initialMode(): Mode {
       d === "doors" ||
       d === "landing"
     ) {
-      if (d === "charactersgrudox") return "characters";
+      if (d === "charactersgrudox" || d === "campfire" || d === "airship") return "characters";
       if (d === "grudoxEditor") return "minegrudge";
       return d as Mode;
     }
@@ -261,6 +262,29 @@ export default function App() {
   const onArmorLoadout = useCallback((loadout: ArmorLoadout) => {
     setArmorLoadoutState(loadout);
     saveArmorLoadoutToStorage(loadout);
+  }, []);
+
+  // Production loadout SSOT (Avatar Edit face + fitting room armor/weapons)
+  useEffect(() => {
+    try {
+      // Dynamic import keeps initial door paint light; hydrate once mounted.
+      void import("./three/avatar/productionLoadout").then(({ productionHydratePayload }) => {
+        const h = productionHydratePayload();
+        if (h.weaponId && h.weaponId !== "none") setWeaponId(h.weaponId);
+        if (h.offHand !== undefined) setOffHandState(h.offHand);
+        if (h.armorLoadout) setArmorLoadoutState(h.armorLoadout);
+        const studio = studioRef.current;
+        if (studio) {
+          if (h.weaponId) studio.setWeapon(h.weaponId);
+          studio.setOffHand(h.offHand);
+        }
+        if (h.prefabCode) {
+          console.info("[Animator] production loadout hydrated", h.heightM.toFixed(2) + "m", h.prefabCode.slice(0, 24));
+        }
+      });
+    } catch (err) {
+      console.warn("[Animator] production loadout hydrate failed", err);
+    }
   }, []);
   const [fleetHeroName, setFleetHeroName] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
@@ -739,6 +763,11 @@ export default function App() {
     studioRef.current?.spawnBoss(id);
   }, []);
 
+  /** Avatar Edit / Fitting Room prefabs → Danger Room sparring roster. */
+  const onSpawnProductionPrefabs = useCallback(() => {
+    return studioRef.current?.spawnProductionPrefabs({ fillGenerated: 4, max: 6 }) ?? 0;
+  }, []);
+
   const onClearNpcs = useCallback(() => {
     studioRef.current?.clearNpcs();
   }, []);
@@ -804,8 +833,27 @@ export default function App() {
   // Whitelisted AI tool surface for the Danger Room — bound to the same App
   // callbacks the Admin/Settings panels drive (handlers are stable useCallbacks).
   const dangerAiTools = useMemo(
-    () => buildDangerTools({ onCharacter, onWeapon, onDifficulty, onSpawn, onSpawnBoss, onClearNpcs, onParam }),
-    [onCharacter, onWeapon, onDifficulty, onSpawn, onSpawnBoss, onClearNpcs, onParam],
+    () =>
+      buildDangerTools({
+        onCharacter,
+        onWeapon,
+        onDifficulty,
+        onSpawn,
+        onSpawnBoss,
+        onSpawnProductionPrefabs,
+        onClearNpcs,
+        onParam,
+      }),
+    [
+      onCharacter,
+      onWeapon,
+      onDifficulty,
+      onSpawn,
+      onSpawnBoss,
+      onSpawnProductionPrefabs,
+      onClearNpcs,
+      onParam,
+    ],
   );
 
   const onTimeScale = useCallback((scale: number) => {
@@ -1265,12 +1313,12 @@ export default function App() {
   }, []);
 
   if (mode === "landing") {
-    // Front door: Puter / Grudge ID → The Grudge airship (4 crew stations).
-    // Not the lab cast (ikkau / demo heroes) — only fleet / Foundry seats.
+    // Front door: Puter / Grudge ID → Ethereal Falls voxel 4-slot (CampfireLobbyScene).
+    // Not airship deck; not lab cast — Railway / Foundry seats only.
     return <LandingPage onEnter={() => setMode("characters")} />;
   }
 
-  // Shared hero → Danger Room handoff (airship + campfire both use Railway roster).
+  // Shared hero → Danger Room handoff (Railway / campfire roster SSOT).
   const enterWithHero = (hero: GenesisHeroOption) => {
     const animId = activateCampfireHero(hero);
     setCharacterId(animId);
@@ -1294,7 +1342,8 @@ export default function App() {
       m === "characters" ||
       m === "campfire"
     ) {
-      setMode(m as Mode);
+      // campfire deep-link aliases into the same voxel 4-slot surface
+      setMode(m === "campfire" ? "characters" : (m as Mode));
     } else if (m === "account") {
       setMode("avatar");
     } else {
@@ -1302,26 +1351,12 @@ export default function App() {
     }
   };
 
-  if (mode === "characters") {
-    // Production crew select — Puter airship plate; does not delete CampfireLobby.
-    return shell(
-      withScreenTheme(
-        <AirshipLobby
-          onExit={() => setMode("landing")}
-          onNavigate={characterNavigate}
-          onAvatarEdit={() => setMode("avatar")}
-          onPlayDanger={enterWithHero}
-        />,
-      ),
-    );
-  }
-
-  if (mode === "campfire") {
-    // Kept for deep-link / lab parity: ?door=campfire — same fleet roster SSOT.
+  if (mode === "characters" || mode === "campfire") {
+    // Production 4-slot: three.js CampfireLobbyScene (voxel Explorer rigs), not airship.
     return shell(
       withScreenTheme(
         <CampfireLobby
-          onExit={() => setMode("doors")}
+          onExit={() => setMode("landing")}
           onNavigate={characterNavigate}
           onAvatarEdit={() => setMode("avatar")}
           onPlayDanger={enterWithHero}
@@ -1376,7 +1411,7 @@ export default function App() {
     );
   }
 
-  // characters mode handled above via AirshipLobby (The Grudge 4-crew).
+  // characters mode handled above via CampfireLobby (voxel 4-slot).
 
   if (mode === "minegrudge") {
     return shell(
@@ -1425,6 +1460,7 @@ export default function App() {
             onDifficulty={onDifficulty}
             onSpawn={onSpawn}
             onSpawnBoss={onSpawnBoss}
+            onSpawnProductionPrefabs={onSpawnProductionPrefabs}
             onClearNpcs={onClearNpcs}
             duel={hud?.duel ?? null}
             onStartDuel={onStartDuel}

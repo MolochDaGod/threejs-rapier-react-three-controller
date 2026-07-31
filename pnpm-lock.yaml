@@ -360,7 +360,7 @@ importers:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       postprocessing:
-        specifier: ^6.39.3
+        specifier: ^6.39.2
         version: 6.39.3(three@0.184.0)
       react:
         specifier: 'catalog:'
@@ -818,12 +818,6 @@ importers:
       vitest:
         specifier: ^4.1.8
         version: 4.1.8(@types/node@25.6.2)(vite@7.3.3(@types/node@25.6.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  lib/fleet-client:
-    devDependencies:
-      typescript:
-        specifier: ~5.9.3
-        version: 5.9.3
 
   lib/integrations-openai-ai-server:
     dependencies:

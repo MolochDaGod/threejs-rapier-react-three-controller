@@ -15,6 +15,8 @@ import { composeHead, composeTalkFrames, type FaceName } from "./composeHead";
 import { createHairBoxMaterial, createHairFx, type HairBoxMaterial, type HairFx } from "./hairStrands";
 import { createHairMotionRig, type HairMotionRig } from "./hairMotion";
 import { mountHat, resolveMountedHatId, type HatMount } from "./hats";
+import { loadArmorStand } from "../equipment/armorStand";
+import type { ArmorLoadout } from "../equipment/types";
 
 /** BoxGeometry material index order: +x, -x, +y, -y, +z, -z. */
 const FACE_ORDER: FaceName[] = ["right", "left", "top", "bottom", "front", "back"];
@@ -54,6 +56,12 @@ export class HeadStage {
   // talk frames so the editor shows the actual in-game speech loop.
   private talkFrames: Grid[] | null = null;
   private talkShown = -1;
+  /** Fitting-room armor mannequin (Minecraft stand GLB). */
+  private armorRoot: THREE.Group | null = null;
+  private armorApply: ((l: ArmorLoadout) => void) | null = null;
+  private armorDispose: (() => void) | null = null;
+  private armorLoadPromise: Promise<void> | null = null;
+  private fittingMode = false;
 
   constructor(private mount: HTMLElement) {
     // WebGLRenderer creation is the throw-prone step (no WebGL context); it
@@ -281,6 +289,73 @@ export class HeadStage {
   }
 
   /**
+   * Fitting Room: show armor stand mannequin beside the head (production
+   * equipment catalog). Pass null loadout to hide.
+   */
+  setFittingMode(on: boolean, loadout?: ArmorLoadout | null): void {
+    if (this.disposed) return;
+    this.fittingMode = on;
+    if (!on) {
+      this.clearArmorPreview();
+      this.zoom = 2.6;
+      this.headGroup.position.x = 0;
+      return;
+    }
+    this.zoom = 3.4;
+    this.headGroup.position.x = -0.55;
+    if (loadout) void this.ensureArmorStand(loadout);
+  }
+
+  /** Update equipped set visibility on the mannequin (no reload). */
+  setArmorLoadout(loadout: ArmorLoadout): void {
+    if (this.disposed || !this.fittingMode) return;
+    if (this.armorApply) this.armorApply(loadout);
+    else void this.ensureArmorStand(loadout);
+  }
+
+  private async ensureArmorStand(loadout: ArmorLoadout): Promise<void> {
+    if (this.armorApply) {
+      this.armorApply(loadout);
+      return;
+    }
+    if (this.armorLoadPromise) {
+      await this.armorLoadPromise;
+      this.armorApply?.(loadout);
+      return;
+    }
+    this.armorLoadPromise = (async () => {
+      try {
+        const stand = await loadArmorStand(loadout, {
+          showProps: true,
+          targetHeight: 1.65,
+        });
+        if (this.disposed) {
+          stand.dispose();
+          return;
+        }
+        this.armorRoot = stand.root;
+        this.armorApply = stand.applyLoadout;
+        this.armorDispose = stand.dispose;
+        stand.root.position.set(0.75, -0.95, 0);
+        stand.root.rotation.y = -0.35;
+        this.scene.add(stand.root);
+      } catch (err) {
+        console.warn("[HeadStage] armor stand preview failed", err);
+      } finally {
+        this.armorLoadPromise = null;
+      }
+    })();
+    await this.armorLoadPromise;
+  }
+
+  private clearArmorPreview(): void {
+    this.armorDispose?.();
+    this.armorDispose = null;
+    this.armorApply = null;
+    this.armorRoot = null;
+  }
+
+  /**
    * Transparent PNG snapshot of the full 3D head (current orbit angle) at a
    * fixed square size — the "3D portrait" export.
    */
@@ -311,6 +386,7 @@ export class HeadStage {
     cancelAnimationFrame(this.raf);
     this.resizeObs?.disconnect();
     this.detachInput?.();
+    this.clearArmorPreview();
     // Detach the hat BEFORE the scene traverse below — hat clones share the
     // cached template geometry/materials and must never be disposed with it.
     this.hatMount?.dispose();

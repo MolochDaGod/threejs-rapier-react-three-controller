@@ -65,7 +65,7 @@ export const GRUDOX_GAMES: GrudoxGameDef[] = [
   {
     id: "characters",
     name: "Characters",
-    blurb: "The Grudge airship · 4 crew stations (Puter plate)",
+    blurb: "Ethereal Falls · 4 voxel hero seats (three.js campfire)",
     url: "?door=characters",
   },
   {

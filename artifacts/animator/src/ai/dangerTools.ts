@@ -44,6 +44,8 @@ export interface DangerHandlers {
   onDifficulty: (d: Difficulty) => void;
   onSpawn: (weaponId: WeaponId, faction: Faction) => void;
   onSpawnBoss: (weaponId: WeaponId) => void;
+  /** Spawn Avatar Edit / Fitting Room production prefabs (AVP1 library). */
+  onSpawnProductionPrefabs?: () => number;
   onClearNpcs: () => void;
   onParam: (patch: Partial<EditorParams>) => void;
 }
@@ -136,6 +138,21 @@ export function buildDangerTools(handlers: DangerHandlers): AiTool[] {
         if (!WEAPON_IDS.includes(weapon)) throw new Error(`Unknown weapon "${weapon}".`);
         handlers.onSpawnBoss(weapon);
         return `Spawned a ${weapon} boss`;
+      },
+    },
+    {
+      name: "spawn_production_prefabs",
+      description:
+        "Spawn NPCs from the player's Avatar Edit / Fitting Room production loadout and prefab library (AVP1). Uses saved face race, weapons, and scales; fills with race-matched enemies if the library is empty.",
+      parameters: { type: "object", properties: {} },
+      execute: () => {
+        if (!handlers.onSpawnProductionPrefabs) {
+          throw new Error("Production prefab spawn is not available.");
+        }
+        const n = handlers.onSpawnProductionPrefabs();
+        return n > 0
+          ? `Spawned ${n} production prefab fighter${n === 1 ? "" : "s"}`
+          : "No production prefabs — save loadout in Avatar Edit first";
       },
     },
     {

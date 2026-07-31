@@ -7,14 +7,24 @@
   justify-content: center;
   overflow-y: auto;
   padding: 40px 20px;
-  /* Dark base under the WebGL stage (stage is a transparent canvas on top) */
-  background:
-    radial-gradient(1200px 700px at 50% 40%, rgba(30, 80, 160, 0.16), transparent 55%),
-    linear-gradient(180deg, #040812 0%, #02040a 100%);
+  background: #02040a;
   user-select: none;
 }
 
-/* Cinematic 3D hero stage — fixed behind the sign-in UI */
+/* Ethereal Falls atmospheric sky (no airship WebGL) */
+.landing--falls .landing-sky,
+.landing-sky {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 18%, rgba(80, 120, 220, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 60% at 50% 100%, rgba(20, 40, 80, 0.55) 0%, transparent 50%),
+    linear-gradient(180deg, #050a18 0%, #0a1228 42%, #061018 100%);
+}
+
+/* Legacy class if any stage still mounts */
 .landing-hero-stage {
   position: fixed;
   inset: 0;
