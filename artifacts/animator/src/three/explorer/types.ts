@@ -301,4 +301,10 @@ export interface CharacterLook {
    * Ignored while `hat === "ledMask"` (the mask fully encloses the head).
    */
   avatarHead?: boolean;
+  /**
+   * Explicit Avatar Edit build to wear (production race defaults / fleet
+   * handoff). When set with avatarHead, preferred over localStorage
+   * avatarEdit:playerHead:v1 so games can spawn a race without a prior save.
+   */
+  avatarConfig?: import("../avatar/catalog").AvatarConfig;
 }

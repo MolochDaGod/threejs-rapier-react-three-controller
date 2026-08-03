@@ -3,7 +3,7 @@ import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.j
 import type { CharacterLook } from "./types";
 import { SHELLS, DEFAULT_SHELL, PANEL_Z, OPENING_CENTER_Y, type ShellId } from "../LedMaskShells";
 import { applyAvatarHead, loadPlayerHeadConfig, type AvatarHeadHandle } from "../avatar/playerHead";
-import { skinToneOf } from "../avatar/catalog";
+import { sanitizeConfig, skinToneOf, type AvatarConfig } from "../avatar/catalog";
 
 /** Recolourable / patternable body parts of the procedural box rig. */
 export type VoxelPart = "skin" | "shirt" | "pants" | "boot" | "hat" | "eye";
@@ -213,11 +213,12 @@ export class VoxelCharacter {
       }
       this.addHat(head, look);
 
-      // Player-authored Avatar Edit head: swap the plain skin cube for the
-      // saved composed pixel faces + protrusions. Skipped under the LED mask
-      // (it fully encloses the head) and when nothing has been saved yet.
+      // Avatar Edit head: explicit race/fleet config, else saved player head.
+      // Skipped under the LED mask (it fully encloses the head).
       if (look.avatarHead && look.hat !== "ledMask") {
-        const cfg = loadPlayerHeadConfig();
+        const cfg: AvatarConfig | null =
+          (look.avatarConfig && sanitizeConfig(look.avatarConfig)) ||
+          loadPlayerHeadConfig();
         if (cfg) {
           this.avatarHeadFx = applyAvatarHead(head, cfg, 0.44);
           for (const eye of this.eyeMeshes) eye.visible = false;

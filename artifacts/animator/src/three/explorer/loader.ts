@@ -298,6 +298,8 @@ export const DEFAULT_LOOK: CharacterLook = {
   hatColor: "#b03030",
   cape: false,
   capeColor: "#1a1e2b",
+  /** Wear Avatar Edit head when a save or explicit avatarConfig exists. */
+  avatarHead: true,
 };
 
 export interface CreateAnimatedCharacterOptions {

@@ -9,7 +9,8 @@
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "export:race-defaults": "tsx ../../scripts/export-voxel-race-defaults.mjs"
   },
   "devDependencies": {
     "@dimforge/rapier3d": "^0.19.3",
