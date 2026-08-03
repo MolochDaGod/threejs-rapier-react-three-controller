@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "cd ../.. && corepack enable && pnpm install --no-frozen-lockfile",
-  "buildCommand": "cd ../.. && pnpm --filter @workspace/animator-app exec vite build --config artifacts/animator/vite.config.ts",
+  "buildCommand": "cd ../.. && pnpm --filter @workspace/animator-app run build",
   "outputDirectory": "dist/public",
   "rewrites": [
     { "source": "/auth/callback", "destination": "/index.html" },
