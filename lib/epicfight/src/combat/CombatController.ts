@@ -606,6 +606,17 @@ export class CombatController {
     this.events.onStaminaChange?.(this.stamina, this.cfg.maxStamina);
   }
 
+  /**
+   * Continuous stamina tax (sprint, channeled costs). Does not start an action
+   * state — host-driven. Returns the amount actually spent (may be less at 0).
+   */
+  drainStamina(amount: number): number {
+    if (amount <= 0 || this.stamina <= 0) return 0;
+    const spent = Math.min(this.stamina, amount);
+    this.spendStamina(spent);
+    return spent;
+  }
+
   // ----- defensive helpers ---------------------------------------------------
 
   /** Build the defense payload from current state/timer. */

@@ -338,6 +338,7 @@ export async function createAnimatedCharacter(
       "bow",
       "magic",
       "pistol",
+      "shotgun",
     ] as WeaponClass[]);
   // Always include the global reaction clips regardless of which weapon classes
   // are requested — reactions (stumble, fall, stun, wall-crash, etc.) are

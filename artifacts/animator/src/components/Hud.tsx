@@ -16,11 +16,15 @@ import {
   QUICK_SLOTS_PER_SIDE,
   type QuickActionId,
 } from "../hud/quickActions";
+import { SurvivalHud } from "./SurvivalHud";
 
 interface Props {
   hud: HudSnapshot | null;
   /** Optional HUD-editor api: applies persisted layout and (when editing) drag/select. */
   edit?: HudEditApi;
+  onSelectBlueprint?: (id: string) => void;
+  onSelectTool?: (index: number) => void;
+  onCraftTool?: (id: string) => void;
 }
 
 /** Merge a panel's edit binding onto its base className + inline style. */
@@ -45,6 +49,8 @@ function SkillSlot({
   cd,
   cdMax,
   accent,
+  casting,
+  castFrac,
 }: {
   keyLabel: string;
   name: string;
@@ -52,23 +58,43 @@ function SkillSlot({
   cd: number;
   cdMax: number;
   accent?: boolean;
+  /** True while skill is mid wind-up (Elden cast telegraph). */
+  casting?: boolean;
+  /** 0..1 cast progress (fill rising). */
+  castFrac?: number;
 }) {
   const onCd = cd > 0 && cdMax > 0;
   const frac = onCd ? Math.max(0, Math.min(1, cd / cdMax)) : 0;
+  const castP = casting && castFrac != null ? Math.max(0, Math.min(1, castFrac)) : 0;
   return (
     <div
-      className={`act-slot ${accent ? "act-accent" : ""} ${onCd ? "on-cd" : "ready"}`}
-      data-tip={keyLabel ? `${name} — press ${keyLabel}` : name}
+      className={`act-slot ${accent ? "act-accent" : ""} ${onCd ? "on-cd" : "ready"}${casting ? " casting" : ""}`}
+      data-tip={
+        casting
+          ? `${name} — casting…`
+          : keyLabel
+            ? `${name} — press ${keyLabel}`
+            : name
+      }
     >
       <div className="act-icon">
         <Icon name={icon} size={30} />
-        {onCd && (
+        {casting && castP > 0 && (
+          <div
+            className="act-sweep"
+            style={{
+              background: `conic-gradient(rgba(255, 200, 80, 0.85) ${castP * 360}deg, transparent 0deg)`,
+            }}
+          />
+        )}
+        {onCd && !casting && (
           <div
             className="act-sweep"
             style={{ background: `conic-gradient(rgba(4,10,20,0.78) ${frac * 360}deg, transparent 0deg)` }}
           />
         )}
-        {onCd && <span className="act-cd">{cd.toFixed(1)}</span>}
+        {onCd && !casting && <span className="act-cd">{cd.toFixed(1)}</span>}
+        {casting && <span className="act-cd" style={{ color: "#ffd080" }}>CAST</span>}
       </div>
       <span className="act-key">{keyLabel}</span>
       <span className="act-name">{name}</span>
@@ -660,7 +686,7 @@ function CombatFlash({ text }: { text: string }) {
   );
 }
 
-export function Hud({ hud, edit }: Props) {
+export function Hud({ hud, edit, onSelectBlueprint, onSelectTool, onCraftTool }: Props) {
   if (!hud) return null;
 
   const slotByName = (slot: string): SlotBinding | undefined => hud.slots.find((s) => s.slot === slot);
@@ -713,6 +739,16 @@ export function Hud({ hud, edit }: Props) {
       {/* Center-screen event flash */}
       <CombatFlash text={hud.combatFlash} />
 
+      {/* Conan survival lab: wallet + tool wheel + kenney blueprint browser */}
+      {hud.survival && (
+        <SurvivalHud
+          survival={hud.survival}
+          onSelectBlueprint={onSelectBlueprint}
+          onSelectTool={onSelectTool}
+          onCraftTool={onCraftTool}
+        />
+      )}
+
       {/* Player status frame (top-left) — animated HP/energy unit frame */}
       <div {...applyBind(bindOf(edit, "vitals"), "uf-panel uf-panel-player")}>
         <UnitFrame
@@ -739,7 +775,7 @@ export function Hud({ hud, edit }: Props) {
           <CombatStateChip state={hud.combatState} critWindow={hud.critWindow} />
           {/* Combat input hints */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 230 }}>
-            {(["Q: Parry", "E: Block", "X: Dodge", "R: Heavy", "H: Bomb", "J: Heal"] as const).map((hint) => (
+            {(["Q: Parry", "E: Block", "X: Dodge", "B: Build", "U: Tools", "R: Heavy"] as const).map((hint) => (
               <span
                 key={hint}
                 style={{
@@ -804,6 +840,12 @@ export function Hud({ hud, edit }: Props) {
                 icon={WEAPON_ICON[hud.weapon]}
                 cd={hud.skillCooldown}
                 cdMax={hud.skillCooldownMax}
+                casting={hud.castCharge > 0}
+                castFrac={
+                  hud.castChargeMax > 0
+                    ? 1 - hud.castCharge / hud.castChargeMax
+                    : 0
+                }
               />
             )}
             {sigs.map((s, i) => {
@@ -819,6 +861,12 @@ export function Hud({ hud, edit }: Props) {
                   icon={(["scout", "ambush", "siege", "skill-vfx-lab"] as const)[i] ?? "skill-vfx-lab"}
                   cd={cd}
                   cdMax={cdMax}
+                  casting={i === 0 && hud.castCharge > 0}
+                  castFrac={
+                    hud.castChargeMax > 0
+                      ? 1 - hud.castCharge / hud.castChargeMax
+                      : 0
+                  }
                 />
               );
             })}
@@ -843,6 +891,17 @@ export function Hud({ hud, edit }: Props) {
         <span>
           <em>Targets</em> {hud.targetsAlive}
         </span>
+        {hud.ammoMax > 0 && (
+          <span data-tip={hud.reloading ? "Reloading magazine…" : "Firearm magazine"}>
+            <em>{hud.reloading ? "RELOAD" : "AMMO"}</em>{" "}
+            {hud.reloading ? "…" : `${Math.max(0, hud.ammo)}/${hud.ammoMax}`}
+          </span>
+        )}
+        {hud.castCharge > 0 && (
+          <span style={{ color: "#ffd080" }}>
+            <em>CAST</em> {hud.castCharge.toFixed(1)}s
+          </span>
+        )}
         <span className={`spar-diff diff-${hud.difficulty}`}>
           <em>Spar</em> {hud.difficulty}
         </span>

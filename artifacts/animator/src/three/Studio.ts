@@ -19,6 +19,7 @@ import { GrudgeAvatar } from "./grudge/GrudgeAvatar";
 import type { PresetId, RaceId } from "./grudge";
 import { Controller } from "./Controller";
 import { Recoil, fovKick, screenCenterRay } from "./aim/AimSystem";
+import { resolveFireAim } from "./aim/resolveFireAim";
 import { leadTarget } from "./anim/predictiveLead";
 import { Vfx } from "./Vfx";
 import { createMysticalComposer, type MysticalComposer } from "./fx/postfx";
@@ -59,6 +60,30 @@ import { DungeonHazards } from "./dungeon/DungeonHazards";
 import { isInWaterBand, traversalModeFor } from "./dungeon/water";
 import { groundProbeAt, type NavGrid } from "./dungeon/navmesh";
 import { WildlifeSystem, type HarvestDrop } from "./wildlife";
+import { HarvestLab, type LabHarvestDrop } from "./harvest/HarvestLab";
+import { CampLab } from "./camp/CampLab";
+import { AccountBagSync } from "../auth/accountBag";
+import {
+  HARVEST_TOOLS,
+  canCraftFromWallet,
+  deductCraftCost,
+  loadCraftedTools,
+  saveCraftedTools,
+  toolByActivity,
+  toolPower,
+  type CraftedToolsState,
+} from "../game/inventory/harvestTools";
+import {
+  applyEscape,
+  applyToggleBuild,
+  applyToggleHarvestWheel,
+  modeAllowsBlock,
+  normalizeActivityState,
+  resolveActivityKey,
+  resolveActivityMouse,
+  type ActivityMode,
+} from "./activityInput";
+import { readFleetToken } from "../auth/fleetCore";
 import { CastController, type SkillPreset } from "./cast";
 import { iceSnakeById, iceSnakeForWeapon } from "./vfx/iceSnakeVariants";
 import type { GroundSampler } from "./anim/legIk";
@@ -69,6 +94,25 @@ import { BootGate } from "./loading/bootGate";
 import { PhysicsSystem } from "./PhysicsSystem";
 import { PunchingBags } from "./PunchingBags";
 import { listProductionSpawnSpecs } from "./avatar/productionLoadout";
+import {
+  commitDamageMul,
+  resolveSkillTiming,
+  timingForKind,
+} from "./arsenal/skillCombatPhases";
+import {
+  clearMagOnReloadStart,
+  fireActionKey,
+  fireLockFromAnim,
+  GUN_BLEND,
+  GUN_MOVING_FIRE_SPEED,
+  gunMagazineSpec,
+  isGunWeapon,
+  pickReloadKind,
+  pumpActionKey,
+  reloadActionKey,
+  reloadDuration,
+  shotgunPumpDelayMs,
+} from "./combat/gunCombat";
 import {
   aoeFalloff,
   meleeStrike,
@@ -373,6 +417,10 @@ const BLOCK_BOUNCE_MM_MUL = 1.25;
  * swing. Callers clamp this to a sane window so a slow clip never feels laggy.
  */
 const FINISHER_IMPACT_FRAC = 0.55;
+/** Mid-combo swings (stage 1) — blade contact slightly before mid-clip. */
+const COMBO_IMPACT_FRAC = 0.42;
+/** Opener dash-closer — earlier than mid-combo but still on the swing, not dash peak. */
+const OPENER_IMPACT_FRAC = 0.38;
 
 /**
  * Adapt a dungeon {@link NavGrid} into a foot-IK {@link GroundSampler}. The
@@ -446,6 +494,59 @@ export class Studio {
   private targets: CombatTargets;
   /** Quirky animals pack — fauna with pathfinding, AI, corpses, butcher. */
   private wildlife: WildlifeSystem | null = null;
+  /**
+   * Danger Room harvest lab (Conan Phase C): staged tree/rock props, soft-lock
+   * when no foe preferred, melee stages → wood/stone drops.
+   */
+  private harvestLab: HarvestLab | null = null;
+  /**
+   * Danger Room camp lab (Conan Phase D): 1 m snap foundations/walls/pillars,
+   * spends harvest wallet. Same Controller session — **B** toggles mode; LMB/RMB gated.
+   */
+  private campLab: CampLab | null = null;
+  /** Optional Railway bag flush for lab drops (no-op when logged out). */
+  private harvestBag: AccountBagSync | null = null;
+  /**
+   * Survival product surface (Phase E lab): combat · harvest · build.
+   * Build is also toggled by KeyB (CampLab). Harvest tools via KeyU wheel.
+   */
+  private activityMode: ActivityMode = "combat";
+  private activityTool = "axe";
+  private toolWheelOpen = false;
+  private craftedTools: CraftedToolsState = loadCraftedTools();
+
+  /** Snapshot for pure activity input resolver (normalized mode/wheel). */
+  private activityInputState() {
+    const n = normalizeActivityState(this.activityMode, this.toolWheelOpen);
+    // Heal illegal pairs on read so HUD + resolve never see desync.
+    this.activityMode = n.mode;
+    this.toolWheelOpen = n.toolWheelOpen;
+    return {
+      mode: n.mode,
+      toolWheelOpen: n.toolWheelOpen,
+      castActive: this.castCtrl.isActive(),
+    };
+  }
+
+  /** Keep CampLab.active aligned with activityMode === "build". */
+  private syncBuildLab(buildOn: boolean) {
+    if (!this.campLab) return;
+    if (buildOn && !this.campLab.active) this.campLab.setMode(true);
+    if (!buildOn && this.campLab.active) this.campLab.setMode(false);
+  }
+
+  /**
+   * Commit activity mode + wheel, sync camp lab, drop illegal block hold.
+   * Call after every mode transition (B / U / Esc / blueprint / tool equip).
+   */
+  private commitActivityMode(mode: ActivityMode, toolWheelOpen: boolean) {
+    const n = normalizeActivityState(mode, toolWheelOpen);
+    this.activityMode = n.mode;
+    this.toolWheelOpen = n.toolWheelOpen;
+    this.syncBuildLab(n.mode === "build");
+    // Block is illegal in build — release so E-hold cannot stick across modes.
+    if (!modeAllowsBlock(n.mode) && this.blocking) this.endBlock();
+  }
   /** Skillwrite cast aiming (target lock / ground AOE ring). */
   private castCtrl = new CastController();
   /**
@@ -685,6 +786,13 @@ export class Studio {
   private maxStamina = 120;
   private skillCooldown = 0;
   private skillCooldownMax = 0;
+  /** Active skill wind-up remaining (s) — HUD cast charge (Elden-style telegraph). */
+  private castCharge = 0;
+  private castChargeMax = 0;
+  /** Firearm magazine remaining; -1 = n/a. */
+  private ammoInClip = -1;
+  private ammoClipMax = 0;
+  private gunReloadTimer = 0;
   private swingTimer = 0;
   /** Slash colour of the in-progress swing, used by the clean blade-trail ribbon. */
   private swingColor = 0x9fe8ff;
@@ -823,25 +931,36 @@ export class Studio {
   private onMouseDown = (e: MouseEvent) => {
     this.sfx?.resume();
     if (!this.input.locked) return;
-    if (e.button === 0) {
-      // Ground AOE / target cast: LMB confirms placement instead of attacking.
-      if (this.castCtrl.isActive()) {
+    // Normalize mode/wheel + camp lab before mouse resolve.
+    this.commitActivityMode(this.activityMode, this.toolWheelOpen);
+    const intent = resolveActivityMouse(this.activityInputState(), e.button);
+    switch (intent.type) {
+      case "cast_confirm":
         this.confirmSkillCast();
-        return;
-      }
-      this.attack();
-    } else if (e.button === 1) {
-      // Middle mouse (M3): the relocated motion-attack (formerly KeyT). Sits in
-      // place as the knock-up / stagger combo-starter slot.
-      e.preventDefault();
-      this.motionAttack(ATTACK3_MOTION);
-    } else if (e.button === 2) {
-      if (this.castCtrl.isActive()) {
+        break;
+      case "cast_cancel":
         this.castCtrl.cancel();
         this.castRunes.hide();
-        return;
-      }
-      this.toggleLock();
+        break;
+      case "build_place":
+        this.campPlace();
+        break;
+      case "build_remove":
+        this.campRemove();
+        break;
+      case "attack":
+        this.attack();
+        break;
+      case "motion_attack":
+        e.preventDefault();
+        this.motionAttack(ATTACK3_MOTION);
+        break;
+      case "lock_toggle":
+        this.toggleLock();
+        break;
+      default:
+        if (e.button === 1) e.preventDefault();
+        break;
     }
   };
   private onMouseUp = (_e: MouseEvent) => {};
@@ -941,6 +1060,27 @@ export class Studio {
         this.wildlife?.spawnDefault(10);
       })
       .catch((err) => console.warn("[Studio] wildlife load failed", err));
+    // Conan Phase C lab: staged trees/rocks; soft-lock when no foe; melee stages.
+    this.harvestLab = new HarvestLab(this.scene);
+    this.harvestBag = new AccountBagSync({ token: readFleetToken() });
+    this.harvestLab.onDrop = (drops, at) => this.onHarvestLabDrop(drops, at);
+    // Conan Phase D lab: kenney GLB snap pad + blueprint browser (B).
+    this.campLab = new CampLab(this.scene);
+    // Seed hatchet/pick if never crafted so harvest loop works offline.
+    if (!Object.keys(this.craftedTools.crafted).length) {
+      this.craftedTools = {
+        crafted: { tool_hatchet: Date.now(), tool_pickaxe: Date.now() },
+        activeToolId: "tool_hatchet",
+        updatedAt: Date.now(),
+      };
+      saveCraftedTools(this.craftedTools);
+      this.activityTool = "axe";
+    } else if (this.craftedTools.activeToolId) {
+      const t = toolByActivity(
+        HARVEST_TOOLS.find((x) => x.id === this.craftedTools.activeToolId)?.activityTool ?? "axe",
+      );
+      this.activityTool = t?.activityTool ?? "axe";
+    }
     this.status = new StatusController(this.scene);
     this.indicators = new TargetIndicators(this.scene);
     this.telegraphs = new TelegraphField(this.scene);
@@ -1032,11 +1172,13 @@ export class Studio {
           // hits while stunned (1.5s from combatModel.player.stunnedDuration).
           this.blocking = false;
           this.blockViaTouch = false;
+          this.character?.setBlock?.(false);
           this.setCombatFlash("STUNNED", 1.5);
           if (clip) this.reactWithClip(clip, 0.1);
         } else if (state === "fallen") {
           this.blocking = false;
           this.blockViaTouch = false;
+          this.character?.setBlock?.(false);
           this.setCombatFlash("KNOCKED DOWN", 1.5);
           if (clip) this.reactWithClip(clip, 0.1);
           this.schedule(0.95, () => this.character?.reaction?.("fallen", 0.15, true));
@@ -1068,6 +1210,7 @@ export class Studio {
               this.status.apply("exhausted");
               this.blocking = false;
               this.blockViaTouch = false;
+              this.character?.setBlock?.(false);
             }
             break;
         }
@@ -1269,6 +1412,8 @@ export class Studio {
     }
     this.physics = physics;
     this.bags = bags;
+    // Phase B: camp pieces get static Rapier cuboids when placed.
+    this.campLab?.setPhysics(physics);
     this.markReady("physics");
   }
 
@@ -1276,6 +1421,66 @@ export class Studio {
   private hitBags(center: THREE.Vector3, radius: number, force: number, damage = 0) {
     this.bags?.blast(center, radius, force, damage);
     this.arena?.blastBags(center, radius, force, damage);
+    // Harvest lab stages on the same melee strike sphere (survival gather feel).
+    if (damage > 0) this.hitHarvestLab(center, radius, damage);
+  }
+
+  /** Stage a harvest node under the strike; flash + optional bag enqueue on break. */
+  private hitHarvestLab(center: THREE.Vector3, radius: number, damage: number) {
+    if (!this.harvestLab) return;
+    const toolDef = toolByActivity(this.activityTool);
+    const power = toolDef ? toolPower(toolDef) : 10;
+    const baseDmg = Math.max(6, Math.round(damage * 0.55 * (0.65 + power / 40)));
+    const r = this.harvestLab.hitNear(center, radius, baseDmg, this.activityTool);
+    if (!r.hit) return;
+    if (r.finished && r.drops.length) return;
+    const label = r.kind === "wood" ? "TREE" : r.kind === "stone" ? "ROCK" : "NODE";
+    const toolHint = r.wrongTool ? " · wrong tool (U)" : r.matched ? "" : " · weak tool";
+    this.setCombatFlash(`${label} ${r.stage}/${r.maxStages}${toolHint}`, 0.5);
+    this.sfx?.play("bodyHit", center, { volume: 0.55, rate: r.matched ? 0.9 : 0.75 });
+    this.vfx.impact(center, r.kind === "wood" ? 0x6b4423 : 0x7a7e86, Math.min(0.9, radius));
+  }
+
+  private onHarvestLabDrop(drops: LabHarvestDrop[], at: THREE.Vector3) {
+    const bits = drops.map((d) => `${d.resourceId.toUpperCase()} ×${d.amount}`).join(" · ");
+    this.setCombatFlash(bits || "GATHERED", 1.4);
+    this.vfx.burst(at.clone().setY(at.y + 0.6), 0xc4a060, 18, 3);
+    this.sfx?.play("heavyHit", at, { volume: 0.7 });
+    // Feed Phase D camp wallet (local lab) + Railway bag when signed in.
+    this.campLab?.addDrops(drops);
+    this.harvestBag?.setToken(readFleetToken());
+    for (const d of drops) this.harvestBag?.enqueue(d.resourceId, d.amount);
+  }
+
+  /** Camp lab: place current piece on 1 m snap under aim. */
+  private campPlace() {
+    if (!this.campLab || !this.character || !this.controller) return;
+    const r = this.campLab.tryPlace(this.character.root.position, this.controller.forward());
+    if (r.ok) {
+      const w = this.campLab.snapshotWallet();
+      this.setCombatFlash(`PLACED ${r.piece?.toUpperCase()} · W${w.wood} S${w.stone}`, 0.9);
+      this.sfx?.play("bodyHit", this.character.root.position, { volume: 0.5, rate: 0.85 });
+      this.vfx.burst(
+        this.character.root.position.clone().addScaledVector(this.controller.forward(), 2).setY(0.4),
+        0x8b7355,
+        10,
+        2,
+      );
+    } else {
+      this.setCombatFlash(r.reason ?? "CANNOT PLACE", 0.7);
+    }
+  }
+
+  /** Camp lab: remove + refund nearest/aimed piece. */
+  private campRemove() {
+    if (!this.campLab || !this.character || !this.controller) return;
+    const r = this.campLab.tryRemove(this.character.root.position, this.controller.forward());
+    if (r.ok) {
+      const w = this.campLab.snapshotWallet();
+      this.setCombatFlash(`REMOVED · W${w.wood} S${w.stone}`, 0.7);
+    } else {
+      this.setCombatFlash("NO PIECE", 0.4);
+    }
   }
 
   private setupLights() {
@@ -1393,7 +1598,9 @@ export class Studio {
     // on every character swap. The dungeon/arena KCC ignores this when active.
     this.controller.setObstacles(() => {
       const npcs = this.targets instanceof Targets ? this.targets.obstacleCircles() : [];
-      return [...this.room.obstacles, ...npcs];
+      const harvest = this.harvestLab?.obstacleCircles() ?? [];
+      const camp = this.campLab?.obstacleCircles() ?? [];
+      return [...this.room.obstacles, ...npcs, ...harvest, ...camp];
     });
     // Re-apply the camera framing (controller is rebuilt on every swap).
     this.controller.setViewMode(this.viewMode);
@@ -1532,7 +1739,7 @@ export class Studio {
 
   /** Play a clip once as a live preview (used by the Animations panel). */
   previewClip(name: string) {
-    this.character?.playClipOnce(name, 0.15);
+    this.character?.playClipOnce(name);
   }
 
   /** Orient the model: per-character base offset plus the live editor offset. */
@@ -1558,6 +1765,20 @@ export class Studio {
     // Remember the choice even for a martial artist, so it re-applies when the
     // player later switches to a weapon-capable character.
     this.weaponId = id;
+    // Reset magazine when swapping guns (full mag on equip).
+    this.gunReloadTimer = 0;
+    this.pistolShots = 0;
+    this.ensureGunMagazine();
+    if (isGunWeapon(id)) {
+      const spec = gunMagazineSpec(id);
+      if (spec) {
+        this.ammoClipMax = spec.capacity;
+        this.ammoInClip = spec.capacity;
+      }
+    } else {
+      this.ammoInClip = -1;
+      this.ammoClipMax = 0;
+    }
 
     // Swap the rig's animation set (procedural Explorer maps id -> animSet clips;
     // the GLB Character has no clip-swap and ignores this).
@@ -1956,6 +2177,49 @@ export class Studio {
       this.doPistolPrimary(def.kiter);
       return;
     }
+    // Production firearms (rifle / hunter-rifle / shotgun): shoot clips + magazine.
+    // Fire lock is set inside doGunPrimary from real clip duration.
+    if (isGunWeapon(this.weaponId) && this.weaponId !== "pistol") {
+      if (this.pistolLock > 0 || this.gunReloadTimer > 0) return;
+      const combat = weaponCombat(this.weaponId);
+      const target = this.pickCrosshairTarget(combat);
+      let dist = Infinity;
+      let dir = this.controller?.forward() ?? new THREE.Vector3(0, 0, 1);
+      if (target) {
+        const planar = this.toTargetPlanar(target);
+        dist = planar.dist;
+        dir = planar.dir.clone();
+      }
+      this.controller?.faceToward(dir, 0.25);
+      this.doGunPrimary(dir, target, dist);
+      return;
+    }
+    // Bare pistol without kiter kit — still use magazine + shoot clip.
+    if (this.weaponId === "pistol") {
+      if (this.pistolLock > 0 || this.gunReloadTimer > 0) return;
+      const combat = weaponCombat("pistol");
+      const target = this.pickCrosshairTarget(combat);
+      let dist = Infinity;
+      let dir = this.controller?.forward() ?? new THREE.Vector3(0, 0, 1);
+      if (target) {
+        const planar = this.toTargetPlanar(target);
+        dist = planar.dist;
+        dir = planar.dir.clone();
+      }
+      this.controller?.faceToward(dir, 0.25);
+      // Reuse kiter shot path with a minimal kit if character has no kiter def.
+      const kit = def.kiter ?? {
+        clipSize: 6,
+        kickRange: 1.6,
+        kickDamage: 18,
+        shotDamage: 12,
+        blastRadius: 2.4,
+        blastDamage: 28,
+        backstep: 1.1,
+      };
+      this.doPistolShot(kit as KiterKit, dir, target, dist);
+      return;
+    }
     // Weapon characters run a 3-hit combo. A brief lock stops spam from skipping
     // stages; the chain window (comboTimer) resets the combo to hit 0 when idle.
     if (this.comboLock > 0) return;
@@ -2106,7 +2370,7 @@ export class Studio {
       dur = this.character.playClipOverlay(overlayName, cstate.speed);
     }
     if (dur <= 0) {
-      if (overlayName) dur = this.character.playClipOnce(overlayName, 0.1);
+      if (overlayName) dur = this.character.playClipOnce(overlayName);
       else if (this.character.hasRole("attack")) dur = this.character.playRoleOnce("attack", 0.1);
     }
     this.swingTimer = dur > 0 ? dur * 0.45 : 0.2;
@@ -2166,10 +2430,16 @@ export class Studio {
       this.controller.dash(dir, close, dashDur, 0, impactAt);
       // Motion-blur tail built from the character's OWN mesh.
       this.vfx.afterimage(this.character.root, origin, dir, Math.max(close, 0.6), color, 4, 0.3);
-      this.scheduleComboHit(dashDur * impactAt, dir, rMin, rMax, intensityN, color, finisher, verdict);
+      // Hit on clip impact (not dash peak) so opener slash + harvest stages land
+      // with the blade — same family as mid-combo / finisher timing below.
+      const hitDelay =
+        dur > 0
+          ? THREE.MathUtils.clamp(dur * OPENER_IMPACT_FRAC, 0.1, 0.65)
+          : dashDur * impactAt;
+      this.scheduleComboHit(hitDelay, dir, rMin, rMax, intensityN, color, finisher, verdict);
     } else {
       // Forward gap-closer lunge (USER-DIRECTED): each follow-up swing drives the
-      // body INTO the enemy. Base advance comes from the motion-math knob; a small
+      // body INTO the enemy. Base advance comes from the motion-math knobs; a small
       // intensity bonus keeps heavier weapons hitting weightier. Only a slight
       // recoil so the combo keeps the ground it gained (~1m+ across hits 1-2).
       const lunge = COMBO_ADVANCE_MM * MM_TO_M + 0.3 * intensityN;
@@ -2177,12 +2447,11 @@ export class Studio {
       const impactAt = 0.5;
       this.lastAttackDashM = lunge;
       this.controller.dash(dir, lunge, dashDur, lunge * 0.12, impactAt);
-      // The finisher is a big committed swing whose blade lands near the END of the
-      // clip; time its hit to the real clip impact (not the ~90 ms dash impact) so
-      // the damage/VFX connect with the swing instead of resolving in empty air.
+      // All non-opener hits resolve on real clip impact (finisher later in clip).
+      const frac = finisher ? FINISHER_IMPACT_FRAC : COMBO_IMPACT_FRAC;
       const hitDelay =
-        finisher && dur > 0
-          ? THREE.MathUtils.clamp(dur * FINISHER_IMPACT_FRAC, 0.12, 0.7)
+        dur > 0
+          ? THREE.MathUtils.clamp(dur * frac, 0.12, 0.72)
           : dashDur * impactAt;
       this.scheduleComboHit(hitDelay, dir, rMin, rMax, intensityN, color, finisher, verdict);
     }
@@ -2577,6 +2846,8 @@ export class Studio {
     // Cannot re-raise while stunned / shield-broken (1.5s guard-break window).
     const st = this.sparring?.getPlayerState?.();
     if (st === "stunned" || st === "fallen" || st === "dead") return;
+    // Already holding: keep CC + pose; avoid re-spending raise stamina / re-blending.
+    if (this.blocking) return;
     this.blocking = true;
     // Single combat authority: raise the player CC's guard. Block is **E (hold)**.
     // Hits while holding spend stamina equal to damage (HP diverted). Release
@@ -2584,12 +2855,16 @@ export class Studio {
     // stun + Exhausted stack) while the attacker is still bounced.
     // Lock-on stays on RMB; soft-lock keeps facing during guard.
     this.sparring?.startBlock();
+    // Visual guard: same hold path AI dummies use (looped blockIdle / blockStart).
+    this.character?.setBlock?.(true);
   }
   private endBlock() {
     this.blocking = false;
     this.blockViaTouch = false;
     // CC endBlock starts the fast post-block stamina recovery window.
     this.sparring?.endBlock();
+    // Drop looped guard pose (mirrors AI dummy setBlock(false)).
+    this.character?.setBlock?.(false);
   }
 
   /** E/Ctrl+Space: aerial guard — hop while keeping the raised block up. */
@@ -2649,9 +2924,9 @@ export class Studio {
     // Prefer stylish flip → front flip → kip-up reaction
     let flipDur = 0.55;
     if (this.character.hasClip("stylishFlip")) {
-      flipDur = this.character.playClipOnce("stylishFlip", 0.07) || 0.55;
+      flipDur = this.character.playClipOnce("stylishFlip") || 0.55;
     } else if (this.character.hasClip("frontFlip")) {
-      flipDur = this.character.playClipOnce("frontFlip", 0.07) || 0.55;
+      flipDur = this.character.playClipOnce("frontFlip") || 0.55;
     } else if (this.character.reaction) {
       if (!this.character.reaction("kipUp", 0.1)) this.playPlayerReaction("kipUp");
       flipDur = 0.5;
@@ -3157,7 +3432,7 @@ export class Studio {
         } else {
           // GLB fallback: try a named clip ("wall_crash" / "Wall Crash"), else hurt.
           const hasWallCrash = c.hasClip("wall_crash") || c.hasClip("Wall Crash");
-          if (hasWallCrash) c.playClipOnce(c.hasClip("wall_crash") ? "wall_crash" : "Wall Crash", 0.55);
+          if (hasWallCrash) c.playClipOnce(c.hasClip("wall_crash") ? "wall_crash" : "Wall Crash");
           else if (c.hasRole("hurt")) c.playRoleOnce("hurt", 0.55);
         }
         this.schedule(1.8, () => this.playPlayerReaction("getUp"));
@@ -3168,7 +3443,7 @@ export class Studio {
           c.reaction("getUp", 0.2);
         } else {
           const hasGetUp = c.hasClip("get_up") || c.hasClip("Get Up");
-          if (hasGetUp) c.playClipOnce(c.hasClip("get_up") ? "get_up" : "Get Up", 0.22);
+          if (hasGetUp) c.playClipOnce(c.hasClip("get_up") ? "get_up" : "Get Up");
           else if (c.hasRole("hurt")) c.playRoleOnce("hurt", 0.18);
         }
         break;
@@ -3336,7 +3611,7 @@ export class Studio {
     this.deployTurret(playerPos);
     this.controller.dash(away, 4.0, 0.3, 0, 0.6);
     this.invuln = Math.max(this.invuln, 0.3);
-    if (this.character.hasClip("airDodge")) this.character.playClipOnce("airDodge", 0.1);
+    if (this.character.hasClip("airDodge")) this.character.playClipOnce("airDodge");
     this.skyfallCooldown = 6.0;
     this.stamina = Math.max(0, this.stamina - 20);
   }
@@ -3828,15 +4103,20 @@ export class Studio {
       if (!clip && !sig && !kitSkill) return false;
       let dur = 0;
       if (clip && this.character.hasClip(clip)) {
-        dur = this.character.playClipOnce(clip, 0.12);
+        dur = this.character.playClipOnce(clip);
       } else if (this.character.hasRole("attack")) {
         // Kit may name Explorer verbs (skill/dashAttack) the GLB lacks — still VFX.
         dur = this.character.playRoleOnce("attack", 0.12);
       }
       const kind = kitSkill?.kind ?? sig?.kind ?? "slash";
       const dashMode = kitSkill?.mode === "dash" || sig?.mode === "dash";
+      // Elden-style cast / impact timing from kit (skillCombatPhases defaults).
+      const timing = kitSkill
+        ? resolveSkillTiming(kitSkill)
+        : timingForKind(kind);
+      const castT = Math.max(timing.castTime, dur > 0 ? Math.min(dur * 0.35, timing.castTime + 0.15) : timing.castTime);
       if (dashMode) {
-        this.doDashSkill(kind, origin, fwd, dur);
+        this.doDashSkill(kind, origin, fwd, Math.max(dur, castT));
       } else {
         // Aimed spells: home onto a locked/front target so the projectile arcs
         // toward the enemy instead of firing straight ahead.
@@ -3846,34 +4126,60 @@ export class Studio {
           kind === "darkBlades" ||
           kind === "swordVolley" ||
           kind === "soul" ||
-          kind === "laser";
+          kind === "laser" ||
+          kind === "bolt" ||
+          kind === "muzzle";
         const picked = aimed ? this.pickTargetInFront(origin, fwd, 22, -0.2) : null;
         const pose = this.colliderPose() ?? undefined;
-        if (aimed) {
-          // Data-driven path: every aimed signature spell runs through the
-          // orchestrator. The projectile arc + blast are owned entirely by the
-          // Vfx subsystem, so the cast is instant (duration 0) and `playSkill`
-          // fires synchronously inside `cast()` — identical to the pre-refactor
-          // inline call, but routed through the shared lifecycle so character
-          // swap / dispose `cancelAll()` covers stale closures. fireDragon +
-          // dark-blades carry a descriptive travel motion (projectile archetypes).
-          const def2: AbilityDef =
-            kind === "fireDragon"
-              ? getAbility("fireDragonSig") ?? vfxSkill(kind, SKILL_COLOR[kind], { target: "aimed", travel: "dragon", maxFlight: 3 })
-              : vfxSkill(kind, SKILL_COLOR[kind], {
-                  target: "aimed",
-                  ...(kind === "darkBlades" ? { travel: "darkBlades" as const, maxFlight: 3 } : {}),
-                });
-          this.abilities.cast(def2, {
-            onCast: () => this.vfx.playSkill(kind, origin, fwd, quat, picked?.position, undefined, pose),
-          });
-        } else {
-          this.vfx.playSkill(kind, origin, fwd, quat, picked?.position, undefined, pose);
-        }
+        const color = SKILL_COLOR[kind] ?? 0x9fe8ff;
+        // Cast phase: telegraph aura (dodge window for opponents) then impact.
+        this.castCharge = castT;
+        this.castChargeMax = castT;
+        this.abilities.cast(kitAbility(kitSkill?.id ?? kind, kind, color, castT), {
+          onCast: () => {
+            const castAt = origin.clone();
+            castAt.y += 1.1;
+            this.vfx.castAura(castAt, color);
+            if (timing.castEffect === "aura" || timing.castEffect === "charge") {
+              this.vfx.shockwave(new THREE.Vector3(origin.x, 0.05, origin.z), color, 1.4, castT);
+            }
+            this.pulseSpellPostFx(0.45);
+            this.setCombatFlash((kitSkill?.label ?? kind).toUpperCase(), Math.min(0.85, castT + 0.15));
+          },
+          onImpact: () => {
+            this.castCharge = 0;
+            if (aimed) {
+              const def2: AbilityDef =
+                kind === "fireDragon"
+                  ? getAbility("fireDragonSig") ??
+                    vfxSkill(kind, color, { target: "aimed", travel: "dragon", maxFlight: 3 })
+                  : vfxSkill(kind, color, {
+                      target: "aimed",
+                      ...(kind === "darkBlades" ? { travel: "darkBlades" as const, maxFlight: 3 } : {}),
+                    });
+              this.abilities.cast(def2, {
+                onCast: () =>
+                  this.vfx.playSkill(kind, origin, fwd, quat, picked?.position, undefined, pose),
+              });
+            } else {
+              this.vfx.playSkill(kind, origin, fwd, quat, picked?.position, undefined, pose);
+              // Melee impact blast scaled by commit time (longer cast → harder hit).
+              const mul = commitDamageMul(castT);
+              const hitAt = origin.clone().addScaledVector(fwd, 1.4);
+              hitAt.y += 1.0;
+              this.vfx.impact(hitAt, color, 1.2 + mul * 0.4);
+              if (timing.impactEffect === "shockwave" || timing.impactEffect === "slam") {
+                this.vfx.shockwave(new THREE.Vector3(hitAt.x, 0.05, hitAt.z), color, 2.2 * mul, 0.45);
+              }
+              this.targets.blast(hitAt, 1.2 + mul * 0.5, 14 * mul, this.params.skillForce * mul);
+            }
+          },
+        });
       }
-      this.skillCooldownMax = Math.max(dur, 1.4);
+      // Cooldown = cast + recovery + floor (whiff punish).
+      this.skillCooldownMax = Math.max(dur, castT + timing.recovery, 1.2);
       this.skillCooldown = this.skillCooldownMax;
-      this.stamina = Math.max(0, this.stamina - 20);
+      this.stamina = Math.max(0, this.stamina - (16 + Math.round(castT * 12)));
       return true;
     }
 
@@ -3957,18 +4263,31 @@ export class Studio {
       return this.doJavelinThrow(origin, fwd);
     }
     // Kit ability (mace2h Smite) can name Explorer verbs; GLB falls back to attack.
-    const kitAbility = w.skillKit?.ability;
-    const fClip = override ?? kitAbility?.clip;
-    if (fClip && this.character.hasClip(fClip)) this.character.playClipOnce(fClip, 0.1);
+    const kitAbilityEntry = w.skillKit?.ability;
+    const fClip = override ?? kitAbilityEntry?.clip;
+    if (fClip && this.character.hasClip(fClip)) this.character.playClipOnce(fClip);
     else if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
     // VFX kind: kit ability when present, else weapon.kind (unchanged for non-kit weapons).
-    const fKind = kitAbility?.kind ?? w.kind;
-    this.abilities.cast(vfxSkill(fKind, SKILL_COLOR[fKind]), {
-      onCast: () => this.vfx.playSkill(fKind, origin, fwd, quat, undefined, undefined, this.colliderPose() ?? undefined),
+    const fKind = kitAbilityEntry?.kind ?? w.kind;
+    const fTiming = kitAbilityEntry ? resolveSkillTiming(kitAbilityEntry) : timingForKind(fKind);
+    const fCast = fTiming.castTime;
+    this.castCharge = fCast;
+    this.castChargeMax = fCast;
+    this.abilities.cast(kitAbility(kitAbilityEntry?.id ?? fKind, fKind, SKILL_COLOR[fKind] ?? 0x9fe8ff, fCast), {
+      onCast: () => {
+        const castAt = origin.clone();
+        castAt.y += 1.1;
+        this.vfx.castAura(castAt, SKILL_COLOR[fKind] ?? 0x9fe8ff);
+        this.pulseSpellPostFx(0.4);
+      },
+      onImpact: () => {
+        this.castCharge = 0;
+        this.vfx.playSkill(fKind, origin, fwd, quat, undefined, undefined, this.colliderPose() ?? undefined);
+      },
     });
-    this.skillCooldownMax = w.cooldown;
-    this.skillCooldown = w.cooldown;
-    this.stamina = Math.max(0, this.stamina - 15);
+    this.skillCooldownMax = Math.max(w.cooldown, fCast + fTiming.recovery);
+    this.skillCooldown = this.skillCooldownMax;
+    this.stamina = Math.max(0, this.stamina - (15 + Math.round(fCast * 10)));
     return true;
   }
 
@@ -4255,7 +4574,7 @@ export class Studio {
     const SLOW_SECONDS = 3.0;
     // Play the slash; "quicker" via a slightly faster fade-in than the heavy slide.
     const dur = this.character.hasClip(SLASH_CLIP)
-      ? this.character.playClipOnce(SLASH_CLIP, 0.08)
+      ? this.character.playClipOnce(SLASH_CLIP)
       : this.character.hasRole("attack")
         ? this.character.playRoleOnce("attack", 0.08)
         : 0.4;
@@ -4308,7 +4627,7 @@ export class Studio {
     const RADIUS = 1.5;
     // Wind-up/release pose: the dedicated throw clip if present, else the generic
     // attack role (both no-op cleanly on rigs lacking either).
-    if (this.character.hasClip("throw")) this.character.playClipOnce("throw", 0.1);
+    if (this.character.hasClip("throw")) this.character.playClipOnce("throw");
     else if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
     // Lead toward an assist-cone target so the throw tracks an enemy in front.
     const cfg = this.assistConfig();
@@ -4366,15 +4685,15 @@ export class Studio {
       this.doPistolKick(kit, dir);
       this.pistolLock = 0.42;
     } else {
+      // doPistolShot sets pistolLock from real fire-clip duration.
       this.doPistolShot(kit, dir, target, dist);
-      this.pistolLock = 0.18;
     }
   }
 
   /** Close-quarters MMA kick: a short step-in strike with knockback + stun flash. */
   private doPistolKick(kit: KiterKit, dir: THREE.Vector3) {
     if (!this.character || !this.controller) return;
-    const dur = this.character.playClipOnce("mmaKick", 0.1);
+    const dur = this.character.playClipOnce("mmaKick");
     this.controller.dash(dir, 0.5, 0.18, 0, 0.5);
     this.abilities.cast(kitAbility("pistolKick", "slam", 0xfff2a8, dur > 0 ? dur * 0.4 : 0.18), {
       onImpact: () => {
@@ -4393,20 +4712,121 @@ export class Studio {
    * away. Ordinary rounds are precise tracers; the final round of the clip is an
    * explosive colorful bullet with an AoE blast, after which the clip reloads.
    */
+  /**
+   * Start a production gun reload: pick empty / tactical / crouch variant,
+   * play the matching ActionKey clip, lock fire until timer ends.
+   * Tactical keeps remaining rounds on the HUD until complete; empty clears now.
+   */
+  private beginGunReload(opts?: { forceEmpty?: boolean; crouching?: boolean }): boolean {
+    if (!this.character) return false;
+    if (this.gunReloadTimer > 0) return false;
+    const spec = gunMagazineSpec(this.weaponId);
+    if (!spec) return false;
+    // Already full and not force-empty → no-op (manual R feel).
+    if (!opts?.forceEmpty && this.ammoInClip >= spec.capacity) {
+      this.setCombatFlash("MAG FULL", 0.35);
+      return false;
+    }
+    const crouchHeld =
+      opts?.crouching === true ||
+      this.input.keys.has("ControlLeft") ||
+      this.input.keys.has("ControlRight") ||
+      this.input.keys.has("KeyC");
+    const kind = opts?.forceEmpty
+      ? "empty"
+      : pickReloadKind({
+          ammoInClip: Math.max(0, this.ammoInClip),
+          crouching: crouchHeld,
+        });
+    const action = reloadActionKey(kind);
+    let animDur = 0;
+    if (this.character.hasClip(action)) {
+      animDur = this.character.playClipOnce(action, GUN_BLEND.reload);
+    } else if (this.character.hasClip("reload")) {
+      animDur = this.character.playClipOnce("reload", GUN_BLEND.reload);
+    }
+    const timer = Math.max(reloadDuration(spec, kind), animDur > 0 ? animDur * 0.92 : 0);
+    this.gunReloadTimer = timer;
+    // Empty chamber: clear now. Tactical: keep partial ammo visible until end.
+    if (clearMagOnReloadStart(kind) || opts?.forceEmpty) {
+      this.ammoInClip = 0;
+    }
+    this.pistolShots = 0;
+    this.setCombatFlash(
+      kind === "tactical" ? "TACTICAL RELOAD" : kind === "crouch" ? "CROUCH RELOAD" : "RELOAD",
+      0.65,
+    );
+    return true;
+  }
+
+  /**
+   * Play a gun fire verb with production blending:
+   * - moving on ground → upper-body overlay (legs keep walking)
+   * - still → snappy full-body one-shot
+   * Returns clip duration (0 if missing).
+   */
+  private playGunFireClip(fireKey: string): number {
+    if (!this.character) return 0;
+    const cstate = this.controller?.state;
+    const moving =
+      !!cstate?.grounded && (cstate.speed ?? 0) > GUN_MOVING_FIRE_SPEED;
+    let dur = 0;
+    if (moving && this.character.playClipOverlay && this.character.hasClip(fireKey)) {
+      dur = this.character.playClipOverlay(fireKey, cstate!.speed);
+    }
+    if (dur <= 0 && this.character.hasClip(fireKey)) {
+      dur = this.character.playClipOnce(fireKey, GUN_BLEND.fire);
+    }
+    return dur;
+  }
+
+  private ensureGunMagazine(): void {
+    const spec = gunMagazineSpec(this.weaponId);
+    if (!spec) {
+      this.ammoInClip = -1;
+      this.ammoClipMax = 0;
+      return;
+    }
+    if (this.ammoClipMax !== spec.capacity) {
+      this.ammoClipMax = spec.capacity;
+      if (this.ammoInClip < 0 || this.ammoInClip > spec.capacity) {
+        this.ammoInClip = spec.capacity;
+      }
+    }
+  }
+
   private doPistolShot(kit: KiterKit, dir: THREE.Vector3, target: TargetHandle | null, dist: number) {
     if (!this.character || !this.controller) return;
+    this.ensureGunMagazine();
+    if (this.gunReloadTimer > 0) {
+      this.setCombatFlash("RELOADING", 0.35);
+      return;
+    }
+    if (this.ammoInClip <= 0) {
+      this.beginGunReload({ forceEmpty: true });
+      return;
+    }
+    this.ammoInClip = Math.max(0, this.ammoInClip - 1);
     this.pistolShots += 1;
-    const explosive = this.pistolShots >= kit.clipSize;
+    const explosive = this.pistolShots >= kit.clipSize || this.ammoInClip <= 0;
     const color = explosive ? 0xff8a3c : 0xfff2a8;
-    // Recoil kick (decays over the next frames) + hit-marker on a confirmed target.
     this.recoil.kick(explosive ? 0.05 : 0.025, explosive ? 0.05 : 0.025);
     if (target) this.hitMarkerCount += 1;
 
-    // The explosive round uses the charged pose; ordinary rounds the gunplay attack.
-    if (explosive) this.character.playClipOnce("chargedShot", 0.1);
-    else if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
+    // Production fire clips: chargedShot on explosive, else shoot (gunplay pack).
+    // Moving → torso overlay so legs keep kiting; still → snappy full-body.
+    let fireDur = 0;
+    if (explosive && this.character.hasClip("chargedShot")) {
+      fireDur = this.playGunFireClip("chargedShot");
+    } else if (this.character.hasClip("shoot")) {
+      fireDur = this.playGunFireClip("shoot");
+    } else if (this.character.hasRole("attack")) {
+      fireDur = this.character.playRoleOnce("attack", GUN_BLEND.fire);
+    }
+    this.pistolLock = fireLockFromAnim("pistol", fireDur, explosive ? 0.7 : 0.5);
 
     const origin = this.muzzleOrigin(dir);
+    this.vfx.muzzleFlash(origin, dir, color, explosive ? 1.15 : 0.9);
     this.vfx.burst(origin, color, explosive ? 16 : 9, 3);
     const range = target ? THREE.MathUtils.clamp(dist + 0.3, 2, 24) : 24;
     const speed = explosive ? 34 : 48;
@@ -4421,19 +4841,82 @@ export class Studio {
       }
     });
 
-    // Kiter mobility: reverse-motion-math back-step away from the aim line after
-    // firing. The hop grants a brief i-frame window so the backpedal reads as a
-    // real evasive dodge (the kiter's shoot-and-slip fantasy) rather than a
-    // cosmetic shuffle. A cooldown gates the i-frames so rapid fire (re-fire lock
-    // is only 0.18s) can't chain the 0.22s window into continuous immunity — the
-    // dodge covers one backstep, then there's a real vulnerable beat before it
-    // re-arms. Only the ranged backstep dodges, never the close-range MMA kick.
     this.controller.dash(dir.clone().negate(), kit.backstep, 0.22, 0, 0.5);
     if (this.pistolDodgeCd <= 0) {
       this.invuln = Math.max(this.invuln, 0.22);
       this.pistolDodgeCd = 0.6;
     }
-    if (explosive) this.pistolShots = 0;
+    if (this.ammoInClip <= 0) {
+      this.beginGunReload({ forceEmpty: true });
+    }
+  }
+
+  /**
+   * Generic production gun primary (rifle / hunter-rifle / shotgun).
+   * Uses shoot/hipFire clips + magazine reloads.
+   */
+  private doGunPrimary(dir: THREE.Vector3, target: TargetHandle | null, dist: number) {
+    if (!this.character || !this.controller) return;
+    if (!isGunWeapon(this.weaponId) || this.weaponId === "pistol") return;
+    this.ensureGunMagazine();
+    if (this.gunReloadTimer > 0) {
+      this.setCombatFlash("RELOADING", 0.3);
+      return;
+    }
+    if (this.ammoInClip <= 0) {
+      this.beginGunReload({ forceEmpty: true });
+      return;
+    }
+    this.ammoInClip -= 1;
+    const shotgun = this.weaponId === "shotgun";
+    const fireKey = fireActionKey(this.weaponId, shotgun);
+    let fireDur = 0;
+    if (this.character.hasClip(fireKey)) fireDur = this.playGunFireClip(fireKey);
+    else if (this.character.hasClip("shoot")) fireDur = this.playGunFireClip("shoot");
+    else if (this.character.hasRole("attack")) {
+      fireDur = this.character.playRoleOnce("attack", GUN_BLEND.fire);
+    }
+    this.pistolLock = fireLockFromAnim(this.weaponId, fireDur, shotgun ? 0.62 : 0.55);
+
+    const origin = this.muzzleOrigin(dir);
+    const color = shotgun ? 0xffc878 : 0xfff2a8;
+    this.vfx.muzzleFlash(origin, dir, color, shotgun ? 1.3 : 1.0);
+    this.vfx.burst(origin, color, shotgun ? 14 : 10, shotgun ? 4 : 3);
+    this.recoil.kick(shotgun ? 0.06 : 0.03, shotgun ? 0.05 : 0.025);
+    if (target) this.hitMarkerCount += 1;
+
+    const range = shotgun
+      ? Math.min(14, target ? dist + 0.5 : 10)
+      : target
+        ? THREE.MathUtils.clamp(dist + 0.4, 3, 32)
+        : 28;
+    const speed = shotgun ? 30 : 50;
+    const pellets = shotgun ? 5 : 1;
+    for (let i = 0; i < pellets; i++) {
+      const spread = shotgun ? (Math.random() - 0.5) * 0.18 : 0;
+      const d = dir.clone();
+      d.x += spread;
+      d.y += spread * 0.4;
+      d.z += spread;
+      d.normalize();
+      this.vfx.bolt(origin, d, color, speed, range, (p) => {
+        const r = shotgun ? 1.1 : 0.75;
+        const dmg = shotgun ? 9 : this.weaponId === "hunter-rifle" ? 22 : 14;
+        this.vfx.impact(p, color, shotgun ? 1.6 : 1.2);
+        this.targets.blast(p, r, dmg, this.params.skillForce * (shotgun ? 0.7 : 0.55));
+      });
+    }
+    // Shotgun pump rack after hip-fire (delay rides fire clip so it doesn't stack).
+    if (shotgun && this.character.hasClip(pumpActionKey())) {
+      const pump = pumpActionKey();
+      const delay = shotgunPumpDelayMs(fireDur);
+      window.setTimeout(() => {
+        if (this.character && this.weaponId === "shotgun" && this.gunReloadTimer <= 0) {
+          this.character.playClipOnce(pump, GUN_BLEND.pump);
+        }
+      }, delay);
+    }
+    if (this.ammoInClip <= 0) this.beginGunReload({ forceEmpty: true });
   }
 
   // ------------------------------------------------- Kiter signature skills (1-4)
@@ -4491,7 +4974,7 @@ export class Studio {
       dist = planar.dist;
     }
     this.controller.faceToward(dir, 0.2);
-    this.character.playClipOnce("chargedShot", 0.1);
+    this.character.playClipOnce("chargedShot");
     for (let i = 0; i < 3; i++) {
       this.abilities.cast(kitAbility("pistolQuickDraw", "bolt", 0xfff2a8, i * 0.12), {
         onImpact: () => {
@@ -4553,7 +5036,7 @@ export class Studio {
     const near = this.targets.nearest(this.character.root.position, 1)[0];
     const cdir = near ? this.toTargetPlanar(near).dir.clone() : this.facing();
     this.controller.faceToward(cdir, 0.2);
-    const d1 = this.character.playClipOnce("pistolWhip", 0.1);
+    const d1 = this.character.playClipOnce("pistolWhip");
     this.abilities.cast(kitAbility("pistolWhip", "slam", 0xc8d4e6, d1 > 0 ? d1 * 0.4 : 0.18), {
       onImpact: () => {
         if (!this.character) return;
@@ -4563,7 +5046,7 @@ export class Studio {
         this.vfx.impact(c, 0xc8d4e6, kit.kickRange + 0.6);
         this.markStun(c, kit.kickRange + 0.6);
         // Uppercut finisher launches the target up.
-        this.character.playClipOnce("uppercut", 0.1);
+        this.character.playClipOnce("uppercut");
         this.abilities.cast(kitAbility("pistolUppercut", "slam", 0xfff2a8, 0.18), {
           onImpact: () => {
             if (!this.character) return;
@@ -4586,7 +5069,7 @@ export class Studio {
    */
   private doPistolSig2(kit: KiterKit): boolean {
     if (!this.character || !this.controller) return false;
-    this.character.playClipOnce("mmaKick", 0.1);
+    this.character.playClipOnce("mmaKick");
     const target = this.pickCrosshairTarget(weaponCombat("pistol"));
     const from = this.muzzleOrigin(this.controller.forward());
     let to: THREE.Vector3;
@@ -4615,7 +5098,7 @@ export class Studio {
    */
   private doPistolSig3(kit: KiterKit): boolean {
     if (!this.character || !this.controller) return false;
-    this.character.playClipOnce("chargedShot", 0.1);
+    this.character.playClipOnce("chargedShot");
     this.controller.startHover(2.4, 2.5);
     // Lock onto the crosshair target so the beam — and the damage resolved along
     // its swept line below — tracks the aimed enemy instead of firing straight
@@ -4715,7 +5198,7 @@ export class Studio {
     const back = this.facing().negate();
     const origin = this.character.root.position.clone();
     origin.y += 1.0;
-    this.character.playClipOnce("backJump", 0.1);
+    this.character.playClipOnce("backJump");
     this.vfx.smokePop(origin, color, 1.1);
     this.vfx.puff(origin, color, 14, 1.2);
     this.controller.dash(back, kit.backstep, 0.42, 0, 0.5);
@@ -4731,7 +5214,7 @@ export class Studio {
   private doArcaneSouls(kit: ArcaneKit): boolean {
     if (!this.character || !this.controller) return false;
     const color = SKILL_COLOR.soul;
-    this.character.playClipOnce("magicAttack", 0.12);
+    this.character.playClipOnce("magicAttack");
     const center = this.character.root.position.clone();
     const fwd = this.facing();
     const muzzle = () => {
@@ -4780,7 +5263,7 @@ export class Studio {
     if (!this.character || !this.controller) return false;
     const color = SKILL_COLOR.soul;
     const origin = this.character.root.position.clone();
-    this.character.playClipOnce("longBackJump", 0.1);
+    this.character.playClipOnce("longBackJump");
 
     // Lob the bombs from the caster's hand to a small ring around the launch point.
     const hand = origin.clone();
@@ -4832,7 +5315,7 @@ export class Studio {
   private doArcaneNova(kit: ArcaneKit): boolean {
     if (!this.character || !this.controller) return false;
     const color = SKILL_COLOR.soul;
-    this.character.playClipOnce("magicArea", 0.12);
+    this.character.playClipOnce("magicArea");
     this.abilities.cast(kitAbility("arcaneNova", "nova", color, 0.18), {
       onImpact: () => {
         if (!this.character || this.disposed) return;
@@ -4873,7 +5356,7 @@ export class Studio {
     this.castRunes.release(0.45);
     const origin = this.character.root.position.clone();
     const fwd = this.facing();
-    if (this.character.hasClip(theme.castClip)) this.character.playClipOnce(theme.castClip, 0.12);
+    if (this.character.hasClip(theme.castClip)) this.character.playClipOnce(theme.castClip);
     const muzzle = () => {
       // Collider-bound (opt-in): stream from the casting hand's world pose; else
       // a chest-height body point. The projectile still homes onto its target.
@@ -4969,16 +5452,27 @@ export class Studio {
     const color = this.staffColor();
     const grounded = this.controller.state.grounded;
 
-    // Face + aim at the crosshair target (soft-aim cone from the staff combat).
+    // Shared fire-aim SSOT: lock/soft pick → lead → else screen-centre ray.
     const combat = weaponCombat(this.weaponId);
     const origin = this.character.root.position.clone();
     const target = this.pickCrosshairTarget(combat);
-    const fwd = this.controller.forward();
-    let aimDir = fwd.clone();
-    if (target) {
-      const planar = this.toTargetPlanar(target);
-      aimDir = planar.dir.clone();
-    }
+    const lockPt = this.locked ? this.targets.lockPoint() : null;
+    const from = this.staffMuzzle();
+    const fire = resolveFireAim({
+      origin: from,
+      camera: this.camera,
+      target: target
+        ? { position: target.position, velocity: target.velocity }
+        : null,
+      lockPoint: lockPt,
+      projSpeed: STAFF_BOLT_SPEED,
+      maxLeadFraction: PROJ_LEAD_FRACTION,
+      aimHeight: 1.0,
+      fallbackForward: this.controller.forward(),
+    });
+    const aimDir = fire.dir.clone().setY(0);
+    if (aimDir.lengthSq() > 1e-6) aimDir.normalize();
+    else aimDir.copy(this.controller.forward());
     this.controller.faceToward(aimDir, 0.2);
 
     // Grounded: kite back a short hop away from the foe. Airborne: cast in place.
@@ -4987,22 +5481,10 @@ export class Studio {
       this.controller.dash(back, 1.4, 0.26, 0, 0.5);
     }
 
-    if (this.character.hasClip("magicAttack")) this.character.playClipOnce("magicAttack", 0.1);
-    this.sfx?.play("whooshLight", this.staffMuzzle(), { volume: 0.6 });
+    if (this.character.hasClip("magicAttack")) this.character.playClipOnce("magicAttack");
+    this.sfx?.play("whooshLight", from, { volume: 0.6 });
 
-    const from = this.staffMuzzle();
-    // Predictive lead: aim where a moving target WILL be when the bolt arrives
-    // (clamped so a real juke still dodges). Stationary targets resolve to their
-    // current position (zero velocity → zero lead).
-    let to: THREE.Vector3;
-    if (target) {
-      const led = leadTarget(from, target.position, target.velocity, STAFF_BOLT_SPEED, {
-        maxLeadFraction: PROJ_LEAD_FRACTION,
-      });
-      to = new THREE.Vector3(led.x, target.position.y, led.z);
-    } else {
-      to = origin.clone().addScaledVector(fwd, 16).setY(from.y);
-    }
+    const to = fire.aimPoint;
     const onHit = (p: THREE.Vector3) => {
       if (this.disposed) return;
       this.vfx.aoeBlast(p, color, 1.2);
@@ -5026,7 +5508,7 @@ export class Studio {
     const picked = this.pickTargetInFront(origin, fwd, 22, -0.2);
     const center = picked ? picked.position.clone() : origin.clone().addScaledVector(fwd, 12);
     center.y = 0;
-    if (this.character.hasClip("magicArea")) this.character.playClipOnce("magicArea", 0.12);
+    if (this.character.hasClip("magicArea")) this.character.playClipOnce("magicArea");
 
     const BOLTS = 6;
     const SCATTER = 2.6;
@@ -5068,7 +5550,7 @@ export class Studio {
     const color = this.staffColor();
     const center = this.character.root.position.clone();
     const RADIUS = this.params.aoeRadius * 1.2;
-    if (this.character.hasClip("magicArea")) this.character.playClipOnce("magicArea", 0.12);
+    if (this.character.hasClip("magicArea")) this.character.playClipOnce("magicArea");
     this.vfx.aoeBlast(center, color, RADIUS);
     // Heavy force so the blast genuinely shoves foes outward, plus a stun window.
     this.sparringBlast(center, RADIUS, 22, this.params.skillForce * 1.6);
@@ -5117,7 +5599,7 @@ export class Studio {
     const picked = this.pickTargetInFront(origin, fwd, cfg.acqRange, cfg.minDot);
     const dir = this.steerToward(fwd, origin, picked, cfg.steer);
     this.controller.faceToward(dir, 0.2);
-    if (this.character.hasClip("dashAttack")) this.character.playClipOnce("dashAttack", 0.1);
+    if (this.character.hasClip("dashAttack")) this.character.playClipOnce("dashAttack");
 
     const dist = picked
       ? THREE.MathUtils.clamp(picked.dist - 1.0, 1.5, kit.chargeDistance)
@@ -5154,7 +5636,7 @@ export class Studio {
     const picked = this.pickTargetInFront(origin, fwd, cfg.acqRange, cfg.minDot);
     const dir = this.steerToward(fwd, origin, picked, cfg.steer);
     this.controller.faceToward(dir, 0.22);
-    if (this.character.hasClip("stab")) this.character.playClipOnce("stab", 0.1);
+    if (this.character.hasClip("stab")) this.character.playClipOnce("stab");
     this.controller.dash(dir, 1.2, 0.18, 1.2 * 0.3, 0.6);
 
     const color = SKILL_COLOR.thrust;
@@ -5194,7 +5676,7 @@ export class Studio {
         onImpact: () => {
           if (!this.character || !this.controller || this.disposed) return;
           const swing = clips[i % clips.length];
-          if (this.character.hasClip(swing)) this.character.playClipOnce(swing, 0.08);
+          if (this.character.hasClip(swing)) this.character.playClipOnce(swing);
           // A small forward step on each cut so the flurry presses the target.
           this.controller.dash(dir, 0.9, gap, 0, 0.5);
           const hit = this.character.root.position.clone().addScaledVector(dir, kit.flurryRadius * 0.6);
@@ -5222,7 +5704,7 @@ export class Studio {
     const picked = this.pickTargetInFront(origin, fwd, kit.cannonRange, -0.2);
     const dir = this.steerToward(fwd, origin, picked, cfg.steer);
     this.controller.faceToward(dir, 0.25);
-    if (this.character.hasClip("skill")) this.character.playClipOnce("skill", 0.12);
+    if (this.character.hasClip("skill")) this.character.playClipOnce("skill");
 
     const color = SKILL_COLOR.laser;
     // Charge telegraph at the muzzle during the windup.
@@ -5278,7 +5760,7 @@ export class Studio {
     // Per-stage clip from config; fall back to the attack role when the rig is
     // missing that native GLB clip so the strike still animates.
     let dur = 0;
-    if (step.clip && this.character.hasClip(step.clip)) dur = this.character.playClipOnce(step.clip, 0.1);
+    if (step.clip && this.character.hasClip(step.clip)) dur = this.character.playClipOnce(step.clip);
     else if (this.character.hasRole("attack")) dur = this.character.playRoleOnce("attack", 0.1);
 
     // Reach: close to the picked target, else the step's nominal reach (config).
@@ -5356,7 +5838,7 @@ export class Studio {
   private doKickSig0(): boolean {
     if (!this.character || !this.controller) return false;
     const clip = "Flanchet Shot";
-    if (this.character.hasClip(clip)) this.character.playClipOnce(clip, 0.1);
+    if (this.character.hasClip(clip)) this.character.playClipOnce(clip);
     else if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
     const fwd = this.facing();
     const origin = this.character.root.position.clone();
@@ -5389,7 +5871,7 @@ export class Studio {
     this.controller.faceToward(dir, 0.20);
 
     let dur = 0;
-    if (this.character.hasClip("Have a Taste")) dur = this.character.playClipOnce("Have a Taste", 0.1);
+    if (this.character.hasClip("Have a Taste")) dur = this.character.playClipOnce("Have a Taste");
     else if (this.character.hasRole("attack")) dur = this.character.playRoleOnce("attack", 0.1);
 
     const reach = picked
@@ -5442,7 +5924,7 @@ export class Studio {
     if (!cs.grounded && !hovering) return false;
 
     let dur = 0;
-    if (this.character.hasClip("Diable Jambe")) dur = this.character.playClipOnce("Diable Jambe", 0.1);
+    if (this.character.hasClip("Diable Jambe")) dur = this.character.playClipOnce("Diable Jambe");
     else if (this.character.hasRole("attack")) dur = this.character.playRoleOnce("attack", 0.1);
     void dur; // timing is procedural; clip drives the joint animation
 
@@ -5587,7 +6069,7 @@ export class Studio {
 
     // Real clip drives the joints; fall back to the attack role if it's missing.
     let dur = 0;
-    if (opts.clip && this.character.hasClip(opts.clip)) dur = this.character.playClipOnce(opts.clip, 0.1);
+    if (opts.clip && this.character.hasClip(opts.clip)) dur = this.character.playClipOnce(opts.clip);
     else if (this.character.hasRole("attack")) dur = this.character.playRoleOnce("attack", 0.1);
 
     // Reach toward the target (stop just short), else a short committed step.
@@ -5692,34 +6174,36 @@ export class Studio {
     const origin = this.character.root.position.clone();
     const fwd = this.facing();
 
-    // @target: pickTargetInFront prefers the Tab-selected red hostile, else the
-    // nearest in the forward cone.
-    const picked = this.pickTargetInFront(origin, fwd, 24, -0.2);
-    const aimDir = picked
-      ? picked.position.clone().sub(origin).setY(0).normalize()
-      : fwd;
+    // Prefer crosshair / soft-aim, then forward-cone pick, then free-look ray.
+    const combat = weaponCombat(this.weaponId);
+    const cross = this.pickCrosshairTarget(combat);
+    const picked = cross ?? this.pickTargetInFront(origin, fwd, 24, -0.2);
+    const pose = this.colliderPose();
+    const from = pose ? pose.pos.clone() : origin.clone().setY(origin.y + 1.3);
+    const fire = resolveFireAim({
+      origin: from,
+      camera: this.camera,
+      target: picked
+        ? { position: picked.position, velocity: picked.velocity }
+        : null,
+      lockPoint: this.locked ? this.targets.lockPoint() : null,
+      projSpeed: FIRE_PROJ_SPEED,
+      maxLeadFraction: PROJ_LEAD_FRACTION,
+      aimHeight: 1.0,
+      fallbackForward: fwd,
+    });
+    const aimDir = fire.dir.clone().setY(0);
+    if (aimDir.lengthSq() > 1e-6) aimDir.normalize();
+    else aimDir.copy(fwd);
     if (picked) this.controller.faceToward(aimDir, 0.25);
 
     // Cast clip (no-ops on rigs lacking it) + the blazing casting hand.
     const dur = this.character.hasClip("magicAttack")
-      ? this.character.playClipOnce("magicAttack", 0.12)
+      ? this.character.playClipOnce("magicAttack")
       : 0;
-    const pose = this.colliderPose();
-    const from = pose ? pose.pos.clone() : origin.clone().setY(origin.y + 1.3);
     this.vfx.hotHands(from, color, step.handScale);
 
-    // The point the spell flies toward: a predictive lead on a moving locked
-    // target (clamped so a juke still beats it), else a point ahead. Facing
-    // tracks the target's CURRENT position above; only the impact point leads.
-    let to: THREE.Vector3;
-    if (picked) {
-      const led = leadTarget(from, picked.position, picked.velocity, FIRE_PROJ_SPEED, {
-        maxLeadFraction: PROJ_LEAD_FRACTION,
-      });
-      to = new THREE.Vector3(led.x, picked.position.y + 1.0, led.z);
-    } else {
-      to = origin.clone().addScaledVector(aimDir, 12).setY(origin.y + 1.0);
-    }
+    const to = fire.aimPoint;
 
     // Resolve one impact: AoE blast VFX + escalating knockback force, plus a
     // vertical launch on the finisher.
@@ -5813,7 +6297,7 @@ export class Studio {
     // over the rising flip so the body taunts and flips at the same time.
     this.controller.skyLaunch(this.params.jumpHeight * 1.5);
     const taunt = this.character.clipNames().find((n) => /taunt|cheer|victory|provoke|flex|wave|dance/i.test(n));
-    if (taunt) this.character.playClipOnce(taunt, 0.12);
+    if (taunt) this.character.playClipOnce(taunt);
     // Charge flare around the player as the leap begins.
     const center = this.character.root.position.clone();
     center.y += 1.1;
@@ -6038,12 +6522,35 @@ export class Studio {
         }
         this.controller.setSoftTarget(null);
       } else if (this.softLockEnabled) {
-        // Always-on soft-lock: keep the nearest (or Tab-selected) enemy as the
-        // gentle aim-assist anchor. acquireNearest keeps the current pick while
-        // it's a living enemy, so Tab's choice sticks until it dies.
-        this.controller.setSoftTarget(this.targets.acquireNearest(this.character.root.position));
+        // Always-on soft-lock: foes first (cone), then harvest nodes (tree/rock lab).
+        const fwd = this.controller.forward();
+        const foe =
+          this.targets.acquireSoftLock?.(this.character.root.position, fwd, 18) ??
+          this.targets.acquireNearest(this.character.root.position);
+        const node = !foe
+          ? this.harvestLab?.acquireSoft(this.character.root.position, fwd, 12) ?? null
+          : null;
+        this.controller.setSoftTarget(foe ?? node);
       } else {
         this.controller.setSoftTarget(null);
+      }
+      // Sprint stamina tax (CC pool) — empty stamina → walk only. Drain before
+      // controller.update so this frame's gate matches the HUD bar.
+      {
+        const sprintHeld =
+          this.input.down("ShiftLeft") ||
+          this.input.down("ShiftRight") ||
+          this.input.touchSprint;
+        const canSprint =
+          this.controller.state.grounded && this.stamina > 2 && !this.blocking && !this.defeated;
+        if (sprintHeld && canSprint) {
+          // ~14 stam/s → ~8 s continuous sprint from full 120 (Conan-ish fatigue).
+          this.sparring.drainStamina(14 * dt);
+          this.stamina = this.sparring.getPlayerStamina();
+          this.controller.setSprintAllowed(this.stamina > 2);
+        } else {
+          this.controller.setSprintAllowed(this.stamina > 2);
+        }
       }
       // Shared aim feel: decay recoil and feed the live offset to the camera,
       // ease the sprint FOV kick, and size the crosshair spread — all before the
@@ -6052,7 +6559,7 @@ export class Studio {
       this.controller.setAimOffset(this.recoil.pitch, this.recoil.yaw);
       const spd = this.controller.state.speed;
       const sprinting = spd > this.params.moveSpeed * 1.1 && this.controller.state.grounded;
-      this.fovKickCur = fovKick(this.fovKickCur, 0, 8, sprinting, dt);
+      this.fovKickCur = fovKick(this.fovKickCur, 0, 6, sprinting, dt);
       this.controller.setFovKick(this.fovKickCur);
       this.aimSpread = 5 + Math.min(spd, 8) * 1.5 + this.recoil.bloom * 200;
       this.controller.update(dt);
@@ -6229,6 +6736,7 @@ export class Studio {
         this.weaponId === "pistol" ||
         this.weaponId === "rifle" ||
         this.weaponId === "hunter-rifle" ||
+        this.weaponId === "shotgun" ||
         this.weaponId === "gunblade" ||
         this.weaponId === "bow" ||
         this.blocking;
@@ -6241,6 +6749,15 @@ export class Studio {
     // Step real physics + slave the punching-bag visuals to their bodies.
     this.physics?.step(dt);
     this.bags?.sync(dt, this.camera);
+    if (this.harvestLab) this.harvestLab.update(dt, this.camera);
+    if (
+      this.activityMode === "build" &&
+      this.campLab?.active &&
+      this.character &&
+      this.controller
+    ) {
+      this.campLab.updateGhost(this.character.root.position, this.controller.forward());
+    }
     // Drive the sparring opponents with the live player position + damage hooks.
     if (this.character) {
       this.sparCtx.playerPos.copy(this.character.root.position);
@@ -6343,6 +6860,19 @@ export class Studio {
     }
 
     if (this.skillCooldown > 0) this.skillCooldown = Math.max(0, this.skillCooldown - dt);
+    if (this.castCharge > 0) this.castCharge = Math.max(0, this.castCharge - dt);
+    if (this.gunReloadTimer > 0) {
+      this.gunReloadTimer = Math.max(0, this.gunReloadTimer - dt);
+      if (this.gunReloadTimer <= 0 && this.ammoClipMax > 0) {
+        this.ammoInClip = this.ammoClipMax;
+        this.pistolShots = 0;
+        this.setCombatFlash("RELOADED", 0.5);
+        // Finish crouch reload with kneel-to-stand if available.
+        if (this.character?.hasClip("kneel-to-stand") || this.character?.hasClip("reload")) {
+          /* clip already played at start */
+        }
+      }
+    }
     if (this.staffBoltCd > 0) this.staffBoltCd = Math.max(0, this.staffBoltCd - dt);
     this.mechReconciler.tickCooldown(dt);
     for (let i = 0; i < this.mechCds.length; i++) {
@@ -6539,6 +7069,11 @@ export class Studio {
       skillReady: isKick ? this.sigCooldowns[0] <= 0 : this.skillCooldown <= 0,
       skillCooldown: isKick ? this.sigCooldowns[0] : this.skillCooldown,
       skillCooldownMax: isKick ? this.sigCooldownMaxes[0] : this.skillCooldownMax,
+      castCharge: this.castCharge,
+      castChargeMax: this.castChargeMax,
+      ammo: this.ammoInClip,
+      ammoMax: this.ammoClipMax,
+      reloading: this.gunReloadTimer > 0,
       skyfallCooldown: this.skyfallCooldown,
       skyfallCooldownMax: 3.5,
       // Striker + Kiter expose per-skill cooldowns for each sig slot.
@@ -6586,6 +7121,27 @@ export class Studio {
         : null,
       duel: this.duelState(),
       ale: this.ale.snapshot(),
+      survival: (() => {
+        const n = normalizeActivityState(this.activityMode, this.toolWheelOpen);
+        return {
+          activityMode: n.mode,
+          activityTool: this.activityTool,
+          toolWheelOpen: n.toolWheelOpen,
+          tools: HARVEST_TOOLS.map((t) => ({
+            id: t.id,
+            name: t.name,
+            activityTool: t.activityTool,
+            icon: t.icon,
+            crafted: !!this.craftedTools.crafted[t.id],
+            active: this.craftedTools.activeToolId === t.id,
+          })),
+          wallet: this.campLab?.snapshotWallet() ?? { wood: 0, stone: 0, fiber: 0, ore: 0 },
+          buildMode: n.mode === "build",
+          blueprintOpen: n.mode === "build",
+          buildSelectedId: this.campLab?.currentPieceId ?? "wall",
+          buildPieces: this.campLab?.browserRows() ?? [],
+        };
+      })(),
     });
   }
 
@@ -7113,77 +7669,197 @@ export class Studio {
     this.targets.cycleAllySelection?.();
   }
 
-  /** KeyB: toggle first/third-person framing (mirrored so swaps keep the mode). */
+  /** KeyK: toggle first/third-person framing (KeyB is camp build mode). */
   toggleView() {
     this.viewMode = this.viewMode === "first" ? "third" : "first";
     this.controller?.setViewMode(this.viewMode);
   }
 
-  /** Wire keyboard skill/jump shortcuts that need engine-side actions. */
+  /**
+   * Keyboard routing by activity mode (combat · harvest · build).
+   * Pure map: {@link resolveActivityKey} — Studio only dispatches.
+   */
   handleKey(code: string) {
-    if (code === "Space") {
-      // During block-bounce stun: stylish vertical backflip recover → skill-1 ready.
-      if (this.tryBlockBounceFlipRecover()) return;
-      // E+Space (block held) = air block: a hop with the guard kept up.
-      if (this.blocking) this.airBlock();
-      else this.controller?.jump();
-    }
-    // E (hold) = block (stamina). Ctrl kept as legacy alias.
-    else if (code === "KeyE") this.startBlock();
-    else if (code === "ControlLeft" || code === "ControlRight") this.startBlock();
-    else if (code === "KeyR") this.doHeavyAttack();
-    else if (code === "KeyF") this.useSkill();
-    else if (code === "KeyQ") {
-      // Loadout swap only (2-weapon kits). Parry is KeyC — never rebound on Q.
-      this.cycleLoadout();
-    }
-    else if (code === "KeyX") {
-      // Dodge-roll: direction from camera forward (or back-step if no dir key held).
-      // Arcane Blink primed: 1.5× distance + multi-cast arcane AoE spline at foe.
-      const blink = this.combatBoard.has(PLAYER_STATUS_KEY, "arcaneBlink");
-      const dir = this.controller ? this.controller.forward().clone() : new THREE.Vector3(0, 0, 1);
-      this.sparring.dodge({ x: dir.x, z: dir.z });
-      const dist = blink ? 4.8 : 3.2;
-      if (this.controller) this.controller.dash(dir, dist, blink ? 0.28 : 0.22, 0, 0.45);
-      if (blink) {
-        this.combatBoard.clear(PLAYER_STATUS_KEY, "arcaneBlink");
-        this.status.clear("arcaneBlink");
-        this.fireArcaneBlinkBurst();
-        this.setCombatFlash("ARCANE BLINK!", 1.0);
+    // Mode is SSOT; normalize + camp lab before resolve.
+    this.commitActivityMode(this.activityMode, this.toolWheelOpen);
+
+    const intent = resolveActivityKey(this.activityInputState(), code);
+
+    switch (intent.type) {
+      case "jump": {
+        if (this.tryBlockBounceFlipRecover()) return;
+        // Air-block only while combat mode + holding guard.
+        if (this.blocking && this.activityMode === "combat") this.airBlock();
+        else this.controller?.jump();
+        return;
       }
-      // "dodge" is not an AnimRole — fall back to hurt (a quick flinch-step).
-      if (this.character?.hasRole("hurt")) this.character.playRoleOnce("hurt", 0.08);
+      case "view_toggle":
+        this.toggleView();
+        return;
+      case "escape": {
+        const prevMode = this.activityMode;
+        const prevWheel = this.toolWheelOpen;
+        const next = applyEscape(
+          this.activityMode,
+          this.toolWheelOpen,
+          this.castCtrl.isActive(),
+        );
+        if (next.cancelCast) {
+          this.castCtrl.cancel();
+          this.castRunes.hide();
+        }
+        this.commitActivityMode(next.mode, next.toolWheelOpen);
+        if (next.handled) {
+          if (next.cancelCast) this.setCombatFlash("CAST CANCEL", 0.4);
+          else if (prevWheel && !this.toolWheelOpen && this.activityMode === "harvest")
+            this.setCombatFlash("TOOL WHEEL OFF · harvest", 0.45);
+          else if (next.exitBuild || (prevMode === "build" && this.activityMode === "combat"))
+            this.setCombatFlash("BUILD OFF · combat", 0.5);
+          else if (prevMode === "harvest" && this.activityMode === "combat")
+            this.setCombatFlash("COMBAT", 0.4);
+        }
+        return;
+      }
+      case "toggle_build": {
+        if (!this.campLab) return;
+        const wasBuild = this.activityMode === "build" || this.campLab.active;
+        const next = applyToggleBuild(this.activityMode, this.toolWheelOpen, wasBuild);
+        this.commitActivityMode(next.mode, next.toolWheelOpen);
+        this.setCombatFlash(
+          next.buildOn ? this.campLab.statusLine() : "BUILD OFF · combat",
+          next.buildOn ? 2.2 : 0.6,
+        );
+        return;
+      }
+      case "toggle_harvest_wheel": {
+        const next = applyToggleHarvestWheel(this.activityMode, this.toolWheelOpen);
+        this.commitActivityMode(next.mode, next.toolWheelOpen);
+        this.setCombatFlash(
+          this.toolWheelOpen
+            ? "TOOL WHEEL · 1-4 pick · U close"
+            : `HARVEST · ${this.activityTool.toUpperCase()} · U wheel`,
+          this.toolWheelOpen ? 1.6 : 0.7,
+        );
+        return;
+      }
+      case "build_rotate":
+        this.campLab?.rotate();
+        this.setCombatFlash(`ROT ${this.campLab?.currentLabel ?? ""}`, 0.35);
+        return;
+      case "build_cycle":
+        this.campLab?.cyclePiece();
+        this.setCombatFlash(this.campLab?.statusLine() ?? "BUILD", 1.2);
+        return;
+      case "tool_slot":
+        this.selectHarvestToolSlot(intent.index);
+        return;
+      case "combat_block":
+        if (modeAllowsBlock(this.activityMode)) this.startBlock();
+        return;
+      case "combat_parry":
+        this.doParry();
+        return;
+      case "combat_dodge": {
+        const blink = this.combatBoard.has(PLAYER_STATUS_KEY, "arcaneBlink");
+        this.dodgeRoll("B", { quick: true, blink });
+        return;
+      }
+      case "combat_heavy_or_reload":
+        if (isGunWeapon(this.weaponId)) this.beginGunReload();
+        else this.doHeavyAttack();
+        return;
+      case "combat_skill":
+        if (intent.slot != null) this.useSkill(intent.slot);
+        else this.useSkill();
+        return;
+      case "combat_loadout":
+        this.cycleLoadout();
+        return;
+      case "combat_evade":
+        this.evade();
+        return;
+      case "combat_mech":
+        this.toggleMech();
+        return;
+      case "combat_stab":
+        this.stab();
+        return;
+      case "combat_stomp":
+        this.stomp();
+        return;
+      case "combat_kick":
+        this.utilityKick();
+        return;
+      case "combat_bomb":
+        this.throwBomb();
+        return;
+      case "combat_heal":
+        this.healPotion();
+        return;
+      case "combat_butcher":
+        this.butcherWildlife();
+        return;
+      case "noop":
+      default:
+        return;
     }
-    else if (code === "KeyG") this.evade();
-    // KeyM = suit up into / exit the Exo-Armour Mech.
-    else if (code === "KeyM") this.toggleMech();
-    // KeyZ = straight stab: a dash into an extended main-hand thrust, blade
-    // classes only (sword + knife); no-ops otherwise. KeyT's motion-attack moved
-    // to the middle mouse button (M3); see onMouseDown.
-    else if (code === "KeyZ") this.stab();
-    // KeyT = Stomp finisher: a leaping execution that only fires when a
-    // knocked-down (fallen) enemy is within reach; no-ops otherwise.
-    else if (code === "KeyT") this.stomp();
-    else if (code === "KeyV") this.utilityKick();
-    // KeyH = throw a bomb (quick-draw overhand throw → arcing grenade → AoE blast).
-    // Grenades/bombs are NEVER projectile-parry rebounds (see isParryableProjectileKind).
-    else if (code === "KeyH") this.throwBomb();
-    // KeyJ = drink a heal potion (quick-draw use → restore HP). No-op at full HP.
-    else if (code === "KeyJ") this.healPotion();
-    // KeyC = parry (timing window + weapon-collider projectile rebound for
-    // arrows / bullets / orbs / bolts only — not AoE, throws, ultimates, H-bombs).
-    else if (code === "KeyC") this.sparring.parry();
-    // KeyN = skin/butcher nearest wildlife corpse (meat + leather; 2 min window).
-    else if (code === "KeyN") this.butcherWildlife();
-    else if (code === "Escape" && this.castCtrl.isActive()) {
-      this.castCtrl.cancel();
-      this.castRunes.hide();
+  }
+
+  /** Tool wheel slot 0–3 → equip crafted harvest tool (Open harvestTools). */
+  selectHarvestToolSlot(index: number) {
+    const list = HARVEST_TOOLS;
+    const def = list[index];
+    if (!def) return;
+    if (!this.craftedTools.crafted[def.id]) {
+      this.tryCraftHarvestTool(def.id);
+      return;
     }
-    else if (code === "KeyB") this.toggleView();
-    else if (code === "Digit1") this.useSkill(0);
-    else if (code === "Digit2") this.useSkill(1);
-    else if (code === "Digit3") this.useSkill(2);
-    else if (code === "Digit4") this.useSkill(3);
+    this.craftedTools = {
+      ...this.craftedTools,
+      activeToolId: def.id,
+      updatedAt: Date.now(),
+    };
+    saveCraftedTools(this.craftedTools);
+    this.activityTool = def.activityTool;
+    // Equip keeps harvest; preserve wheel open/closed state.
+    this.commitActivityMode("harvest", this.toolWheelOpen);
+    this.setCombatFlash(`${def.name.toUpperCase()} EQUIPPED`, 0.9);
+  }
+
+  /** HUD / API: select kenney blueprint piece by id. */
+  selectCampBlueprint(id: string) {
+    if (!this.campLab) return;
+    this.commitActivityMode("build", false);
+    if (this.campLab.selectPiece(id)) {
+      this.setCombatFlash(`BLUEPRINT ${this.campLab.currentLabel}`, 0.7);
+    }
+  }
+
+  /** Craft one-time harvest tool from camp wallet materials. */
+  tryCraftHarvestTool(toolId: string) {
+    const def = HARVEST_TOOLS.find((t) => t.id === toolId);
+    if (!def) return;
+    if (this.craftedTools.crafted[toolId]) {
+      this.selectHarvestToolSlot(HARVEST_TOOLS.findIndex((t) => t.id === toolId));
+      return;
+    }
+    const wallet = this.campLab?.snapshotWallet() ?? { wood: 0, stone: 0, fiber: 0, ore: 0 };
+    if (!canCraftFromWallet(def, wallet)) {
+      const need = def.craftCost.map((c) => `${c.qty} ${c.name}`).join(" · ");
+      this.setCombatFlash(`NEED ${need}`, 1.2);
+      return;
+    }
+    const nextW = deductCraftCost(def, wallet);
+    this.campLab?.setWallet(nextW);
+    this.craftedTools = {
+      crafted: { ...this.craftedTools.crafted, [toolId]: Date.now() },
+      activeToolId: toolId,
+      updatedAt: Date.now(),
+    };
+    saveCraftedTools(this.craftedTools);
+    this.activityTool = def.activityTool;
+    this.commitActivityMode("harvest", true);
+    this.setCombatFlash(`CRAFTED ${def.name.toUpperCase()}`, 1.2);
   }
 
   /**
@@ -7200,7 +7876,7 @@ export class Studio {
     if (!this.character.hasClip(clip)) return;
     const dir = this.controller.forward();
     this.controller.faceToward(dir, 0.25);
-    const dur = this.character.playClipOnce(clip, 0.1);
+    const dur = this.character.playClipOnce(clip);
     const reach = airborne ? 1.6 : 2.4;
     this.controller.dash(dir, reach, dur > 0 ? dur * 0.9 : 0.4, 0, 0.4);
   }
@@ -7454,33 +8130,107 @@ export class Studio {
   }
 
   /**
-   * Directional dodge-roll (double-tap A = left, D = right). Plays the real
-   * sideways dodge clip on procedural rigs, slides the body along the strafe
-   * axis while keeping the body facing forward, spawns a full-mesh "blink"
-   * afterimage and grants a brief damage-immunity (i-frame) window. No-ops on
-   * GLB rigs (they ship no directional roll clip).
+   * KeyC parry: open the CombatController timing window and play the hold-style
+   * parry clip immediately (success flash/VFX still come from resolveDefense /
+   * projectile rebound). Without the proactive clip, C looked like a dead key
+   * unless a projectile happened to connect that frame.
    */
-  private dodgeRoll(side: "L" | "R") {
+  private doParry() {
+    if (this.defeated || !this.sparring) return;
+    const st = this.sparring.getPlayerState();
+    if (st === "stunned" || st === "fallen" || st === "dead" || st === "dodge") return;
+    // Drop held guard pose so parry one-shot can own the mixer (CC also clears blockHeld).
+    if (this.blocking) {
+      this.blocking = false;
+      this.blockViaTouch = false;
+      this.character?.setBlock?.(false);
+    }
+    this.sparring.parry();
+    if (this.sparring.getPlayerState() !== "parry") return;
+    const clip = defenseClips(this.playerGroup()).parry;
+    this.reactWithClip(clip, 0.07);
+    this.schedule(0.02, () => this.playPlayerReaction("parryReact"));
+    this.setCombatFlash("PARRY", 0.45);
+  }
+
+  /**
+   * Directional dodge-roll:
+   *  - **B** (KeyX): quick back dodge — short retreat, face stays on the fight
+   *  - **L / R** (double-tap A/D, or single A/D while blocking): lateral roll
+   *  - **F**: forward roll (available for callers; not bound by default)
+   *
+   * Plays the real directional dodge clip on procedural rigs (`rollDir`), slides
+   * the body while keeping facing camera-forward, spawns a full-mesh afterimage,
+   * grants a brief i-frame window, and drives `CombatController.dodge` for
+   * defense resolution. GLB rigs without roll clips still get the back dash on
+   * **B** (X) so the Danger Room controller always retreats on X.
+   */
+  private dodgeRoll(
+    side: "F" | "B" | "L" | "R",
+    opts: { quick?: boolean; blink?: boolean } = {},
+  ) {
     const ch = this.character;
     if (!this.controller || !ch || this.defeated) return;
     if (this.dodgeCd > 0 || this.controller.isBusy) return;
-    if (!ch.hasClip("roll") || !ch.rollDir) return;
+
+    const blink = !!opts.blink;
+    // KeyX back dodge is always quick; L/R keep the full lateral roll unless asked.
+    const quick = !!opts.quick || side === "B";
+
     const fwd = this.controller.forward();
     // Screen-right on the floor (matches WASD strafe: D = +right, A = -right).
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x).normalize();
-    const dir = side === "R" ? right : right.negate();
+    let dir: THREE.Vector3;
+    if (side === "R") dir = right;
+    else if (side === "L") dir = right.clone().negate();
+    else if (side === "F") dir = fwd.clone();
+    else dir = fwd.clone().negate(); // B — retreat
+
+    // Lateral rolls still require a real roll clip (old GLB no-op). Back dodge
+    // (X) must always displace so the controller is never a dead key.
+    if (side !== "B" && (!ch.rollDir || !ch.hasClip("roll"))) return;
+
+    // Combat i-frames / defense state (shared with resolveDefense).
+    this.sparring.dodge({ x: dir.x, z: dir.z });
+
+    // Clip: procedural rollDir → named dodgeB/backJump → hurt flinch last resort.
+    let dur = 0;
+    if (ch.rollDir) {
+      dur = ch.rollDir(side);
+    } else if (side === "B") {
+      if (ch.hasClip("dodgeB")) dur = ch.playClipOnce("dodgeB");
+      else if (ch.hasClip("backJump")) dur = ch.playClipOnce("backJump");
+      else if (ch.hasRole("hurt")) dur = ch.playRoleOnce("hurt", 0.08);
+    }
+
+    // Quick back: ~2 m / ~0.22 s. Full lateral roll: 3 m / clip-timed.
+    // Arcane Blink: longer back-blink (same as the old X blink boost).
+    const dist = blink ? 4.8 : quick ? 2.0 : 3.0;
+    const dashDur = blink
+      ? 0.28
+      : dur > 0
+        ? THREE.MathUtils.clamp(dur * (quick ? 0.55 : 0.7), quick ? 0.16 : 0.22, quick ? 0.28 : 0.5)
+        : quick
+          ? 0.22
+          : 0.34;
+
     const origin = ch.root.position.clone();
-    const dur = ch.rollDir(side);
-    const dashDur = dur > 0 ? THREE.MathUtils.clamp(dur * 0.7, 0.22, 0.5) : 0.34;
-    this.controller.dash(dir, 3.0, dashDur, 0, 0.45);
-    // Roll sideways while keeping the body facing forward (strafe-roll), so the
-    // L/R dodge clip reads correctly instead of diving in the travel direction.
+    this.controller.dash(dir, dist, dashDur, 0, 0.45);
+    // Keep body facing the fight (backstep / strafe-roll), not spinning into travel.
     this.controller.faceToward(fwd, 0);
-    // "Blink": a full-mesh afterimage phase plus the i-frame window.
-    this.vfx.afterimage(ch.root, origin, dir, 3.0, 0xaee6ff, 5, 0.3);
+
+    const tint = blink ? 0xc8a0ff : 0xaee6ff;
+    this.vfx.afterimage(ch.root, origin, dir, dist, tint, 5, 0.3);
     this.sfx?.play("somersault", origin.clone().setY(origin.y + 0.8), { volume: 0.7 });
-    this.invuln = Math.max(this.invuln, 0.4);
-    this.dodgeCd = 0.6;
+    this.invuln = Math.max(this.invuln, blink ? 0.5 : quick ? 0.35 : 0.4);
+    this.dodgeCd = 0.55;
+
+    if (blink) {
+      this.combatBoard.clear(PLAYER_STATUS_KEY, "arcaneBlink");
+      this.status.clear("arcaneBlink");
+      this.fireArcaneBlinkBurst();
+      this.setCombatFlash("ARCANE BLINK!", 1.0);
+    }
   }
 
   /**
@@ -7513,7 +8263,7 @@ export class Studio {
     // The real attack clip drives the joints; the motion profile drives the body.
     const primary = this.overrides.primary;
     let clipDur = 0;
-    if (primary && this.character.hasClip(primary)) clipDur = this.character.playClipOnce(primary, 0.1);
+    if (primary && this.character.hasClip(primary)) clipDur = this.character.playClipOnce(primary);
     else if (this.character.hasRole("attack")) clipDur = this.character.playRoleOnce("attack", 0.1);
     this.swingTimer = clipDur > 0 ? clipDur * 0.45 : 0.2;
 
@@ -7549,7 +8299,7 @@ export class Studio {
     const dir = this.steerToward(aim, origin, picked, cfg.steer);
     this.controller.faceToward(dir, 0.25);
 
-    const dur = this.character.playClipOnce("utilityKick", 0.1);
+    const dur = this.character.playClipOnce("utilityKick");
     // Overdrive: a longer, snappier lunge that closes onto the target (capped to
     // the assist reach) instead of the old fixed 0.9 m hop.
     const reach = picked
@@ -7602,7 +8352,7 @@ export class Studio {
     this.controller.faceToward(aim, 0.2);
 
     // Quick-draw overhand throw (returns 0 on rigs without the clip).
-    const dur = this.character.playClipOnce("throw", 0.1);
+    const dur = this.character.playClipOnce("throw");
 
     // Lob from the throwing hand (chest height) to the target / a point ahead.
     const hand = origin.clone();
@@ -7672,7 +8422,7 @@ export class Studio {
     if (this.health >= this.maxHealth) return;
 
     // Reuse the quick overhand-throw clip as a fast "draw + use" gesture.
-    const dur = this.character.playClipOnce("throw", 0.1);
+    const dur = this.character.playClipOnce("throw");
     const heal = Math.round(this.maxHealth * 0.35);
     const applyAt = dur > 0 ? dur * 0.5 : 0.3;
 
@@ -7754,7 +8504,7 @@ export class Studio {
     this.hideHeldWeapon();
     this.spawnMaceMesh(hand);
     // Overhand throw gesture (no-ops on GLB rigs lacking the clip).
-    this.character.playClipOnce("throw", 0.1);
+    this.character.playClipOnce("throw");
   }
 
   /** Apply the machine's events (impact stun, return catch, dash-recall). */
@@ -7910,7 +8660,7 @@ export class Studio {
     const dir = this.steerToward(aim, origin, picked, cfg.steer);
     this.controller.faceToward(dir, 0.25);
 
-    const dur = this.character.playClipOnce("headbutt", 0.1);
+    const dur = this.character.playClipOnce("headbutt");
     this.swingTimer = dur > 0 ? dur * 0.5 : 0.3;
     this.swingColor = 0xff5a5a;
 
@@ -7974,7 +8724,7 @@ export class Studio {
 
     const color = SKILL_COLOR[getWeapon(wid).kind] ?? 0x9fe8ff;
     this.swingColor = color;
-    const dur = this.character.playClipOnce("jumpAttack", 0.1);
+    const dur = this.character.playClipOnce("jumpAttack");
     this.swingTimer = dur > 0 ? dur * 0.5 : 0.3;
 
     // Angled overdrive: carry the body forward through the descent so the overhead
@@ -8062,7 +8812,7 @@ export class Studio {
     }
     this.controller.faceToward(dir, 0.18);
 
-    const dur = this.character.playClipOnce("stab", 0.1);
+    const dur = this.character.playClipOnce("stab");
     this.swingTimer = dur > 0 ? dur * 0.45 : 0.2;
     const color = SKILL_COLOR[getWeapon(wid).kind] ?? 0x9fe8ff;
     this.swingColor = color;
@@ -8105,7 +8855,7 @@ export class Studio {
     else dir.copy(this.controller.forward());
     this.controller.faceToward(dir, 0.15);
 
-    const dur = this.character.playClipOnce("stomp", 0.1);
+    const dur = this.character.playClipOnce("stomp");
     this.swingTimer = dur > 0 ? dur * 0.5 : 0.3;
     const color = 0xffb24d; // slam-orange
     this.swingColor = color;
@@ -8531,17 +9281,28 @@ export class Studio {
     const at = aim.targetPos?.clone() ?? aim.ground?.clone() ?? origin.clone().addScaledVector(fwd, 6);
     at.y = Math.max(0.05, at.y);
 
-    if (this.character.hasClip("skill")) this.character.playClipOnce("skill", 0.1);
+    if (this.character.hasClip("skill")) this.character.playClipOnce("skill");
     else if (this.character.hasRole("attack")) this.character.playRoleOnce("attack", 0.1);
 
     const color = preset.color;
-    const dmg = preset.damage ?? 20;
+    // Commit damage: longer castTime ⇒ harder hit (pay for telegraph).
+    const castT = preset.castTime ?? (preset.acquire === "instant" ? 0.25 : 0.15);
+    const mul = commitDamageMul(castT);
+    const dmg = (preset.damage ?? 20) * mul;
     const radius = preset.aoeRadius ?? 2.5;
+    this.castCharge = castT;
+    this.castChargeMax = castT;
+    if (castT > 0.05) {
+      const castAt = origin.clone();
+      castAt.y += 1.1;
+      this.vfx.castAura(castAt, color);
+      this.pulseSpellPostFx(0.4);
+    }
 
     switch (preset.vfx) {
       case "meteor":
         this.vfx.castMeteor(origin, fwd, color, (p) => {
-          this.sparringBlast(p, radius, dmg, this.params.skillForce);
+          this.sparringBlast(p, radius, dmg, this.params.skillForce * mul);
           if (preset.status) this.applyStatusScoped(preset.status, "hostile");
         }, at);
         break;
@@ -8731,7 +9492,7 @@ export class Studio {
         break;
       }
       case "standing2h":
-        if (this.character.hasClip("skill")) this.character.playClipOnce("skill", 0.08);
+        if (this.character.hasClip("skill")) this.character.playClipOnce("skill");
         this.vfx.castStanding2hMagic(origin, color, preset.duration ?? 1.35, radius, (p, r) => {
           this.sparringBlast(p, r, dmg, this.params.skillForce * 0.55);
         });
@@ -8743,9 +9504,19 @@ export class Studio {
         break;
     }
 
-    this.skillCooldownMax = preset.cooldown;
-    this.skillCooldown = preset.cooldown;
+    // Cooldown includes recovery so whiffs stay punishable (Elden-style).
+    const recovery = preset.recovery ?? Math.min(0.5, castT * 0.6);
+    this.skillCooldownMax = preset.cooldown + recovery;
+    this.skillCooldown = this.skillCooldownMax;
     this.stamina = Math.max(0, this.stamina - preset.stamina);
+    // Clear cast telegraph after wind-up window (effects already launched).
+    if (castT <= 0.08) this.castCharge = 0;
+    else {
+      // Align cast bar drain with wind-up; effects fire immediately for aim-placed skills
+      // but the bar still shows commit commitment.
+      this.castCharge = castT;
+      this.castChargeMax = castT;
+    }
     this.setCombatFlash(preset.label.toUpperCase(), 0.7);
     return true;
   }
@@ -8855,6 +9626,12 @@ export class Studio {
     this.dangerTargets?.dispose();
     this.arena?.dispose();
     this.bags?.dispose();
+    this.harvestLab?.dispose();
+    this.harvestLab = null;
+    this.campLab?.dispose();
+    this.campLab = null;
+    this.harvestBag?.flush();
+    this.harvestBag = null;
     this.physics?.dispose();
     this.status.dispose();
     this.mech.dispose();

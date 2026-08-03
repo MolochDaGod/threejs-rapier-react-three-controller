@@ -37,6 +37,7 @@ export type WeaponId =
   | "staffArcane"
   | "pistol"
   | "rifle"
+  | "shotgun"
   | "shield"
   | "gunblade"
   | "hunter-rifle"
@@ -631,7 +632,8 @@ export type WeaponAnimSet =
   | "ranged"
   | "bow"
   | "magic"
-  | "pistol";
+  | "pistol"
+  | "shotgun";
 
 /** Local model axis that points toward a weapon's tip/barrel before normalising. */
 export type ModelForward = "x+" | "x-" | "y+" | "y-" | "z+" | "z-";
@@ -1017,6 +1019,8 @@ export interface Avatar {
   setWeaponId?(weaponId: WeaponId): void;
   /** Procedural rig only: play a directional dodge-roll clip (F/B/L/R). */
   rollDir?(dir: "F" | "B" | "L" | "R"): number;
+  /** Procedural rig only: raise/drop looped guard hold (blockIdle / blockStart). */
+  setBlock?(active: boolean): void;
   /**
    * Ground-truth touchdown notification from the controller. Rigs that hold a
    * looped airborne pose (the procedural Explorer) clear it and play the land
@@ -1051,6 +1055,15 @@ export interface Avatar {
    * Procedural rigs omit this.
    */
   setGroundSampler?(fn: GroundSampler): void;
+  /**
+   * Skinned rigs (`Character`) only: post-mixer spine aim IK (gun/bow 1P/3P).
+   * Call after {@link update} + foot plant so aim does not fight the mixer.
+   * Procedural Explorer / kits without spine bones omit this.
+   */
+  applySpineAim?(
+    camera: import("three").Camera,
+    opts: { firstPerson: boolean; gunEngaged: boolean; pitch: number },
+  ): void;
 }
 
 export interface HudSnapshot {
@@ -1092,6 +1105,14 @@ export interface HudSnapshot {
   skillReady: boolean;
   skillCooldown: number;
   skillCooldownMax: number;
+  /** Active cast wind-up remaining (s); 0 = not casting. Elden-style telegraph. */
+  castCharge: number;
+  castChargeMax: number;
+  /** Firearm ammo remaining (-1 = n/a). */
+  ammo: number;
+  ammoMax: number;
+  /** True while magazine is reloading. */
+  reloading: boolean;
   skyfallCooldown: number;
   skyfallCooldownMax: number;
   /**
@@ -1104,7 +1125,7 @@ export interface HudSnapshot {
   /** True while the Striker's Hover skill is keeping the player airborne. */
   hovering: boolean;
   locked: boolean;
-  /** True while the first-person camera is active (KeyB toggles it). */
+  /** True while the first-person camera is active (Danger Room: KeyK; editor: KeyB). */
   firstPerson: boolean;
   /** Crosshair spread in px (grows with movement + recoil bloom). */
   aimSpread: number;
@@ -1204,6 +1225,34 @@ export interface HudSnapshot {
   duel?: DuelState | null;
   /** A.L.E. Bot state (cameras / highlights / diagnostics / report), or null. */
   ale?: AleSnapshot | null;
+  /**
+   * Conan / survival product surface (Danger Room lab): activity stance,
+   * harvest tool wheel, camp blueprint browser, resource wallet.
+   */
+  survival?: {
+    activityMode: "combat" | "harvest" | "build";
+    activityTool: string;
+    toolWheelOpen: boolean;
+    tools: Array<{
+      id: string;
+      name: string;
+      activityTool: string;
+      icon: string;
+      crafted: boolean;
+      active: boolean;
+    }>;
+    wallet: { wood: number; stone: number; fiber: number; ore: number };
+    buildMode: boolean;
+    blueprintOpen: boolean;
+    buildSelectedId: string;
+    buildPieces: Array<{
+      id: string;
+      label: string;
+      category: string;
+      wood: number;
+      stone: number;
+    }>;
+  } | null;
 }
 
 export interface EditorParams {
@@ -1249,23 +1298,27 @@ export interface EditorParams {
 /** Human-scale height in metres (textures/anims authored for ~1.8–2 m fighters). */
 export const CHARACTER_HEIGHT_M = 1.8;
 
+/**
+ * Default play feel — Phase A “survival-weight” (Conan-ish), not arena skate.
+ * moveSpeed SI m/s; sprint is costly (Studio drains CombatController stamina).
+ */
 export const DEFAULT_EDITOR: EditorParams = {
-  moveSpeed: 4.2,
-  sprintMultiplier: 1.9,
-  jumpHeight: 2.2,
-  gravity: 22,
-  cameraDistance: 5.2,
-  cameraHeight: 1.7,
+  moveSpeed: 3.9,
+  sprintMultiplier: 1.55,
+  jumpHeight: 2.0,
+  gravity: 24,
+  cameraDistance: 5.5,
+  cameraHeight: 1.75,
   mouseSensitivity: 1,
-  fov: 60,
-  turnResponsiveness: 12,
+  fov: 58,
+  turnResponsiveness: 9,
   blendTime: 0.22,
   showSkeleton: false,
   modelYaw: 0,
   invertY: false,
-  dashDistance: 6,
+  dashDistance: 5.2,
   aoeRadius: 4,
   skillForce: 12,
   skyfallBolts: 6,
-  attackSteer: 1,
+  attackSteer: 0.85,
 };

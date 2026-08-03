@@ -320,7 +320,9 @@ export class HeadStage {
     }
     if (this.armorLoadPromise) {
       await this.armorLoadPromise;
-      this.armorApply?.(loadout);
+      // CFA keeps armorApply as null across await; peer load may have set it.
+      const apply = this.armorApply as ((l: ArmorLoadout) => void) | null;
+      apply?.(loadout);
       return;
     }
     this.armorLoadPromise = (async () => {

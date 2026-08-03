@@ -23,7 +23,8 @@ export type WeaponClass =
   | "ranged"
   | "bow"
   | "magic"
-  | "pistol";
+  | "pistol"
+  | "shotgun";
 
 /**
  * Traversal MODE: how the body is moving through the world. It composes WITH the
@@ -147,6 +148,21 @@ export type ActionKey =
   | "mmaKick"
   /** Acrobatic corkscrew kip-up (evasive recovery). */
   | "kipUp"
+  // --- Firearm production set (P0–P2). ---
+  /** Standing mag/shell reload (default when not crouching). */
+  | "reload"
+  /** Empty-chamber / emergency reload (longer). */
+  | "reloadEmpty"
+  /** Tactical reload (mag not empty — faster). */
+  | "reloadTactical"
+  /** Crouched reload. */
+  | "reloadCrouch"
+  /** Dedicated fire/recoil one-shot (rifle/shotgun; pistol may alias gunplay). */
+  | "shoot"
+  /** Shotgun pump / rack after hip-fire. */
+  | "pump"
+  /** Shotgun hip-fire (wider, faster than ADS shoot). */
+  | "hipFire"
   // --- Traversal one-shots (mode transitions). ---
   | "mantle"
   | "swimExit"

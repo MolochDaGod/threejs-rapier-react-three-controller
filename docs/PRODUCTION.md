@@ -56,6 +56,15 @@ npx vercel deploy --prod --yes
 
 Or push to `main` if GitHub integration is enabled for this project.
 
+### Package / CI notes (do not ignore)
+
+| Risk | Rule |
+|------|------|
+| **`file:../../../../GrudgeStudioNPM/*`** | Local-only path. **Vercel must** either vendor those packages into the monorepo, use published `@grudge-studio/*` from npm, or fail install. Do not assume the agent machine path exists on CI. |
+| **three pin** | Runtime `three@0.185.x` + matching `@types/three@0.185.x` (see `artifacts/animator/package.json`). |
+| **Rapier** | Use **`@dimforge/rapier3d-compat` only** (not dual `rapier3d`). Vite has `vite-plugin-wasm` + top-level-await. |
+| **Runtime deps** | `three`, rapier-compat, postprocessing, workspace combat packages live in **`dependencies`**, not only devDependencies. |
+
 ## Smoke test after deploy
 
 ```bash

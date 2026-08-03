@@ -318,6 +318,15 @@ export interface CombatTargets {
   focusedCombatView(from: THREE.Vector3): EnemyCombatView | null;
   lockPoint(): THREE.Vector3 | null;
   acquireNearest(from: THREE.Vector3): THREE.Vector3 | null;
+  /**
+   * Soft-lock pick: prefer living enemies in the camera-forward cone, keep
+   * current selection while still valid. Optional on hosts that only hard-lock.
+   */
+  acquireSoftLock?(
+    from: THREE.Vector3,
+    forward: THREE.Vector3,
+    maxDist?: number,
+  ): THREE.Vector3 | null;
   setDifficulty(d: Difficulty): void;
   getDifficulty(): Difficulty;
   setCount(count: number): void;
@@ -1088,6 +1097,57 @@ export class Targets implements CombatTargets {
       d = best;
     }
     return this.chest(d);
+  }
+
+  /**
+   * Soft-lock acquisition for survival aim assist: keep Tab selection while the
+   * foe lives and is within range; otherwise pick the best living enemy in a
+   * forward cone (camera forward). Pure nearest-behind-you is avoided.
+   */
+  acquireSoftLock(
+    from: THREE.Vector3,
+    forward: THREE.Vector3,
+    maxDist = 18,
+  ): THREE.Vector3 | null {
+    const maxD2 = maxDist * maxDist;
+    const fwd = forward.clone().setY(0);
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1);
+    else fwd.normalize();
+    // Keep sticky selection if still living, in range, and not deep behind.
+    const sticky = this.dummies.find(
+      (x) => x.id === this.selectedId && !x.dead && x.faction === "enemy",
+    );
+    if (sticky) {
+      const to = sticky.group.position.clone().sub(from);
+      to.y = 0;
+      const d2 = to.lengthSq();
+      if (d2 <= maxD2 && d2 > 1e-6) {
+        const cos = to.normalize().dot(fwd);
+        if (cos > -0.15) return this.chest(sticky);
+      }
+    }
+    let best: Dummy | null = null;
+    let bestScore = Infinity;
+    for (const o of this.dummies) {
+      if (o.dead || o.faction !== "enemy") continue;
+      const to = o.group.position.clone().sub(from);
+      to.y = 0;
+      const d2 = to.lengthSq();
+      if (d2 > maxD2 || d2 < 1e-6) continue;
+      const dist = Math.sqrt(d2);
+      const cos = to.multiplyScalar(1 / dist).dot(fwd);
+      // Prefer in-cone (cos > 0.25 ≈ 75° half-angle); allow weak side picks farther.
+      if (cos < 0.12) continue;
+      // Lower score = better: distance penalized, facing rewarded.
+      const score = dist * (1.35 - cos);
+      if (score < bestScore) {
+        bestScore = score;
+        best = o;
+      }
+    }
+    if (!best) return null;
+    this.setSelected(best.id);
+    return this.chest(best);
   }
 
   /** Move the red outline shell to `id` (or hide it when null). */

@@ -1,6 +1,12 @@
 import type { WeaponDef } from "./types";
 import { PI2 } from "./types";
-import { PISTOL_SKILL_KIT, RIFLE_SKILL_KIT } from "./weaponSkillKits";
+import {
+  PISTOL_SKILL_KIT,
+  RIFLE_SKILL_KIT,
+  BOW_SKILL_KIT,
+  HUNTER_RIFLE_SKILL_KIT,
+  SHOTGUN_SKILL_KIT,
+} from "./weaponSkillKits";
 
 /**
  * Ranged weapon prefabs (bow + firearms). Not eligible for the melee duel, but
@@ -16,6 +22,7 @@ export const RANGED_WEAPONS: WeaponDef[] = [
     skillName: "Piercing Shot",
     skillDuration: 0.7,
     cooldown: 1.3,
+    skillKit: BOW_SKILL_KIT,
     combat: { intensity: 20, direction: 100, range: [0.6, 1.4] },
     animSet: "bow",
     group: "ranged",
@@ -101,6 +108,7 @@ export const RANGED_WEAPONS: WeaponDef[] = [
     skillName: "Piercing Shot",
     skillDuration: 0.9,
     cooldown: 1.9,
+    skillKit: HUNTER_RIFLE_SKILL_KIT,
     combat: { intensity: 52, direction: 100, range: [0.6, 1.4] },
     animSet: "ranged",
     group: "ranged",
@@ -115,6 +123,32 @@ export const RANGED_WEAPONS: WeaponDef[] = [
     grip: { main: { rot: [0, 0, 0], pos: [0, 0, 0.05] } },
     model: {
       main: { file: "models/weapons/hunter-rifle.glb", length: 0.95, forward: "z-", align: "z", anchor: "center" },
+      twoHanded: true,
+    },
+  },
+  {
+    id: "shotgun",
+    label: "Combat Shotgun",
+    hand: "right",
+    kind: "muzzle",
+    skillName: "Buckshot",
+    skillDuration: 0.55,
+    cooldown: 1.4,
+    skillKit: SHOTGUN_SKILL_KIT,
+    combat: { intensity: 62, direction: 90, range: [0.8, 2.2] },
+    animSet: "shotgun",
+    group: "ranged",
+    duelEligible: false,
+    tiers: [
+      { name: "Scattergun", power: 1 },
+      { name: "Pump Action", power: 1.15 },
+      { name: "Tactical", power: 1.3 },
+      { name: "Breacher", power: 1.45 },
+      { name: "Dragon's Breath", power: 1.6 },
+    ],
+    grip: { main: { rot: [0, 0, 0], pos: [0, 0, 0.04] } },
+    model: {
+      main: { file: "models/weapons/shotgun.glb", length: 0.85, forward: "z-", align: "z", anchor: "center" },
       twoHanded: true,
     },
   },

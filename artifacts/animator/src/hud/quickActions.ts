@@ -42,7 +42,7 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickAction> = {
   heavy: { id: "heavy", label: "Heavy / Skyfall", icon: "charge", key: "R", kind: "action" },
   parry: { id: "parry", label: "Parry", icon: "rally", key: "Q", kind: "action" },
   block: { id: "block", label: "Block", icon: "guard", key: "E", kind: "action" },
-  dodge: { id: "dodge", label: "Dodge", icon: "retreat", key: "X", kind: "action" },
+  dodge: { id: "dodge", label: "Back Dodge", icon: "retreat", key: "X", kind: "action" },
   bomb: { id: "bomb", label: "Bomb", icon: "siege", key: "H", kind: "item" },
   heal: { id: "heal", label: "Heal Tonic", icon: "rest", key: "J", kind: "item" },
 };

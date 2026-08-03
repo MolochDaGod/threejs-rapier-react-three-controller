@@ -56,8 +56,17 @@ export class ExplorerCharacter implements Avatar {
   private inner: THREE.Group | null = null;
   private skeletonHelper: THREE.SkeletonHelper | null = null;
 
-  /** 0..1 locomotion intensity requested by the controller's playRole calls. */
+  /** 0..1 locomotion intensity (Controller setLocomotion / directional). */
   private locoSpeed = 0;
+  /**
+   * Character-local move intent for directional blend: +X right, +Z forward.
+   * Under hard lock Controller feeds strafe/back so legs match A/D/S without
+   * body turning into the move (body yaw stays on the lock target).
+   */
+  private locoMoveX = 0;
+  private locoMoveZ = 0;
+  /** True while Controller uses directional loco (strafe clips + Animator.setStrafe). */
+  private locoStrafe = false;
 
   /** Accumulated time driving the avatar-head hair sway. */
   private headFxTime = 0;
@@ -214,6 +223,41 @@ export class ExplorerCharacter implements Avatar {
     if (role === "run") this.locoSpeed = 1;
     else if (role === "walk") this.locoSpeed = 0.5;
     else if (role === "idle") this.locoSpeed = 0;
+    // Discrete role path: forward-only intent (no lock strafe).
+    this.locoMoveX = 0;
+    this.locoMoveZ = this.locoSpeed > 0.06 ? 1 : 0;
+    this.locoStrafe = false;
+  }
+
+  /**
+   * Continuous 0..1 speed (Controller fallback). Forward-only — prefer
+   * {@link setLocomotionDirectional} under soft/hard lock so A/D/S pick real
+   * strafe/back clips from the Mixamo pack.
+   */
+  setLocomotion(speed: number): void {
+    this.locoSpeed = Math.max(0, Math.min(1, speed));
+    this.locoMoveX = 0;
+    this.locoMoveZ = this.locoSpeed > 0.06 ? 1 : 0;
+    this.locoStrafe = false;
+  }
+
+  /**
+   * Direction-aware locomotion in body frame (+X right, +Z forward). Controller
+   * always prefers this when present so hard-lock strafe and soft-lock
+   * relative intent feed the Explorer 8-dir walk/run set.
+   */
+  setLocomotionDirectional(moveX: number, moveZ: number, speed: number): void {
+    this.locoSpeed = Math.max(0, Math.min(1, speed));
+    const mag = Math.hypot(moveX, moveZ);
+    if (mag > 1e-4) {
+      this.locoMoveX = moveX / mag;
+      this.locoMoveZ = moveZ / mag;
+    } else {
+      this.locoMoveX = 0;
+      this.locoMoveZ = 0;
+    }
+    // Strafe mode when there is meaningful lateral/back input (or any lock-fed dir).
+    this.locoStrafe = mag > 0.08 && (Math.abs(this.locoMoveX) > 0.2 || this.locoMoveZ < 0.55);
   }
 
   setLocomotionRate(_rate: number): void {
@@ -268,16 +312,49 @@ export class ExplorerCharacter implements Avatar {
     return a.attack();
   }
 
-  playClipOnce(name: string): number {
+  playClipOnce(name: string, fade = 0.12): number {
     const a = this.animator;
     if (!a) return 0;
     this.lastClip = name;
+    // Production gun/melee callers pass a per-verb fade; prefer resolved ActionKey
+    // path with that fade so fire snaps and reloads ease instead of one global.
+    const entry = CLIP_BY_VERB.get(name);
+    const key = (entry?.key ?? name) as ActionKey;
+    if (typeof fade === "number" && fade !== 0.12 && entry?.play && typeof entry.play === "object" && "action" in entry.play) {
+      const dur = a.playAction(entry.play.action, false, fade);
+      animDebug.recordVerb(name, this.root.getWorldPosition(_dbgWorldPos), dur);
+      return dur;
+    }
+    if (typeof fade === "number" && fade !== 0.12) {
+      const id = this.resolveClipId(key);
+      if (id) {
+        const dur = a.playById(id, false, fade);
+        if (dur > 0) {
+          animDebug.recordVerb(name, this.root.getWorldPosition(_dbgWorldPos), dur);
+          return dur;
+        }
+      }
+    }
     const dur = this.dispatchClipOnce(name);
     // Log the fired verb with the character's world XYZ (location validation) and
     // the resulting clip duration — a 0 means the verb produced no animation.
     // Use the WORLD position (not root.position, which is local-to-parent) so the
     // coordinate stays meaningful if the rig is ever re-parented.
     animDebug.recordVerb(name, this.root.getWorldPosition(_dbgWorldPos), dur);
+    return dur;
+  }
+
+  /**
+   * Upper-body additive fire/attack while locomoting (procedural Explorer).
+   * Matches {@link Character.playClipOverlay} so Studio can call either Avatar.
+   */
+  playClipOverlay(name: string, intensity: number): number {
+    const a = this.animator;
+    if (!a) return 0;
+    const entry = CLIP_BY_VERB.get(name);
+    const key = (entry?.key ?? name) as ActionKey;
+    const dur = a.playActionOverlay(key, intensity);
+    if (dur > 0) this.lastClip = name;
     return dur;
   }
 
@@ -379,7 +456,10 @@ export class ExplorerCharacter implements Avatar {
   }
 
   hasClip(name: string): boolean {
-    return (VERBS as readonly string[]).includes(name);
+    if ((VERBS as readonly string[]).includes(name)) return true;
+    // Also true when the equipped class (or any pack) resolves a real catalog id
+    // for this ActionKey — covers gun verbs not yet mirrored in VERBS list.
+    return !!this.resolveClipId(name as ActionKey);
   }
 
   clipNames(): string[] {
@@ -495,9 +575,12 @@ export class ExplorerCharacter implements Avatar {
       this.animator.land();
       this.airborne = false;
     }
+    // Directional intent + strafe flag so 8-dir walk/run (and lock A/D) blend
+    // correctly — previously always forced forward (x=0,z=1) and ignored Controller.
+    this.animator.setStrafe(this.locoStrafe);
     this.animator.setLocomotion({
-      x: 0,
-      z: this.locoSpeed > 0.06 ? 1 : 0,
+      x: this.locoMoveX,
+      z: this.locoMoveZ,
       speed: this.locoSpeed,
       running: this.locoSpeed > 0.65,
     });

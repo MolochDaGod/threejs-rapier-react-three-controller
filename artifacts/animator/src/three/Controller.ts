@@ -15,6 +15,20 @@ import { INPUT } from "./inputContract";
 const DEFAULT_PITCH_MIN = 0.06;
 const DEFAULT_PITCH_MAX = 1.3;
 
+// ── Survival-weight loco / soft-lock (Conan-ish Phase A) ─────────────────────
+/** Horizontal accel rate toward target walk/sprint velocity (1/s-ish ease). */
+const MOVE_ACCEL = 9.5;
+/** Horizontal decel when no input (higher = stop sooner, still not instant). */
+const MOVE_DECEL = 14;
+/** Soft-lock assist: max |yaw delta| (rad) to still pull (~70° cone). */
+const SOFT_LOCK_CONE = 1.22;
+/** Soft-lock yaw blend strength (lower = gentler survival assist). */
+const SOFT_LOCK_PULL = 2.4;
+/** Soft-lock suspend if |mouse.dx| exceeds this (player takes camera). */
+const SOFT_LOCK_MOUSE_CANCEL = 3.5;
+/** Hard-lock camera yaw blend (lower than old 9 = less snappy orbit seize). */
+const HARD_LOCK_YAW = 6.5;
+
 export interface ControllerState {
   grounded: boolean;
   jumpsLeft: number;
@@ -55,6 +69,11 @@ export class Controller {
   private smoothedSpeed = 0;
   /** Transient move-speed multiplier (e.g. the Kiter's Smoke Phantom sprint). */
   private speedMult = 1;
+  /**
+   * Host gates sprint (e.g. stamina empty). When false, Shift still registers
+   * as walk-speed intent so the player never “ghost sprints” on 0 stamina.
+   */
+  private sprintAllowed = true;
   private bound = 15;
   private readonly roomBound = 15;
   /** Pluggable world collision (dungeon KCC). Null = flat Danger Room floor. */
@@ -284,6 +303,21 @@ export class Controller {
   private softTarget: THREE.Vector3 | null = null;
   setSoftTarget(p: THREE.Vector3 | null) {
     this.softTarget = p ? new THREE.Vector3(p.x, 0, p.z) : null;
+  }
+
+  /** Allow Shift sprint this frame (Studio sets false when stamina is empty). */
+  setSprintAllowed(on: boolean) {
+    this.sprintAllowed = on;
+  }
+
+  /** True if sprint keys are held and host has not gated sprint. */
+  get wantsSprint(): boolean {
+    return (
+      this.sprintAllowed &&
+      (this.input.down(INPUT.sprint) ||
+        this.input.down(INPUT.sprintAlt) ||
+        this.input.touchSprint)
+    );
   }
 
   /** Current camera framing. */
@@ -843,24 +877,25 @@ export class Controller {
         let d = lockYaw - this.yaw;
         while (d > Math.PI) d -= Math.PI * 2;
         while (d < -Math.PI) d += Math.PI * 2;
-        this.yaw += d * Math.min(1, 9 * dt);
+        this.yaw += d * Math.min(1, HARD_LOCK_YAW * dt);
       }
     } else if (this.softTarget && (this.input.locked || this.input.lookActive)) {
-      // Soft-lock aim assist: when the foe sits within a forward cone and the
-      // player isn't actively turning, nudge the yaw gently toward it. This never
-      // overrides intent — a real flick (mouse.dx) suspends the assist, and a foe
-      // outside the cone is ignored (that's what Tab / hard lock are for).
+      // Soft-lock (survival assist): gentle camera nudge toward a target already
+      // roughly ahead. Never seizes body facing (body still faces travel unless
+      // hard-locked). Mouse flick suspends assist; hard lock is for sticky focus.
       const toS = new THREE.Vector3(
         this.softTarget.x - this.character.root.position.x,
         0,
         this.softTarget.z - this.character.root.position.z,
       );
-      if (toS.lengthSq() > 1e-4 && Math.abs(mouse.dx) < 2) {
+      if (toS.lengthSq() > 1e-4 && Math.abs(mouse.dx) < SOFT_LOCK_MOUSE_CANCEL) {
         const desired = Math.atan2(toS.x, toS.z);
         let d = desired - this.yaw;
         while (d > Math.PI) d -= Math.PI * 2;
         while (d < -Math.PI) d += Math.PI * 2;
-        if (Math.abs(d) < 1.05) this.yaw += d * Math.min(1, 3 * dt) * 0.5;
+        if (Math.abs(d) < SOFT_LOCK_CONE) {
+          this.yaw += d * Math.min(1, SOFT_LOCK_PULL * dt);
+        }
       }
     }
 
@@ -889,11 +924,13 @@ export class Controller {
     }
     const mag = Math.min(1, move.length());
 
-    // Sprint keys from inputContract SSOT (matches fleet grudge-control-ssot).
-    const sprinting =
+    // Sprint keys from inputContract SSOT; host may gate via setSprintAllowed
+    // (stamina empty → walk speed only).
+    const sprintHeld =
       this.input.down(INPUT.sprint) ||
       this.input.down(INPUT.sprintAlt) ||
       this.input.touchSprint;
+    const sprinting = sprintHeld && this.sprintAllowed;
     const speed =
       this.params.moveSpeed * (sprinting ? this.params.sprintMultiplier : 1) * this.speedMult;
     // Keyboard moves at full speed; the joystick scales by how far it's pushed.
@@ -944,12 +981,21 @@ export class Controller {
       pos.z = THREE.MathUtils.clamp(pos.z + this.velocity.z * dt, -this.bound, this.bound);
       moving = false;
     } else {
+      // Survival-weight: ease into target velocity (accel) and brake when idle
+      // (decel) so the body has mass instead of arcade skate.
       if (moving) {
         move.normalize();
-        this.velocity.copy(move).multiplyScalar(speed * intensity);
         this.wantFacing = Math.atan2(move.x, move.z);
+        const tx = move.x * speed * intensity;
+        const tz = move.z * speed * intensity;
+        const k = 1 - Math.exp(-MOVE_ACCEL * dt);
+        this.velocity.x += (tx - this.velocity.x) * k;
+        this.velocity.z += (tz - this.velocity.z) * k;
       } else {
-        this.velocity.multiplyScalar(0.001);
+        const k = Math.exp(-MOVE_DECEL * dt);
+        this.velocity.x *= k;
+        this.velocity.z *= k;
+        if (this.velocity.lengthSq() < 1e-4) this.velocity.set(0, 0, 0);
       }
       // Apply horizontal movement with simple room bounds.
       pos.x = THREE.MathUtils.clamp(pos.x + this.velocity.x * dt, -this.bound, this.bound);

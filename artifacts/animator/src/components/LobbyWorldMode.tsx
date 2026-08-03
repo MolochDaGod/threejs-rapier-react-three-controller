@@ -191,7 +191,7 @@ export function LobbyWorldMode({ onExit, net = null, enablePvp = true }: Props) 
         </button>
       </div>
 
-      {gameMenu && (
+      {gamesMenu && (
         <div className="lw-char-menu lw-games-menu">
           <h3>Play with this character</h3>
           <p className="lw-game-note">

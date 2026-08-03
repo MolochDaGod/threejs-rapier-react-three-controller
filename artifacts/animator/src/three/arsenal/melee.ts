@@ -1,6 +1,17 @@
 import type { WeaponDef } from "./types";
 import { PI2 } from "./types";
-import { MACE2H_SKILL_KIT, MELEE_EARTH_WALL_SKILL_KIT } from "./weaponSkillKits";
+import {
+  MACE2H_SKILL_KIT,
+  MELEE_EARTH_WALL_SKILL_KIT,
+  AXE_SKILL_KIT,
+  HAMMER_SKILL_KIT,
+  MACE_SKILL_KIT,
+  GREATSWORD_SKILL_KIT,
+  GREATAXE_SKILL_KIT,
+  HAMMER2H_SKILL_KIT,
+  SPEAR_SKILL_KIT,
+  JAVELIN_SKILL_KIT,
+} from "./weaponSkillKits";
 
 /**
  * Melee weapon prefabs. The roster is intentionally DISTINCT in feel: each
@@ -55,6 +66,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Cleave",
     skillDuration: 0.9,
     cooldown: 1.8,
+    skillKit: AXE_SKILL_KIT,
     combat: { intensity: 55, direction: 65, range: [1.2, 2.4] },
     animSet: "axe",
     group: "melee-1h",
@@ -105,6 +117,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Crushing Blow",
     skillDuration: 1.0,
     cooldown: 2.2,
+    skillKit: HAMMER_SKILL_KIT,
     combat: { intensity: 62, direction: 50, range: [1.3, 2.6] },
     animSet: "hammer",
     group: "melee-1h",
@@ -128,6 +141,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Skull Crusher",
     skillDuration: 0.9,
     cooldown: 1.9,
+    skillKit: MACE_SKILL_KIT,
     combat: { intensity: 50, direction: 60, range: [1.1, 2.2] },
     animSet: "mace",
     group: "melee-1h",
@@ -151,6 +165,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Earthshatter",
     skillDuration: 1.1,
     cooldown: 2.6,
+    skillKit: GREATSWORD_SKILL_KIT,
     combat: { intensity: 72, direction: 45, range: [1.6, 3] },
     animSet: "greatsword",
     group: "melee-2h",
@@ -177,6 +192,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Whirlwind",
     skillDuration: 1.0,
     cooldown: 2.4,
+    skillKit: GREATAXE_SKILL_KIT,
     combat: { intensity: 80, direction: 42, range: [1.6, 3.2] },
     animSet: "greataxe",
     group: "melee-2h",
@@ -203,6 +219,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Ground Pound",
     skillDuration: 1.2,
     cooldown: 2.8,
+    skillKit: HAMMER2H_SKILL_KIT,
     combat: { intensity: 92, direction: 35, range: [1.6, 3.2] },
     animSet: "hammer2h",
     group: "melee-2h",
@@ -261,6 +278,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Lunge",
     skillDuration: 0.7,
     cooldown: 1.4,
+    skillKit: SPEAR_SKILL_KIT,
     combat: { intensity: 42, direction: 80, range: [2, 3.6] },
     animSet: "spear",
     group: "melee-2h",
@@ -291,6 +309,7 @@ export const MELEE_WEAPONS: WeaponDef[] = [
     skillName: "Javelin Throw",
     skillDuration: 0.7,
     cooldown: 1.5,
+    skillKit: JAVELIN_SKILL_KIT,
     combat: { intensity: 38, direction: 90, range: [2, 3.4] },
     animSet: "spear",
     group: "melee-2h",

@@ -13,6 +13,8 @@
 | Crosshair | `Crosshair.tsx` | combat / harvest / ui modes + recoil bloom |
 | Cursor | `CursorManager.tsx` | pointer-lock vs UI cursor |
 | Weapon skills | `abilities/*` · `arsenal/*` · skill slots 1–4 | Cooldowns + cast charge |
+| Skill phases | `arsenal/skillCombatPhases.ts` · kits | Elden-style castTime / recovery / impact / reload |
+| Firearm ammo | Studio `ammoInClip` + HUD | Magazine + RELOAD flash; explosive last round |
 | Spell shaders | `Vfx.ts` fireUniforms / ShaderMaterial trails | Needs **post bloom** to read |
 | Post FX | `three/fx/postfx.ts` | pmndrs stack · combat / spell / cinematic presets |
 | Camera | Controller chase + `DuelCamera` ALE modes | Soft-lock pull + FOV kick |

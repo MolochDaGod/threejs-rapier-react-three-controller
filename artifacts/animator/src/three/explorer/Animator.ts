@@ -58,6 +58,8 @@ const NO_GESTURE_BREAK: ReadonlySet<WeaponClass> = new Set<WeaponClass>([
   "hammer2h",
   "mace2h",
   "spear",
+  "ranged",
+  "shotgun",
 ]);
 
 /** Crossfade (seconds) used to ease the additive combat overlay in and out. */
@@ -301,9 +303,18 @@ export class Animator {
    * executor uses to drive bespoke kit motions (pistol whip, uppercut, mma kick,
    * charged shot, kip-up) without a dedicated method per move.
    */
-  playAction(key: ActionKey, holdLast = false): number {
+  playAction(key: ActionKey, holdLast = false, fade = 0.08): number {
     const id = this.resolve(key) ?? resolveGlobalAction(key);
-    return id ? this.playOnce(id, holdLast) : 0;
+    return id ? this.playOnce(id, holdLast, fade) : 0;
+  }
+
+  /**
+   * Upper-body additive overlay for a named ActionKey (moving fire / whip while
+   * locomoting). Returns rate-adjusted duration, or 0 when clip/tracks missing.
+   */
+  playActionOverlay(key: ActionKey, intensity: number): number {
+    const id = this.resolve(key) ?? resolveGlobalAction(key);
+    return id ? this.playOverlay(id, intensity) : 0;
   }
 
   /**
@@ -542,8 +553,8 @@ export class Animator {
    * weapon (the rig loads every referenced clip). Returns the clip duration, or
    * 0 when the id isn't loaded so the caller can fall back.
    */
-  playById(id: string, holdLast = false): number {
-    return this.clips.has(id) ? this.playOnce(id, holdLast) : 0;
+  playById(id: string, holdLast = false, fade = 0.08): number {
+    return this.clips.has(id) ? this.playOnce(id, holdLast, fade) : 0;
   }
 
   /** True when a catalog clip id is loaded on this rig. */

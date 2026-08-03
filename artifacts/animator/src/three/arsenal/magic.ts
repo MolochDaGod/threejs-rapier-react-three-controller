@@ -7,6 +7,7 @@ import {
   STAFF_ICE_SKILL_KIT,
   STAFF_NATURE_SKILL_KIT,
   STAFF_STORM_SKILL_KIT,
+  STAFF_ARCANE_SKILL_KIT,
 } from "./weaponSkillKits";
 import {
   PRESET_ARCANE_TURRET,
@@ -87,6 +88,7 @@ export const MAGIC_WEAPONS: WeaponDef[] = [
     skillName: "Arcane Nova",
     skillDuration: 1,
     cooldown: 2.4,
+    skillKit: STAFF_ARCANE_SKILL_KIT,
     combat: { intensity: 50, direction: 70, range: [1, 2.2] },
     animSet: "magic",
     group: "magic",

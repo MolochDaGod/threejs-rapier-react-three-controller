@@ -216,6 +216,7 @@ export const WEAPON_COLOR: Record<WeaponId, number> = {
   pistol: 0xc0c8d4,
   rifle: 0x8fb6ff,
   "hunter-rifle": 0x9fb0c8,
+  shotgun: 0xa8b4c0,
   javelin: 0xffe08a,
   shield: 0xffd27a,
 };

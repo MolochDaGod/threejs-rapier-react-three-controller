@@ -9,6 +9,7 @@ import {
 } from "../rig/rootLock";
 import {
   ANIM_PACK_CLIPS,
+  LOADOUT_CLIP_KEYS,
   SPRINT_CLIP,
   applyBodyTexture,
   applyGearPreset,
@@ -19,9 +20,11 @@ import {
   loadBodyTexture,
   loadCharacterModel,
   RACE_ASSETS,
+  type LoadoutClips,
   type PresetId,
   type RaceId,
 } from "./index";
+import { directionalBlendWeights } from "../anim/blend";
 
 /**
  * An {@link Avatar} backed by the vendored Grudge character-kit: a normalized
@@ -63,6 +66,14 @@ export class GrudgeAvatar implements Avatar {
 
   /** Foot-to-ground IK pass; bound on load, applied post-mixer, default OFF. */
   private footGrounder = new FootGrounder();
+
+  /**
+   * Directional loco override for hard-lock strafe/back: when set, walk/run
+   * prefer walkL|walkR|walkB / runL|runR|runB instead of forward clips.
+   */
+  private dirOverride: "left" | "right" | "back" | null = null;
+  /** Looped guard hold (E block) — separate from one-shot attack. */
+  private blockHeld = false;
 
   // ── Skill Lab authoring knobs ──────────────────────────────────────────────
   /** Global playback multiplier applied to locomotion + authored one-shots. */
@@ -151,19 +162,10 @@ export class GrudgeAvatar implements Avatar {
     // no longer reads as leaning / off-balance (gear hide can bias the old bbox).
     this.centerHipsBetweenFeet(this.model);
 
-    // Stream the baked locomotion/attack clips for this preset's anim pack and
-    // bind them under stable logical keys (role name) — keys, not clip names, so
-    // packs that reuse a base clip (e.g. run + sprint both "running") never
-    // collide in the action map.
+    // Stream the full pack clip table (core loco + directional + defense) from
+    // ANIM_PACK_CLIPS. Keys are stable logical names; missing CDN paths soft-fail.
     const pack = ANIM_PACK_CLIPS[preset.animPack];
-    const wanted: { key: string; role: AnimRole | null; rel: string }[] = [
-      { key: "idle", role: "idle", rel: pack.idle },
-      { key: "walk", role: "walk", rel: pack.walk },
-      { key: "run", role: "run", rel: pack.run },
-      { key: "attack", role: "attack", rel: pack.attack },
-      // Pack-agnostic sprint (Shift) — NOT a time-scaled walk/run (foot-slide).
-      { key: "sprint", role: null, rel: SPRINT_CLIP },
-    ];
+    const wanted = this.buildWantedClips(pack);
     const loadedClips = await Promise.all(
       wanted.map(async (w) => {
         try {
@@ -199,7 +201,7 @@ export class GrudgeAvatar implements Avatar {
     }
     if (!this.roleClip.has("walk") && this.roleClip.has("run")) this.roleClip.set("walk", this.roleClip.get("run")!);
     if (!this.roleClip.has("run") && this.roleClip.has("walk")) this.roleClip.set("run", this.roleClip.get("walk")!);
-    // Skill / combat clip aliases → real attack (kit only ships idle/walk/run/attack).
+    // Skill / combat clip aliases + defense verb aliases for Studio holdStyle.
     this.aliasCombatClips();
 
     this.model.updateMatrixWorld(true);
@@ -211,14 +213,37 @@ export class GrudgeAvatar implements Avatar {
     this.playRole("idle", 0);
   }
 
+  /** Build load list from pack table + sprint fill. */
+  private buildWantedClips(
+    pack: LoadoutClips,
+  ): { key: string; role: AnimRole | null; rel: string }[] {
+    const roleOf = (key: string): AnimRole | null => {
+      if (key === "idle" || key === "walk" || key === "run" || key === "attack") return key;
+      if (key === "block") return "block";
+      return null;
+    };
+    const wanted: { key: string; role: AnimRole | null; rel: string }[] = [];
+    for (const key of LOADOUT_CLIP_KEYS) {
+      const rel = pack[key];
+      if (!rel) continue;
+      wanted.push({ key, role: roleOf(key), rel });
+    }
+    if (!pack.sprint) {
+      wanted.push({ key: "sprint", role: null, rel: SPRINT_CLIP });
+    }
+    return wanted;
+  }
+
   /**
-   * Map catalog/weapon skill clip names onto the baked attack (or idle) so F / 1–4
-   * and signature kits animate instead of no-oping on missing clip ids.
+   * Map catalog/weapon skill + defense verb names onto baked clips so F / 1–4,
+   * block, parry, and Studio holdStyle keys animate instead of no-oping.
    */
   private aliasCombatClips(): void {
     const attack = this.actions.get("attack") ?? this.actions.get(this.roleClip.get("attack") ?? "");
     const idle = this.actions.get("idle") ?? this.actions.get(this.roleClip.get("idle") ?? "");
     const walk = this.actions.get("walk");
+    const block = this.actions.get("block");
+    const parry = this.actions.get("parry") ?? block;
     if (!attack && !idle) return;
     const toAttack = [
       "attack",
@@ -232,18 +257,31 @@ export class GrudgeAvatar implements Avatar {
       "skill",
       "cast",
       "slash",
+      "magicAttack",
     ];
     for (const name of toAttack) {
       if (!this.actions.has(name) && attack) this.actions.set(name, attack);
     }
-    const toIdle = ["sword_block", "block", "jump", "front_flip"];
-    for (const name of toIdle) {
+    const blockLike = ["sword_block", "block", "blockStart", "blockIdle", "blockGuard", "blockReact"];
+    for (const name of blockLike) {
+      if (!this.actions.has(name) && (block || idle || attack)) {
+        this.actions.set(name, block ?? idle ?? attack!);
+      }
+    }
+    const parryLike = ["parry", "parryReact"];
+    for (const name of parryLike) {
+      if (!this.actions.has(name) && (parry || block || attack)) {
+        this.actions.set(name, parry ?? block ?? attack!);
+      }
+    }
+    for (const name of ["jump", "front_flip"]) {
       if (!this.actions.has(name) && (idle || attack)) this.actions.set(name, idle ?? attack!);
     }
     if (!this.actions.has("walk") && walk) this.actions.set("walk", walk);
-    // Role fills for jump/block if absent
+    // Role fills
     if (!this.roleClip.has("jump") && this.actions.has("jump")) this.roleClip.set("jump", "jump");
     if (!this.roleClip.has("block") && this.actions.has("block")) this.roleClip.set("block", "block");
+    if (!this.roleClip.has("hurt") && this.actions.has("hurt")) this.roleClip.set("hurt", "hurt");
   }
 
   /**
@@ -354,29 +392,128 @@ export class GrudgeAvatar implements Avatar {
   /**
    * Continuous locomotion for Controller (same contract as Character).
    * Maps 0..1 speed → idle / walk / run / sprint with proper clip selection.
-   *
-   * Controller values: walk ≈ 0.5, Shift-sprint = 1.0. Using the dedicated
-   * sprint clip at high speed (not a time-scaled walk) fixes "wrong run".
+   * When {@link dirOverride} is set (from setLocomotionDirectional), prefers
+   * directional walk/run clips so hard-lock A/D/S read correctly.
    */
   setLocomotion(speed: number): void {
-    if (!this.mixer || this.oneShot) return;
+    if (!this.mixer || this.oneShot || this.blockHeld) return;
+    this.dirOverride = null;
+    this.applyLocomotionSpeed(speed);
+  }
+
+  /**
+   * Body-frame directional loco (+X right, +Z forward). Picks walkL/R/B or
+   * runL/R/B when loaded; otherwise forward walk/run. Used under hard lock so
+   * legs strafe while body faces the foe.
+   */
+  setLocomotionDirectional(moveX: number, moveZ: number, speed: number): void {
+    if (!this.mixer || this.oneShot || this.blockHeld) return;
+    const s = Math.max(0, Math.min(1, speed));
+    if (s < 0.08) {
+      this.dirOverride = null;
+      this.applyLocomotionSpeed(0);
+      return;
+    }
+    const w = directionalBlendWeights(moveX, moveZ, s);
+    let best: "left" | "right" | "back" | null = null;
+    let bestW = w.forward;
+    if (this.actions.has("walkL") && w.left > bestW) {
+      best = "left";
+      bestW = w.left;
+    }
+    if (this.actions.has("walkR") && w.right > bestW) {
+      best = "right";
+      bestW = w.right;
+    }
+    if (this.actions.has("walkB") && w.back > bestW) {
+      best = "back";
+      bestW = w.back;
+    }
+    this.dirOverride = best;
+    this.applyLocomotionSpeed(s);
+  }
+
+  /** Shared idle/walk/run/sprint + directional clip pick. */
+  private applyLocomotionSpeed(speed: number): void {
     const s = Math.max(0, Math.min(1, speed));
     if (s >= 0.82) {
-      // Shift sprint: prefer dedicated sprint clip (uploads running), else run.
+      if (this.dirOverride) {
+        const key =
+          this.dirOverride === "left"
+            ? "runL"
+            : this.dirOverride === "right"
+              ? "runR"
+              : "runB";
+        if (this.actions.has(key)) {
+          this.playClipLoop(key);
+          this.setLocomotionRate(1);
+          return;
+        }
+      }
       if (this.actions.has("sprint")) this.playClipLoop("sprint");
       else if (this.hasRole("run")) this.playRole("run");
       else if (this.hasRole("walk")) this.playRole("walk");
       this.setLocomotionRate(1);
     } else if (s >= 0.1) {
-      // Normal WASD walk — do NOT play run here (was causing off-balance "jog").
+      if (this.dirOverride) {
+        const key =
+          this.dirOverride === "left"
+            ? "walkL"
+            : this.dirOverride === "right"
+              ? "walkR"
+              : "walkB";
+        if (this.actions.has(key)) {
+          this.playClipLoop(key);
+          this.setLocomotionRate(0.9 + Math.min(0.25, (s - 0.1) * 0.4));
+          return;
+        }
+      }
       if (this.hasRole("walk")) this.playRole("walk");
       else if (this.hasRole("run")) this.playRole("run");
-      // Cadence tracks speed without sliding into run range.
       this.setLocomotionRate(0.9 + Math.min(0.25, (s - 0.1) * 0.4));
     } else {
       this.playRole("idle");
       this.setLocomotionRate(1);
     }
+  }
+
+  /** Raise/drop looped guard (Studio E-block → same contract as Explorer setBlock). */
+  setBlock(active: boolean): void {
+    this.blockHeld = active;
+    if (!this.mixer) return;
+    if (active) {
+      if (this.actions.has("block")) this.playClipLoop("block", 0.12);
+      else if (this.actions.has("blockIdle")) this.playClipLoop("blockIdle", 0.12);
+      else if (this.hasRole("idle")) this.playRole("idle", 0.12);
+    } else if (this.current && (this.current === this.actions.get("block") || this.current === this.actions.get("blockIdle"))) {
+      this.playRole("idle", 0.15);
+    }
+  }
+
+  /**
+   * Directional dodge clip when pack ships dodge* keys (CDN often missing —
+   * returns 0 and Studio still applies Controller.dash displacement).
+   */
+  rollDir(dir: "F" | "B" | "L" | "R"): number {
+    const key = `dodge${dir}` as const;
+    if (this.actions.has(key)) return this.playClipOnce(key, 0.08);
+    // Soft fallbacks so X back dodge always has a pose when block/hurt exist
+    if (dir === "B" && this.actions.has("walkB")) return this.playClipOnce("walkB", 0.08);
+    if (this.actions.has("hurt")) return this.playClipOnce("hurt", 0.08);
+    if (this.hasRole("hurt")) return this.playRoleOnce("hurt", 0.08);
+    return 0;
+  }
+
+  /** Defense reaction by holdStyle key (parryReact, blockLeft, stumble, …). */
+  reaction(key: string, fade = 0.12, _hold = false): number {
+    if (this.actions.has(key)) return this.playClipOnce(key, fade);
+    // Common aliases
+    if (key === "parryReact" && this.actions.has("parry")) return this.playClipOnce("parry", fade);
+    if ((key === "blockStart" || key === "blockIdle") && this.actions.has("block")) {
+      return this.playClipOnce("block", fade);
+    }
+    if (this.hasRole("hurt")) return this.playRoleOnce("hurt", fade);
+    return 0;
   }
 
   /** Loop a named clip (used for sprint which is not an AnimRole). */

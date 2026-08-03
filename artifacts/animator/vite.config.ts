@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
 import path from "path";
 
 // PORT and BASE_PATH are optional — defaults work for local dev and Vercel.
@@ -12,6 +14,9 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss({ optimize: false }),
+    // Rapier / wasm modules (and any future wasm) need these in Vite 7.
+    wasm(),
+    topLevelAwait(),
   ],
   resolve: {
     alias: {
@@ -20,7 +25,12 @@ export default defineConfig({
       // the browser polyfill so signing works in the browser.
       buffer: "buffer/",
     },
-    dedupe: ["react", "react-dom", "three"],
+    // Single three instance — avoids postprocessing/quarks peer skew.
+    dedupe: ["react", "react-dom", "three", "@dimforge/rapier3d-compat"],
+  },
+  optimizeDeps: {
+    // Prebundle three so HMR and postprocessing share one copy.
+    include: ["three", "postprocessing"],
   },
   root: path.resolve(import.meta.dirname),
   build: {

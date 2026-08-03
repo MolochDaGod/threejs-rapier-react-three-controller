@@ -50,9 +50,8 @@ function prepMeshes(root: THREE.Object3D, cast = true): void {
     for (const mat of mats) {
       if (!mat) continue;
       mat.side = THREE.DoubleSide;
-      if ("map" in mat && mat.map) {
-        mat.map.colorSpace = THREE.SRGBColorSpace;
-      }
+      const map = (mat as THREE.MeshStandardMaterial).map;
+      if (map) map.colorSpace = THREE.SRGBColorSpace;
     }
   });
 }

@@ -21,11 +21,13 @@ export { RACE_GEAR_PRESETS, PRESET_IDS, getPreset } from "./gearPresets";
 export type { AnimPack, LoadoutClips } from "./anims";
 export {
   ANIM_PACK_CLIPS,
+  LOADOUT_CLIP_KEYS,
   SPRINT_CLIP,
   asAnimPack,
   bakedClipUrl,
   toRotationOnlyClip,
   loadBakedClip,
+  packClipRels,
 } from "./anims";
 
 export {

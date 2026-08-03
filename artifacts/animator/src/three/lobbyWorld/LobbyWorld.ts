@@ -538,7 +538,8 @@ export class LobbyWorld {
             if (m.material) {
               const mats = Array.isArray(m.material) ? m.material : [m.material];
               for (const mat of mats) {
-                if ("map" in mat && mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+                const map = (mat as THREE.MeshStandardMaterial).map;
+                if (map) map.colorSpace = THREE.SRGBColorSpace;
               }
             }
           }

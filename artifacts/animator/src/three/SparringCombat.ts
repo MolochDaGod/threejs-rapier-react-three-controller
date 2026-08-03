@@ -93,6 +93,10 @@ export class SparringCombat {
   startBlock(): void { this._playerCC.startBlock(); }
   endBlock(): void { this._playerCC.endBlock(); }
   dodge(dir: DodgeDir = { x: 0, z: 1 }): void { this._playerCC.dodge(dir); }
+  /** Continuous stamina tax (sprint). See CombatController.drainStamina. */
+  drainStamina(amount: number): number {
+    return this._playerCC.drainStamina(amount);
+  }
   /** Restore player HP (clamped to max) — used by the heal-potion consumable. */
   healPlayer(amount: number): void { this._playerCC.heal(amount); }
 

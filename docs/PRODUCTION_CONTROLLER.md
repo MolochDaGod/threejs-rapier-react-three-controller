@@ -29,6 +29,14 @@ Landing (Puter + Grudge ID bridge) → characters (airship 4-crew) → Danger / 
 Deep-link: ?door=landing | characters | campfire | danger | editor | avatar | …
 ```
 
+## Control feel (Phase A — survival weight)
+
+See `docs/CONAN_FEEL_ROADMAP.md`. Local defaults: heavier accel/decel, softer soft-lock, sprint drains combat stamina.
+
+## Harvest lab (Phase C — Danger Room)
+
+Trees/rocks at room edges (`harvest/HarvestLab.ts`). Soft lock prefers foes, then nodes. LMB melee advances stages → wood/stone flash; signed-in bag flush via `AccountBagSync`. Not the full Open tool wheel.
+
 ## Combat hotkeys (Danger Room)
 
 | Input | Action |
@@ -38,15 +46,15 @@ Deep-link: ?door=landing | characters | campfire | danger | editor | avatar | �
 | **Space** | Jump / double-jump |
 | **LMB** | Primary attack / combo |
 | **RMB** | Soft/hard lock focus |
-| **E** (hold) | **Block** (stamina; no damage if guard holds; melee attackers take 1.25× MM bounce + stun) |
+| **E** (hold) | **Block** (stamina + looped guard pose; no damage if guard holds; melee attackers take 1.25× MM bounce + stun) |
 | **E+Space** | Air block hop |
-| **C** | **Parry** (timing window + projectile rebound) |
+| **C** | **Parry** (timing window + proactive parry clip + projectile rebound) |
 | **Q** | Loadout cycle (2-weapon kits only) |
 | **F** | Weapon skill |
 | **1–4** | Signature skills (clip + VFX) |
 | **R** | Skyfall / special |
 | **H** | Throw grenade/bomb (**not** parry-reboundable) |
-| **X** | Dodge |
+| **X** | **Quick back dodge** (retreat; face stays on fight) |
 | **Tab** | Cycle soft-lock target |
 | **I** | Equipment / armor |
 | **Esc** | UI / unlock pointer |

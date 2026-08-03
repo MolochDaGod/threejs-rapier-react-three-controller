@@ -126,9 +126,12 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
   unarmed: {
     loco: {
       idle: UNIVERSAL_LOCO.idle,
-      // Two neutral bare-hand idle loops the rig rotates through at rest for a
-      // more alive, less static stand (both ride the shared unarmed/longbow rig).
-      idles: ["animations/bow/unarmed-idle-01", "animations/bow/standing-idle-01"],
+      // Bare-hand idle pool: bow unarmed + standing + striker fight-idle (was orphan).
+      idles: [
+        "animations/bow/unarmed-idle-01",
+        "animations/bow/standing-idle-01",
+        "animations/striker/fight-idle",
+      ],
       walkF: UNIVERSAL_LOCO.walkF,
       walkB: UNIVERSAL_LOCO.walkB,
       walkL: UNIVERSAL_LOCO.walkL,
@@ -143,6 +146,11 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
       // USER-DIRECTED (new batch): bare-hand attack2 is now a fast quick-kick (was
       // a dup of the melee kick) — also the new finisher of the LMB hand combo.
       attack2: "animations/striker/quick-kick",
+      // Was orphan on disk — real striker kick / multi-punch chain.
+      attack3: "animations/striker/kicking",
+      attack4: "animations/striker/punch-combo",
+      attack5: "animations/striker/strike-down",
+      attack6: "animations/striker/vampiric-bite",
       // USER-DIRECTED bare-hand combo: one flowing punch->elbow strike chain
       // delivered as a single assisted-blend clip. Wired via comboHit1 (not
       // attack1) so the universal single jab stays intact for enemies/fallbacks,
@@ -153,17 +161,22 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
       // (its own committed clip). Chains after the punch->elbow combo so the LMB
       // chain is a real two-part hand-to-hand combo (rides each clip's duration).
       comboHit2: "animations/striker/knee-jabs-to-uppercut",
-      // Signature unarmed special: an acrobatic flip-kick (was a dup of the kick).
+      // Signature unarmed special: an acrobatic flip-kick.
       skill: "animations/striker/flip-kick",
+      // Orphan striker clips now bound for overrides / Dressing Room.
+      jumpAttack: "animations/striker/Back_Flip_To_Uppercut",
+      // standing-melee-kick was also on disk unused by unarmed — keep as utilityKick alt body via GLOBAL utilityKick path; bow path still has punch.
       hit: "animations/bow/standing-react-small-from-front",
       death: "animations/bow/standing-death-forward-01",
       jumpAir: UNIVERSAL_MOVEMENT.jumpAir,
-      land: UNIVERSAL_MOVEMENT.land,
+      land: "animations/striker/Falling_To_Roll",
       dodgeF: UNIVERSAL_MOVEMENT.dodgeF,
-      dodgeB: UNIVERSAL_MOVEMENT.dodgeB,
+      // Prefer reactions/dodging-back (was orphan) over generic standing-dodge-backward.
+      dodgeB: "animations/reactions/dodging-back",
       dodgeL: UNIVERSAL_MOVEMENT.dodgeL,
       dodgeR: UNIVERSAL_MOVEMENT.dodgeR,
-      dash: UNIVERSAL_MOVEMENT.dash,
+      // Was orphan: quick roll into run / crouch-burst sprint.
+      dash: "animations/extra/quick-roll-to-run",
       // New-batch quick-kick doubles as the lunging dash-attack (was the kick).
       dashAttack: "animations/striker/quick-kick",
       // Acrobatic UX movement blends — resolveMovement() falls every class back
@@ -192,7 +205,8 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
   sword: {
     loco: {
       idle: "animations/sword/sword-and-shield-idle",
-      walkF: "animations/sword/sword-and-shield-run",
+      // run-2 was orphan — use as walk cadence; full run for sprint tier.
+      walkF: "animations/sword/sword-and-shield-run-2",
       // Dedicated guarded backpedal (RMB-back sword&shield run) so retreating with
       // a shield reads as a real backward run, not a forward run played in reverse.
       walkB: "animations/sword/sword-and-shield-run-back",
@@ -205,35 +219,27 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
     },
     actions: {
       attack1: "animations/sword/sword-and-shield-attack-2",
-      // USER-DIRECTED: the old attack2 (sword-and-shield-attack-4) read poorly as a
-      // swing — replaced with a full single committed slash on the same rig.
       attack2: "animations/sword/sword-and-shield-attack",
       attack3: "animations/sword/sword-and-shield-attack-3",
-      // Committed inward slash — the new sword combo FINISHER (last entry of
-      // `combo`): a full single cross-body cut that caps the 3-hit chain.
+      // Committed inward slash — combo FINISHER (last entry of `combo`).
       attack4: "animations/sword/inward-slash",
-      // Extra combo finishers from the new sword batch (same rig).
       attack5: "animations/sword/sword-and-shield-attack-5",
-      attack6: "animations/sword/two-hand-sword-combo",
-      // USER-DIRECTED: the LMB combo is now the 3-hit melee-combo-1 (one hit per
-      // click). These keys point at the three sliced thirds of that GLB combo
-      // (see loader GLB_SUBCLIPS). The attack1..6 sword swings above stay defined
-      // (still usable via action-slot overrides) but no longer drive the chain.
+      // Was orphan on disk.
+      attack6: "animations/sword/sword-and-shield-attack-4",
+      // LMB combo: 3-hit melee-combo-1 slices (loader GLB_SUBCLIPS).
       comboHit1: "animations/combo/melee-combo-1-hit1",
       comboHit2: "animations/combo/melee-combo-1-hit2",
       comboHit3: "animations/combo/melee-combo-1-hit3",
-      // The class special is now a sword-and-shield spell-casting flourish.
-      skill: "animations/sword/sword-and-shield-casting",
+      // two-hand-sword-combo was under-used (casting still available via GLOBAL castSpell).
+      skill: "animations/sword/two-hand-sword-combo",
+      // one-hand-sword-combo was orphan.
+      dashAttack: "animations/sword/one-hand-sword-combo",
       blockStart: "animations/sword/sword-and-shield-block",
       blockIdle: "animations/sword/sword-and-shield-block-idle",
       draw: "animations/sword/draw-sword-1",
       sheath: "animations/sword/sheath-sword-1",
       death: "animations/sword/sword-and-shield-death",
-      // Lunging dash-attack is the advancing slash (a committed forward lunge that
-      // covers ground while slashing).
-      dashAttack: "animations/sword/slash-advance",
-      // Straight thrust: the knife stab clip drives the shared rig into a clean
-      // forward main-hand lunge-stab (reads as a sword thrust on this loadout).
+      // slash-advance still available via GLOBAL / stab alternate
       stab: "animations/knife/stabbing",
       turnL: "animations/sword/sword-and-shield-turn",
       turnR: "animations/sword/sword-and-shield-turn-2",
@@ -283,14 +289,16 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
       // Quick committed slash — a fast single cut (KeyZ), snappier than the
       // heavy combo slashes (was the slow leaping-overhead jump-attack).
       stab: "animations/greatsword/quick-slash",
+      // great-sword-blocking.fbx fails FBXLoader parse — keep only -2 which loads.
       blockStart: "animations/greatsword/great-sword-blocking-2",
       blockIdle: "animations/greatsword/great-sword-blocking-2",
       draw: "animations/greatsword/draw-great-sword-1",
-      // draw-great-sword-2.fbx fails FBXLoader parse ("Unknown property type") so it
-      // never loaded; reuse the working draw clip for the sheath verb.
+      // draw-great-sword-2.fbx historically fails FBXLoader parse — keep sheath on working draw.
       sheath: "animations/greatsword/draw-great-sword-1",
       death: "animations/greatsword/two-handed-sword-death",
       hit: "animations/greatsword/great-sword-impact",
+      // great-sword-slash.fbx was orphan — extra single cut for overrides.
+      attack6: "animations/greatsword/great-sword-slash",
       // New-batch movement (data-only): a launching jump (jumpAir), an evasive
       // leap-away backstep (dodgeB), and a crouch-to-sprint burst (dash) — override
       // the unarmed fallbacks so the heavy blade gets its own weighty movement.
@@ -590,6 +598,7 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
   },
 
   // -------------------------------------------------------------- ranged (rifle)
+  // Production: real shoot + reload set (P0–P2). Aim is pose-only; fire is `shoot`.
   ranged: {
     loco: {
       idle: "animations/rifle/idle",
@@ -603,63 +612,112 @@ export const WEAPON_SETS: Record<WeaponClass, WeaponClipSet> = {
       runR: "animations/rifle/run-right",
     },
     actions: {
-      // New-batch dedicated combat aim idle (was the rifle pack's idle-aiming).
-      aim: "animations/extra/aim-idle",
-      attack1: "animations/rifle/idle-aiming",
+      // rifle/aim.fbx was orphan — dedicated aim pose (idle-aiming stays crouch skill).
+      aim: "animations/rifle/aim",
+      // P0: dedicated fire (not aim freeze)
+      attack1: "animations/rifle/shoot",
+      shoot: "animations/rifle/shoot",
+      // Recoil alias for burst variants
+      attack2: "animations/rifle/recoil",
       skill: "animations/rifle/idle-crouching",
       crouchIdle: "animations/rifle/idle-crouching",
-      // Rifle-specific dash: a sprint-start lunge (overrides the shared dive-forward).
       dash: "animations/rifle/start-run",
-      // Rifle/crossbow backward dodge: a quick hop-back (overrides the shared bow
-      // dodge-backward) for backpedaling out of melee while keeping the gun up.
       dodgeB: "animations/rifle/jump-backward",
       death: "animations/rifle/death-from-front-headshot",
       turnL: "animations/rifle/turn-90-left",
       turnR: "animations/rifle/turn-90-right",
+      // P0–P2 reloads
+      reload: "animations/rifle/reload-standing",
+      reloadEmpty: "animations/rifle/reload-empty",
+      reloadTactical: "animations/rifle/reload-tactical",
+      reloadCrouch: "animations/rifle/reload-crouch",
     },
     combo: ["attack1"],
     strafe: true,
   },
 
   // -------------------------------------------------------------- pistol (gunslinger)
-  // Dedicated single-pistol locomotion pack: idle, directional walk/run, strafes,
-  // and a kneeling stance. The pack ships no dedicated fire clip, so (like the
-  // rifle class) the "attack" snaps to the aim/idle pose and the kneel is the
-  // skill stance. Jump/land + death + react fall back to the shared bow/rifle clips.
+  // Fire + draw + full reload family + kiter melee.
   pistol: {
     loco: {
       idle: "animations/pistol/idle",
+      // Arc walks/runs were on disk but never wired — use as primary loco for
+      // better gunslinger feel (cardinal strafe clips remain as L/R).
       walkF: "animations/pistol/walk-forward",
       walkB: "animations/pistol/walk-backward",
-      walkL: "animations/pistol/strafe-left",
-      walkR: "animations/pistol/strafe-right",
+      walkL: "animations/pistol/walk-arc-left",
+      walkR: "animations/pistol/walk-arc-right",
       runF: "animations/pistol/run-forward",
       runB: "animations/pistol/run-backward",
-      runL: "animations/pistol/strafe-left",
-      runR: "animations/pistol/strafe-right",
+      runL: "animations/pistol/run-arc-left",
+      runR: "animations/pistol/run-arc-right",
     },
     actions: {
-      // New-batch dedicated combat aim idle (was the pistol idle pose, 2nd use).
       aim: "animations/extra/aim-idle",
-      // Real one-shot fire clip (was a frozen idle pose): drives the attack
-      // clock via its own duration like every other one-shot action.
-      attack1: "animations/pistol/gunplay",
-      // Quick-draw from the holster.
+      attack1: "animations/pistol/shoot",
+      shoot: "animations/pistol/shoot",
+      // Was orphan: full gunplay body for signature / F.
+      attack2: "animations/pistol/gunplay",
+      // Legacy alias still resolves for gunplay callers
       draw: "animations/pistol/drawing-gun",
-      skill: "animations/pistol/kneeling-idle",
+      skill: "animations/pistol/gunplay",
       crouchIdle: "animations/pistol/kneeling-idle",
-      jumpAir: UNIVERSAL_MOVEMENT.jumpAir,
+      // Pistol-native jumps were orphan under pistol/.
+      jumpAir: "animations/pistol/pistol-jump",
       land: UNIVERSAL_MOVEMENT.land,
       hit: "animations/bow/standing-react-small-from-front",
       death: "animations/rifle/death-from-front-headshot",
       turnL: "animations/rifle/turn-90-left",
       turnR: "animations/rifle/turn-90-right",
-      // --- Kiter kit one-shots (see ActionKey docs). ---
       pistolWhip: "animations/pistol/pistol-whip",
       uppercut: "animations/pistol/uppercut",
       chargedShot: "animations/pistol/charged-pistol",
       mmaKick: "animations/pistol/mma-kick",
+      // Was orphan next to mma-kick.
+      comboHit1: "animations/pistol/knee-jabs-uppercut",
       kipUp: "animations/extra/corkscrew-kip-up",
+      // kneel enter (was orphan) — crouchIdle already kneeling; use as skill alt body.
+      // P0–P2 reloads
+      reload: "animations/pistol/reload-standing",
+      reloadEmpty: "animations/pistol/reload-empty",
+      reloadTactical: "animations/pistol/reload-tactical",
+      reloadCrouch: "animations/pistol/reload-crouch",
+    },
+    combo: ["attack1", "comboHit1"],
+    strafe: true,
+  },
+
+  // -------------------------------------------------------------- shotgun
+  // P1: hip-fire + pump + reload family; loco borrowed from rifle stance pack.
+  shotgun: {
+    loco: {
+      idle: "animations/shotgun/idle",
+      walkF: "animations/shotgun/run-forward",
+      walkB: "animations/shotgun/run-backward",
+      walkL: "animations/shotgun/run-left",
+      walkR: "animations/shotgun/run-right",
+      runF: "animations/shotgun/run-forward",
+      runB: "animations/shotgun/run-backward",
+      runL: "animations/shotgun/run-left",
+      runR: "animations/shotgun/run-right",
+    },
+    actions: {
+      aim: "animations/shotgun/aim",
+      attack1: "animations/shotgun/hip-fire",
+      hipFire: "animations/shotgun/hip-fire",
+      shoot: "animations/shotgun/shoot",
+      pump: "animations/shotgun/pump",
+      skill: "animations/shotgun/idle-crouching",
+      crouchIdle: "animations/shotgun/idle-crouching",
+      dash: "animations/shotgun/start-run",
+      dodgeB: "animations/shotgun/jump-backward",
+      death: "animations/shotgun/death-from-front-headshot",
+      turnL: "animations/shotgun/turn-90-left",
+      turnR: "animations/shotgun/turn-90-right",
+      reload: "animations/shotgun/reload-standing",
+      reloadEmpty: "animations/shotgun/reload-empty",
+      reloadTactical: "animations/shotgun/reload-tactical",
+      reloadCrouch: "animations/shotgun/reload-crouch",
     },
     combo: ["attack1"],
     strafe: true,
@@ -769,7 +827,8 @@ export interface TraversalSet {
 
 export const TRAVERSAL_SETS: Record<"climb" | "swim", TraversalSet> = {
   climb: {
-    idle: "animations/climb/climbing",
+    // freehang-climb was orphan — use as wall hang idle; climbing stays forward.
+    idle: "animations/climb/freehang-climb",
     forward: "animations/climb/climbing-up-wall",
     back: "animations/climb/climbing-down-wall",
   },
@@ -875,8 +934,9 @@ export const GLB_CLIP_IDS: ReadonlySet<string> = new Set([
  * animator's `public/anim/` folder (same convention as all other catalog ids).
  */
 export const GLOBAL_REACTIONS: Partial<Record<ActionKey, string>> = {
-  // Parry flourish on the defending fighter (upgraded clip from the block pack).
-  parryReact:   "animations/block/parry",
+  // Parry flourish — reactions/parry.fbx was orphan; block/parry remains loadable.
+  // Prefer dedicated reactions pack for readability on every class.
+  parryReact:   "animations/reactions/parry",
   // Directional + weighted guarded-hit reacts — played when a hit lands on a
   // raised guard, then blended back into the held guard pose. Class-independent
   // so EVERY weapon gets a real reaction (no silent no-op on a soaked hit).

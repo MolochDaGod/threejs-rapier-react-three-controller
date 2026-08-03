@@ -20,9 +20,29 @@ export {
   STAFF_NATURE_SKILL_KIT,
   STAFF_STORM_SKILL_KIT,
   STAFF_HOLY_SKILL_KIT,
+  STAFF_ARCANE_SKILL_KIT,
+  AXE_SKILL_KIT,
+  HAMMER_SKILL_KIT,
+  MACE_SKILL_KIT,
+  GREATSWORD_SKILL_KIT,
+  GREATAXE_SKILL_KIT,
+  HAMMER2H_SKILL_KIT,
+  SPEAR_SKILL_KIT,
+  JAVELIN_SKILL_KIT,
+  BOW_SKILL_KIT,
+  HUNTER_RIFLE_SKILL_KIT,
+  SHOTGUN_SKILL_KIT,
   type WeaponSkillKit,
   type WeaponSkillEntry,
 } from "./weaponSkillKits";
+export {
+  resolveSkillTiming,
+  timingForKind,
+  commitDamageMul,
+  type SkillCombatTiming,
+  type CastEffectStyle,
+  type ImpactEffectStyle,
+} from "./skillCombatPhases";
 
 /** The "no weapon" prefab — a pure unarmed loadout (no model, no grip). */
 export const NONE: WeaponDef = {

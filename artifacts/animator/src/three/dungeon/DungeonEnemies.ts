@@ -923,6 +923,48 @@ export class DungeonEnemies implements CombatTargets {
     return this.chest(e);
   }
 
+  /** Same cone-biased soft lock as Danger Room {@link Targets.acquireSoftLock}. */
+  acquireSoftLock(
+    from: THREE.Vector3,
+    forward: THREE.Vector3,
+    maxDist = 18,
+  ): THREE.Vector3 | null {
+    const maxD2 = maxDist * maxDist;
+    const fwd = forward.clone().setY(0);
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1);
+    else fwd.normalize();
+    const sticky = this.enemies.find((x) => x.id === this.selectedId && !x.dead);
+    if (sticky) {
+      const to = sticky.group.position.clone().sub(from);
+      to.y = 0;
+      const d2 = to.lengthSq();
+      if (d2 <= maxD2 && d2 > 1e-6) {
+        const cos = to.normalize().dot(fwd);
+        if (cos > -0.15) return this.chest(sticky);
+      }
+    }
+    let best: Enemy | null = null;
+    let bestScore = Infinity;
+    for (const o of this.enemies) {
+      if (o.dead) continue;
+      const to = o.group.position.clone().sub(from);
+      to.y = 0;
+      const d2 = to.lengthSq();
+      if (d2 > maxD2 || d2 < 1e-6) continue;
+      const dist = Math.sqrt(d2);
+      const cos = to.multiplyScalar(1 / dist).dot(fwd);
+      if (cos < 0.12) continue;
+      const score = dist * (1.35 - cos);
+      if (score < bestScore) {
+        bestScore = score;
+        best = o;
+      }
+    }
+    if (!best) return null;
+    this.setSelected(best.id);
+    return this.chest(best);
+  }
+
   private setSelected(id: number | null) {
     if (this.selectedId === id) return;
     const old = this.enemies.find((e) => e.id === this.selectedId);

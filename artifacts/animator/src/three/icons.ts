@@ -52,6 +52,7 @@ export const WEAPON_ICON: Record<WeaponId, IconName> = {
   staffArcane: "skill-vfx-lab",
   pistol: "stop",
   rifle: "defend",
+  shotgun: "siege",
   "hunter-rifle": "scout",
   javelin: "patrol",
   shield: "guard",

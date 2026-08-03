@@ -10,11 +10,27 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts",
-    "export:race-defaults": "tsx ../../scripts/export-voxel-race-defaults.mjs"
+    "export:race-defaults": "tsx ../../scripts/export-voxel-race-defaults.mjs",
+    "anim:catalog": "node scripts/build-anim-catalog.mjs",
+    "anim:catalog:cdn": "node scripts/build-anim-catalog.mjs --cdn"
+  },
+  "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
+    "@clerk/shared": "^4.17.0",
+    "@clerk/themes": "^2.4.57",
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@workspace/api-client-react": "workspace:*",
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/danger-net": "workspace:*",
+    "@workspace/epicfight": "workspace:*",
+    "postprocessing": "^6.39.2",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "three": "0.185.1",
+    "wouter": "^3.3.5",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@dimforge/rapier3d": "^0.19.3",
-    "@dimforge/rapier3d-compat": "^0.19.3",
     "@hookform/resolvers": "^3.10.0",
     "@mediapipe/tasks-vision": "^0.10.35",
     "@phantom/browser-sdk": "^2.0.2",
@@ -54,12 +70,8 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@types/three": "^0.184.1",
+    "@types/three": "0.185.1",
     "@vitejs/plugin-react": "catalog:",
-    "@workspace/api-client-react": "workspace:*",
-    "@workspace/api-zod": "workspace:*",
-    "@workspace/danger-net": "workspace:*",
-    "@workspace/epicfight": "workspace:*",
     "bs58": "^6.0.0",
     "buffer": "^6.0.3",
     "class-variance-authority": "catalog:",
@@ -71,9 +83,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "catalog:",
     "next-themes": "^0.4.6",
-    "react": "catalog:",
     "react-day-picker": "^9.11.1",
-    "react-dom": "catalog:",
     "react-hook-form": "^7.55.0",
     "react-icons": "^5.4.0",
     "react-resizable-panels": "^2.1.7",
@@ -81,20 +91,11 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "catalog:",
     "tailwindcss": "catalog:",
-    "three": "^0.185.1",
-    "postprocessing": "^6.39.2",
     "tw-animate-css": "^1.4.0",
     "vaul": "^1.1.2",
     "vite": "catalog:",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",
-    "vitest": "^4.1.8",
-    "wouter": "^3.3.5",
-    "zod": "catalog:"
-  },
-  "dependencies": {
-    "@clerk/clerk-react": "^5.61.3",
-    "@clerk/shared": "^4.17.0",
-    "@clerk/themes": "^2.4.57"
+    "vitest": "^4.1.8"
   }
 }

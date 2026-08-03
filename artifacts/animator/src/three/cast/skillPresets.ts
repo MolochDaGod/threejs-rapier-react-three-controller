@@ -66,6 +66,13 @@ export interface SkillPreset {
   stamina: number;
   /** When vfx === iceSnake, which of the 6 weapon snakes to fire. */
   iceSnakeVariantId?: string;
+  /**
+   * Elden-style wind-up before release (s). Defaults applied in executeSkillPreset
+   * when omitted — longer commits hit harder and are easier to dodge.
+   */
+  castTime?: number;
+  /** Self recovery after impact (s). */
+  recovery?: number;
 }
 
 /** Fire staff — meteor strike (ground AOE). */

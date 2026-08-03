@@ -137,11 +137,18 @@ export const CLIP_REGISTRY: readonly ClipEntry[] = [
   // ----- Finishers -----
   { verb: "stomp", key: "stomp", category: "Finishers" },
 
-  // ----- Gunslinger (pistol "kiter" kit) -----
+  // ----- Gunslinger (pistol / rifle / shotgun production set) -----
   { verb: "pistolWhip", key: "pistolWhip", category: "Gunslinger", play: { action: "pistolWhip" } },
   { verb: "uppercut", key: "uppercut", category: "Gunslinger", play: { action: "uppercut" } },
   { verb: "chargedShot", key: "chargedShot", category: "Gunslinger", play: { action: "chargedShot" } },
   { verb: "mmaKick", key: "mmaKick", category: "Gunslinger", label: "MMA Kick", play: { action: "mmaKick" } },
+  { verb: "shoot", key: "shoot", category: "Gunslinger", play: { action: "shoot" } },
+  { verb: "hipFire", key: "hipFire", category: "Gunslinger", label: "Hip Fire", play: { action: "hipFire" } },
+  { verb: "pump", key: "pump", category: "Gunslinger", label: "Pump", play: { action: "pump" } },
+  { verb: "reload", key: "reload", category: "Gunslinger", label: "Reload", play: { action: "reload" } },
+  { verb: "reloadEmpty", key: "reloadEmpty", category: "Gunslinger", label: "Reload Empty", play: { action: "reloadEmpty" } },
+  { verb: "reloadTactical", key: "reloadTactical", category: "Gunslinger", label: "Reload Tactical", play: { action: "reloadTactical" } },
+  { verb: "reloadCrouch", key: "reloadCrouch", category: "Gunslinger", label: "Reload Crouch", play: { action: "reloadCrouch" } },
 
   // ----- Gestures (personality emotes) -----
   { verb: "gestureAcknowledge", key: "gestureAcknowledge", category: "Gestures", label: "Acknowledge" },

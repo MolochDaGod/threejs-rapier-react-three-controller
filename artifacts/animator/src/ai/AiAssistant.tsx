@@ -30,10 +30,23 @@ interface Props {
   placeholder?: string;
   /** Enable "Talk to AI" voice in/out + captions (default true). */
   voice?: boolean;
+  /**
+   * When true (toolbox AI tab), panel starts open and the floating FAB is
+   * hidden — the parent already provides chrome.
+   */
+  embedded?: boolean;
 }
 
-export function AiAssistant({ surface, title, tools, getSystemPrompt, placeholder, voice = true }: Props) {
-  const [open, setOpen] = useState(false);
+export function AiAssistant({
+  surface,
+  title,
+  tools,
+  getSystemPrompt,
+  placeholder,
+  voice = true,
+  embedded = false,
+}: Props) {
+  const [open, setOpen] = useState(embedded);
   const [draft, setDraft] = useState("");
   const { messages, streaming, ready, send, clear } = useAssistant({
     surface,
@@ -81,14 +94,16 @@ export function AiAssistant({ surface, title, tools, getSystemPrompt, placeholde
   const isEditorSurface = surface === "editor";
 
   return (
-    <div className={`ai-assistant ${isEditorSurface ? "ai-assistant-editor-workbench" : ""}`}>
+    <div
+      className={`ai-assistant ${isEditorSurface ? "ai-assistant-editor-workbench" : ""} ${embedded ? "ai-assistant-embedded" : ""}`}
+    >
       <AnimatePresence>
         {open && (
           <motion.div
             className="ai-panel"
-            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            initial={embedded ? false : { opacity: 0, y: 16, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.96 }}
+            exit={embedded ? undefined : { opacity: 0, y: 16, scale: 0.96 }}
             transition={{ type: "spring", stiffness: 380, damping: 30 }}
           >
             <div className="ai-head">
@@ -114,9 +129,11 @@ export function AiAssistant({ surface, title, tools, getSystemPrompt, placeholde
                 >
                   <Trash2 size={14} />
                 </button>
-                <button className="ai-icon-btn" title="Close" onClick={() => setOpen(false)}>
-                  <X size={14} />
-                </button>
+                {!embedded && (
+                  <button className="ai-icon-btn" title="Close" onClick={() => setOpen(false)}>
+                    <X size={14} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -199,14 +216,16 @@ export function AiAssistant({ surface, title, tools, getSystemPrompt, placeholde
         )}
       </AnimatePresence>
 
-      <motion.button
-        className={`ai-fab ${open ? "active" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-        whileTap={{ scale: 0.92 }}
-        title={title}
-      >
-        {open ? <X size={20} /> : <Bot size={20} />}
-      </motion.button>
+      {!embedded && (
+        <motion.button
+          className={`ai-fab ${open ? "active" : ""}`}
+          onClick={() => setOpen((v) => !v)}
+          whileTap={{ scale: 0.92 }}
+          title={title}
+        >
+          {open ? <X size={20} /> : <Bot size={20} />}
+        </motion.button>
+      )}
     </div>
   );
 }

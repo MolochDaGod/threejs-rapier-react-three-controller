@@ -1707,7 +1707,13 @@ export default function App() {
             rangeState={hud?.owrRange ?? "none"}
             editBind={hudEdit.bind("reticle")}
           />
-          <Hud hud={hud} edit={hudEdit} />
+          <Hud
+            hud={hud}
+            edit={hudEdit}
+            onSelectBlueprint={(id) => studioRef.current?.selectCampBlueprint(id)}
+            onSelectTool={(i) => studioRef.current?.selectHarvestToolSlot(i)}
+            onCraftTool={(id) => studioRef.current?.tryCraftHarvestTool(id)}
+          />
           {hud?.mech && <MechHud hud={hud} edit={hudEdit} />}
           <StatusBar statuses={hud?.statuses ?? []} editBind={hudEdit.bind("status")} />
 
@@ -1787,7 +1793,13 @@ export default function App() {
             rangeState={hud?.owrRange ?? "none"}
             editBind={hudEdit.bind("reticle")}
           />
-          <Hud hud={hud} edit={hudEdit} />
+          <Hud
+            hud={hud}
+            edit={hudEdit}
+            onSelectBlueprint={(id) => studioRef.current?.selectCampBlueprint(id)}
+            onSelectTool={(i) => studioRef.current?.selectHarvestToolSlot(i)}
+            onCraftTool={(id) => studioRef.current?.tryCraftHarvestTool(id)}
+          />
           {hud?.mech && <MechHud hud={hud} edit={hudEdit} />}
           <StatusBar statuses={hud?.statuses ?? []} editBind={hudEdit.bind("status")} />
 
@@ -1850,7 +1862,7 @@ export default function App() {
             <div className="click-hint">
               <p>Click to enter — mouse to look</p>
               <p className="dim">
-                WASD · Shift sprint · Space jump · E block · C parry · Space mid-bounce flip recover · 1 skill blend · X dodge · Q loadout · R heavy · F/1-4 skills · H grenade · RMB lock
+                WASD · Shift sprint · Space jump · E block · C parry · Space mid-bounce flip recover · 1 skill blend · X back dodge · Q loadout · R heavy · F/1-4 skills · H grenade · RMB lock
               </p>
             </div>
           )}
