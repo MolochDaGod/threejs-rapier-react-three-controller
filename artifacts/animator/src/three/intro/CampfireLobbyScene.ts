@@ -1,20 +1,19 @@
 /**
- * Ethereal Falls campfire — GRUDOX 4-slot hero backdrop.
+ * 4-seat character campfire — floating islands + fireplace only.
  *
- * Cinematic overlook: heightmap terrain, stylized pines, torch, mist, and the
- * EtherealSky cosmic falls. Post stack: pmndrs mystical composer (bloom /
- * vignette / grain / ACES). Voxel seats load Dressing Room–saved avatars.
+ * Fixes the live regression (Ethereal Falls sky + tiny furniture diorama +
+ * miniature heroes). This page is one product surface:
+ *  - Heroes ~1.8 m SI, framed large for seat selection
+ *  - Stage = floating islands + real campfire (no dungeon.glb, no furniture set)
+ *  - Night sky with stars only — not Ethereal Falls curtains / overlook
  */
 import * as THREE from "three";
-import { createTorch, type TorchHandle } from "../fx/torchFlame";
-import { createMysticalComposer, type MysticalComposer } from "../fx/postfx";
 import { createAnimatedCharacter } from "../explorer/loader";
 import type { Animator } from "../explorer/Animator";
 import type { CharacterLook } from "../explorer/types";
 import type { VoxelPart } from "../explorer/rig";
 import { CHARACTER_HEIGHT_M } from "../types";
 import { baseIdToRaceKey, type GenesisHeroOption } from "../../auth/grudoxRoster";
-import { EtherealSky } from "../lobby/etherealSky";
 import {
   loadVoxelAvatarForCharacter,
   partOverridesFromSave,
@@ -28,7 +27,13 @@ export interface CampfireSlotView {
   worldPos: THREE.Vector3;
 }
 
-const SEAT_RADIUS = 2.45;
+/** Arc radius so four human-scale heroes read clearly around the fire. */
+const SEAT_RADIUS = 3.85;
+const HERO_H = CHARACTER_HEIGHT_M;
+/** Closer, lower camera — heroes fill the frame (not a distant overlook). */
+const CAM_POS = new THREE.Vector3(0.2, 2.35, 6.6);
+const CAM_LOOK = new THREE.Vector3(0, 1.05, -0.35);
+
 const LOOK_RACES: Record<string, Partial<CharacterLook>> = {
   human: { skin: "#c98c5a", shirt: "#3d5a80", pants: "#2e3440", cape: true, capeColor: "#1a2740" },
   orc: { skin: "#5a8f3a", shirt: "#4a3020", pants: "#2a2018", cape: false },
@@ -38,47 +43,22 @@ const LOOK_RACES: Record<string, Partial<CharacterLook>> = {
   elf: { skin: "#e8d0b0", shirt: "#2a6050", pants: "#1a3028", cape: true, capeColor: "#143028" },
 };
 
-/** Cheap value-noise for heightmap / tree placement. */
 function hash2(x: number, z: number): number {
   const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
   return s - Math.floor(s);
-}
-function smoothNoise(x: number, z: number): number {
-  const x0 = Math.floor(x);
-  const z0 = Math.floor(z);
-  const fx = x - x0;
-  const fz = z - z0;
-  const u = fx * fx * (3 - 2 * fx);
-  const v = fz * fz * (3 - 2 * fz);
-  const a = hash2(x0, z0);
-  const b = hash2(x0 + 1, z0);
-  const c = hash2(x0, z0 + 1);
-  const d = hash2(x0 + 1, z0 + 1);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
-function fbm2(x: number, z: number): number {
-  let v = 0;
-  let a = 0.5;
-  let f = 1;
-  for (let i = 0; i < 4; i++) {
-    v += a * smoothNoise(x * f, z * f);
-    a *= 0.5;
-    f *= 2.03;
-  }
-  return v;
 }
 
 export class CampfireLobbyScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
-  private fx: MysticalComposer;
   private clock = new THREE.Clock();
   private raf = 0;
   private disposed = false;
-  private torch: TorchHandle | null = null;
+  private fireSprites: THREE.Sprite[] = [];
   private mist?: THREE.Points;
-  private ethereal: EtherealSky | null = null;
+  private stars?: THREE.Points;
+  private aurora?: THREE.Mesh[];
   private ro?: ResizeObserver;
   private heroes: (Animator | null)[] = [null, null, null, null];
   private seats: THREE.Group[] = [];
@@ -90,7 +70,9 @@ export class CampfireLobbyScene {
   private pointer = new THREE.Vector2();
   private envRoot = new THREE.Group();
   private lastHeroes: GenesisHeroOption[] = [];
-  private keyLight: THREE.DirectionalLight | null = null;
+  private fireLight: THREE.PointLight | null = null;
+  private fireLight2: THREE.PointLight | null = null;
+  private islandBob: { root: THREE.Object3D; baseY: number; phase: number }[] = [];
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -106,36 +88,28 @@ export class CampfireLobbyScene {
       powerPreference: "high-performance",
       alpha: false,
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     this.renderer.setSize(w, h, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.18;
 
-    // Deep void — EtherealSky paints the dome; fog softens mid-ground trees.
-    this.scene.background = new THREE.Color(0x02040a);
-    this.scene.fog = new THREE.FogExp2(0x060a14, 0.032);
+    // Warm night void — campfire is the hero light, not purple falls.
+    this.scene.background = new THREE.Color(0x050810);
+    this.scene.fog = new THREE.FogExp2(0x080c16, 0.022);
 
-    this.camera = new THREE.PerspectiveCamera(38, w / h, 0.08, 220);
-    this.camera.position.set(0, 3.1, 8.4);
-    this.camera.lookAt(0, 1.2, -4);
+    this.camera = new THREE.PerspectiveCamera(44, w / h, 0.08, 200);
+    this.camera.position.copy(CAM_POS);
+    this.camera.lookAt(CAM_LOOK);
 
     this.scene.add(this.envRoot);
-    this.buildEnvironment();
+    this.buildFloatingStage();
     this.buildSeats();
-
-    // Cinematic post: bloom + grade + chroma + vignette + grain + ACES
-    this.fx = createMysticalComposer(this.renderer, this.scene, this.camera, {
-      bloomIntensity: 1.25,
-      bloomThreshold: 0.14,
-      bloomRadius: 0.78,
-      saturation: 0.2,
-      hue: 0.04,
-      vignetteDarkness: 0.68,
-      chromatic: 0.0011,
-      grain: 0.07,
-    });
-    this.fx.setSize(w, h);
+    this.buildCampfire();
+    this.buildStars();
+    this.buildSoftAurora();
 
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas);
@@ -180,7 +154,7 @@ export class CampfireLobbyScene {
           parts = partOverridesFromSave(saved);
         }
         const anim = await createAnimatedCharacter({
-          height: CHARACTER_HEIGHT_M * 0.92,
+          height: HERO_H,
           weapon: "sword",
           look,
           classes: ["unarmed", "sword"],
@@ -196,7 +170,18 @@ export class CampfireLobbyScene {
         }
         anim.setWeapon("sword", true);
         anim.root.position.set(0, 0, 0);
-        anim.root.rotation.y = Math.PI;
+        anim.root.rotation.y = 0;
+        anim.root.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(anim.root);
+        const size = box.getSize(new THREE.Vector3());
+        if (size.y > 0.05) {
+          const s = (HERO_H / size.y) * (anim.root.scale.x || 1);
+          // Keep human-scale — never tabletop minis or giants.
+          anim.root.scale.setScalar(THREE.MathUtils.clamp(s, 0.9, 1.2));
+          anim.root.updateMatrixWorld(true);
+          const b2 = new THREE.Box3().setFromObject(anim.root);
+          anim.root.position.y -= b2.min.y;
+        }
         const seat = this.seats[i]!;
         seat.add(anim.root);
         this.heroes[i] = anim;
@@ -214,7 +199,7 @@ export class CampfireLobbyScene {
       if (!ring) continue;
       const mat = ring.material as THREE.MeshBasicMaterial;
       mat.color.setHex(i === this.selected ? 0x5fe0ff : 0x1a3048);
-      mat.opacity = i === this.selected ? 0.85 : 0.35;
+      mat.opacity = i === this.selected ? 0.95 : 0.32;
       this.updateLabel(i, this.labels[i]?.name ?? "—");
     }
   }
@@ -231,10 +216,6 @@ export class CampfireLobbyScene {
     this.ro?.disconnect();
     for (const h of this.heroes) h?.dispose();
     this.heroes = [null, null, null, null];
-    this.torch?.dispose();
-    this.ethereal?.dispose();
-    this.ethereal = null;
-    this.fx.dispose();
     this.renderer.dispose();
   }
 
@@ -244,31 +225,15 @@ export class CampfireLobbyScene {
     if (this.lastHeroes.length) void this.setHeroes(this.lastHeroes);
   };
 
-  private buildEnvironment(): void {
-    this.envRoot.add(this.buildHeightmapTerrain());
-    this.envRoot.add(this.buildTrees());
-    this.envRoot.add(this.buildFallsOverlookRocks());
-
-    // Soft ethereal pool under fire
-    const pool = new THREE.Mesh(
-      new THREE.CircleGeometry(1.55, 40),
-      new THREE.MeshStandardMaterial({
-        color: 0x142848,
-        emissive: 0x184070,
-        emissiveIntensity: 0.55,
-        roughness: 0.25,
-        metalness: 0.35,
-      }),
-    );
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.y = 0.04;
-    this.envRoot.add(pool);
-
-    // Cosmic rim fill from the falls (+ purple key from sky)
-    this.scene.add(new THREE.AmbientLight(0x1a2848, 0.38));
-    this.scene.add(new THREE.HemisphereLight(0x6a8cff, 0x0a0814, 0.55));
-    const moon = new THREE.DirectionalLight(0xb8d4ff, 0.72);
-    moon.position.set(-5, 12, 3);
+  /**
+   * Stage = central floating island (fireplace) + distant sky islands.
+   * No furniture, no dungeon GLB, no heightmap overlook.
+   */
+  private buildFloatingStage(): void {
+    this.scene.add(new THREE.AmbientLight(0x1a2438, 0.38));
+    this.scene.add(new THREE.HemisphereLight(0x6a8ab8, 0x0a0810, 0.48));
+    const moon = new THREE.DirectionalLight(0xc4d8ff, 0.55);
+    moon.position.set(-7, 14, 5);
     moon.castShadow = true;
     moon.shadow.mapSize.set(1024, 1024);
     moon.shadow.camera.near = 1;
@@ -279,271 +244,314 @@ export class CampfireLobbyScene {
     moon.shadow.camera.top = d;
     moon.shadow.camera.bottom = -d;
     this.scene.add(moon);
-    this.keyLight = moon;
 
-    const fallsRim = new THREE.DirectionalLight(0x8866ff, 0.85);
-    fallsRim.position.set(2, 6, -18);
-    this.scene.add(fallsRim);
-    const cosmicFill = new THREE.PointLight(0x55ffcc, 2.2, 28, 2);
-    cosmicFill.position.set(0, 4, -10);
-    this.scene.add(cosmicFill);
+    const rim = new THREE.DirectionalLight(0xff9a55, 0.28);
+    rim.position.set(2, 3, 6);
+    this.scene.add(rim);
 
-    createTorch({ targetHeight: 1.45, dying: 0.22, lightIntensity: 16, flameScale: 1.4 })
-      .then((t) => {
-        if (this.disposed) {
-          t.dispose();
-          return;
-        }
-        this.torch = t;
-        t.group.position.set(0, 0, 0);
-        t.light.castShadow = true;
-        this.scene.add(t.group);
-      })
-      .catch(() => {
-        /* torch optional */
+    // Main camp platform — large enough for 4 human-scale seats
+    const center = this.makeIsland({
+      topR: 5.2,
+      bottomR: 3.1,
+      height: 1.65,
+      grass: 0x1a3224,
+      rock: 0x2a3140,
+    });
+    center.position.set(0, -0.2, 0.1);
+    this.envRoot.add(center);
+    this.islandBob.push({ root: center, baseY: -0.2, phase: 0 });
+
+    // Dirt fire ring on the grass
+    const dirt = new THREE.Mesh(
+      new THREE.CircleGeometry(2.15, 48),
+      new THREE.MeshStandardMaterial({
+        color: 0x2a1c12,
+        roughness: 0.95,
+        metalness: 0.02,
+        emissive: 0x1a0c06,
+        emissiveIntensity: 0.25,
+      }),
+    );
+    dirt.rotation.x = -Math.PI / 2;
+    dirt.position.y = 0.03;
+    this.envRoot.add(dirt);
+
+    // Distant sky islands (silhouette only — not seats)
+    const far: Array<[number, number, number, number]> = [
+      [-16, 2.8, -20, 2.6],
+      [14, 4.0, -24, 2.2],
+      [-10, 6.2, -30, 1.8],
+      [10, 5.5, -28, 2.0],
+      [0, 7.8, -34, 3.0],
+      [-20, 3.5, -14, 1.5],
+      [18, 4.2, -16, 1.6],
+    ];
+    for (const [x, y, z, s] of far) {
+      const isle = this.makeIsland({
+        topR: 1.15 * s,
+        bottomR: 0.65 * s,
+        height: 0.95 * s,
+        grass: 0x122418,
+        rock: 0x18141f,
       });
+      isle.position.set(x, y, z);
+      isle.rotation.y = x * 0.15;
+      this.envRoot.add(isle);
+      this.islandBob.push({ root: isle, baseY: y, phase: hash2(x, z) * Math.PI * 2 });
+    }
 
+    this.envRoot.add(this.buildFarPines());
     this.mist = this.buildMist();
     this.scene.add(this.mist);
-
-    try {
-      this.ethereal = new EtherealSky(this.scene);
-    } catch (err) {
-      console.warn("[CampfireLobby] EtherealSky init failed", err);
-    }
   }
 
-  /** Gentle heightmap disc — flat fire ring, rising shoulders, drop toward falls. */
-  private buildHeightmapTerrain(): THREE.Group {
+  private makeIsland(opts: {
+    topR: number;
+    bottomR: number;
+    height: number;
+    grass: number;
+    rock: number;
+  }): THREE.Group {
     const g = new THREE.Group();
-    const segs = 96;
-    const size = 36;
-    const geo = new THREE.PlaneGeometry(size, size, segs, segs);
-    geo.rotateX(-Math.PI / 2);
-    const pos = geo.attributes.position as THREE.BufferAttribute;
-    const colors = new Float32Array(pos.count * 3);
-    const cRock = new THREE.Color(0x121a28);
-    const cMoss = new THREE.Color(0x1a2a22);
-    const cCliff = new THREE.Color(0x0c101c);
-    const cTmp = new THREE.Color();
+    const { topR, bottomR, height, grass, rock } = opts;
 
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const z = pos.getZ(i);
-      const r = Math.hypot(x, z);
-      // Plateau under camp
-      let h = 0;
-      if (r > 3.2) {
-        const edge = Math.min(1, (r - 3.2) / 10);
-        h = edge * 0.55 * fbm2(x * 0.18, z * 0.18);
-        h += edge * 0.35 * Math.sin(x * 0.55) * Math.cos(z * 0.48);
-        // Shoulders / mounds
-        h += edge * 0.4 * smoothNoise(x * 0.3 + 2, z * 0.3);
-      }
-      // Drop toward Ethereal Falls (-Z)
-      if (z < -5) {
-        const fall = Math.min(1, (-z - 5) / 14);
-        h -= fall * fall * 2.8;
-        h += fbm2(x * 0.4, z * 0.25) * fall * 0.5;
-      }
-      // Rim cliff beyond ~14
-      if (r > 14) {
-        h -= (r - 14) * 0.35;
-      }
-      pos.setY(i, h);
-
-      const t = THREE.MathUtils.clamp((-h + 0.3) * 0.35 + r * 0.02, 0, 1);
-      cTmp.copy(cMoss).lerp(cRock, fbm2(x * 0.2, z * 0.2));
-      if (z < -7) cTmp.lerp(cCliff, Math.min(1, (-z - 7) / 10));
-      cTmp.lerp(cCliff, t * 0.35);
-      colors[i * 3] = cTmp.r;
-      colors[i * 3 + 1] = cTmp.g;
-      colors[i * 3 + 2] = cTmp.b;
-    }
-    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    geo.computeVertexNormals();
-
-    const mat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.92,
-      metalness: 0.04,
-      flatShading: false,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.receiveShadow = true;
-    mesh.castShadow = false;
-    g.add(mesh);
-
-    // Thin dark slab under so the void doesn't show through cliffs
-    const under = new THREE.Mesh(
-      new THREE.CircleGeometry(18, 48),
-      new THREE.MeshBasicMaterial({ color: 0x05070e }),
+    const top = new THREE.Mesh(
+      new THREE.CylinderGeometry(topR, topR * 0.97, 0.22, 18),
+      new THREE.MeshStandardMaterial({ color: grass, roughness: 0.94, metalness: 0.02 }),
     );
-    under.rotation.x = -Math.PI / 2;
-    under.position.y = -3.5;
-    g.add(under);
+    top.position.y = 0.11;
+    top.receiveShadow = true;
+    top.castShadow = true;
+    g.add(top);
+
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(topR * 0.94, bottomR, height, 14),
+      new THREE.MeshStandardMaterial({
+        color: rock,
+        roughness: 0.92,
+        metalness: 0.06,
+        emissive: 0x0a0812,
+        emissiveIntensity: 0.12,
+      }),
+    );
+    body.position.y = -height * 0.5;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    g.add(body);
+
+    const tip = new THREE.Mesh(
+      new THREE.ConeGeometry(bottomR * 0.92, height * 0.6, 12),
+      new THREE.MeshStandardMaterial({ color: 0x101218, roughness: 0.95 }),
+    );
+    tip.position.y = -height - height * 0.22;
+    tip.rotation.x = Math.PI;
+    tip.castShadow = true;
+    g.add(tip);
+
+    // Soft underglow so islands read as floating
+    const glow = new THREE.PointLight(0x6655cc, 0.4, topR * 5, 2);
+    glow.position.set(0, -0.5, 0);
+    g.add(glow);
+
     return g;
   }
 
-  /** Layered pine stands around the clearing — denser toward the falls. */
-  private buildTrees(): THREE.Group {
+  private buildFarPines(): THREE.Group {
     const g = new THREE.Group();
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.95 });
-    const needleMats = [
-      new THREE.MeshStandardMaterial({ color: 0x0e2818, roughness: 0.88, emissive: 0x041208, emissiveIntensity: 0.15 }),
-      new THREE.MeshStandardMaterial({ color: 0x143520, roughness: 0.85, emissive: 0x061a10, emissiveIntensity: 0.12 }),
-      new THREE.MeshStandardMaterial({ color: 0x0a2014, roughness: 0.9, emissive: 0x03100a, emissiveIntensity: 0.1 }),
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x241810, roughness: 0.95 });
+    const needleMat = new THREE.MeshStandardMaterial({
+      color: 0x0c2216,
+      roughness: 0.9,
+      emissive: 0x041208,
+      emissiveIntensity: 0.1,
+    });
+    const placements: Array<[number, number, number, number]> = [
+      [-15, 2.8, -19, 1.8],
+      [13, 4.0, -23, 1.5],
+      [-9, 6.2, -29, 1.35],
+      [9, 5.5, -27, 1.4],
+      [-18, 3.2, -12, 1.2],
+      [16, 3.8, -14, 1.25],
+      [-6, 7.5, -33, 1.6],
+      [5, 7.2, -32, 1.45],
     ];
-
-    const makePine = (scale: number, seed: number): THREE.Group => {
+    for (const [x, y, z, s] of placements) {
       const tree = new THREE.Group();
-      const trunkH = 1.1 + scale * 0.55;
+      const trunkH = 1.15 * s;
       const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06 * scale, 0.1 * scale, trunkH, 6),
+        new THREE.CylinderGeometry(0.08 * s, 0.12 * s, trunkH, 6),
         trunkMat,
       );
       trunk.position.y = trunkH * 0.5;
-      trunk.castShadow = true;
       tree.add(trunk);
-      const layers = 3 + (seed % 2);
-      for (let L = 0; L < layers; L++) {
-        const t = L / (layers - 1 || 1);
-        const r = (0.55 - t * 0.28) * scale;
-        const h = (0.7 - t * 0.12) * scale;
+      for (let L = 0; L < 3; L++) {
         const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(r, h, 7),
-          needleMats[(seed + L) % needleMats.length],
+          new THREE.ConeGeometry((0.55 - L * 0.11) * s, 0.72 * s, 7),
+          needleMat,
         );
-        cone.position.y = trunkH * 0.55 + L * 0.42 * scale;
-        cone.rotation.y = seed * 0.7 + L * 0.4;
-        cone.castShadow = true;
+        cone.position.y = trunkH * 0.5 + L * 0.42 * s;
         tree.add(cone);
       }
-      // Subtle violet under-glow on needles nearest the falls
-      const glow = new THREE.PointLight(0x6644aa, 0.15 * scale, 3.5, 2);
-      glow.position.set(0, trunkH * 0.8, 0);
-      tree.add(glow);
-      return tree;
-    };
-
-    // Ring + clusters toward -Z (falls)
-    for (let i = 0; i < 42; i++) {
-      const ang = (i / 42) * Math.PI * 2 + hash2(i, 3) * 0.4;
-      const rad = 7.5 + hash2(i, 7) * 5.5 + (Math.sin(ang + 1.2) > 0.2 ? 1.5 : 0);
-      // Keep fire ring clear
-      if (rad < 5.5) continue;
-      const x = Math.cos(ang) * rad;
-      const z = Math.sin(ang) * rad - 1.5;
-      // Extra density on the falls side
-      if (z > 4 && hash2(i, 11) > 0.55) continue;
-      const scale = 0.85 + hash2(i, 13) * 1.1;
-      const pine = makePine(scale, i);
-      const groundY = this.sampleTerrainY(x, z);
-      pine.position.set(x, groundY, z);
-      pine.rotation.y = hash2(i, 17) * Math.PI * 2;
-      pine.rotation.z = (hash2(i, 19) - 0.5) * 0.08;
-      g.add(pine);
-    }
-
-    // Tall sentinel pines framing the falls
-    for (const [x, z, s] of [
-      [-9, -11, 1.8],
-      [8.5, -12, 1.65],
-      [-12, -7, 1.4],
-      [11, -6.5, 1.35],
-      [0, -14, 2.1],
-    ] as const) {
-      const pine = makePine(s, Math.abs(x * 10 + z));
-      pine.position.set(x, this.sampleTerrainY(x, z), z);
-      g.add(pine);
+      tree.position.set(x, y + 0.12, z);
+      g.add(tree);
     }
     return g;
   }
 
-  /** Approximate height at xz matching the heightmap formula (for tree bases). */
-  private sampleTerrainY(x: number, z: number): number {
-    const r = Math.hypot(x, z);
-    let h = 0;
-    if (r > 3.2) {
-      const edge = Math.min(1, (r - 3.2) / 10);
-      h = edge * 0.55 * fbm2(x * 0.18, z * 0.18);
-      h += edge * 0.35 * Math.sin(x * 0.55) * Math.cos(z * 0.48);
-      h += edge * 0.4 * smoothNoise(x * 0.3 + 2, z * 0.3);
-    }
-    if (z < -5) {
-      const fall = Math.min(1, (-z - 5) / 14);
-      h -= fall * fall * 2.8;
-      h += fbm2(x * 0.4, z * 0.25) * fall * 0.5;
-    }
-    if (r > 14) h -= (r - 14) * 0.35;
-    return Math.max(h, -0.5);
-  }
+  /** Real campfire — logs, rock ring, flame sprites, warm lights. No furniture. */
+  private buildCampfire(): void {
+    const fire = new THREE.Group();
+    fire.name = "campfire";
 
-  private buildFallsOverlookRocks(): THREE.Group {
-    const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x1a1528,
-      roughness: 0.9,
-      metalness: 0.08,
-      emissive: 0x120828,
-      emissiveIntensity: 0.25,
-    });
-    for (const [x, z, sx, sy, sz, ry] of [
-      [-4.2, -8.5, 1.4, 0.55, 1.1, 0.4],
-      [3.8, -9.2, 1.2, 0.7, 1.3, -0.3],
-      [0.2, -10.5, 2.2, 0.4, 1.4, 0.1],
-      [-6.5, -5.5, 0.9, 0.45, 0.8, 0.8],
-      [6.2, -5.8, 1.0, 0.5, 0.9, -0.6],
-    ] as const) {
-      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 0), mat);
-      rock.position.set(x, this.sampleTerrainY(x, z) + sy * 0.35, z);
-      rock.scale.set(sx, sy, sz);
-      rock.rotation.y = ry;
+    const logMat = new THREE.MeshStandardMaterial({ color: 0x2e1c10, roughness: 1 });
+    // Teepee stack
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 1.25, 7), logMat);
+      log.position.set(Math.cos(a) * 0.32, 0.45, Math.sin(a) * 0.32);
+      log.rotation.z = Math.cos(a) * 0.72;
+      log.rotation.x = -Math.sin(a) * 0.72;
+      log.castShadow = true;
+      fire.add(log);
+    }
+    // Base cross-logs
+    for (let i = 0; i < 3; i++) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 1.1, 6), logMat);
+      log.rotation.z = Math.PI / 2;
+      log.rotation.y = (i / 3) * Math.PI;
+      log.position.y = 0.1;
+      log.castShadow = true;
+      fire.add(log);
+    }
+
+    // Rock ring
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x3a3e48, roughness: 0.92 });
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + hash2(i, 3) * 0.2;
+      const s = 0.2 + hash2(i, 7) * 0.12;
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockMat);
+      rock.position.set(Math.cos(a) * 0.95, s * 0.45, Math.sin(a) * 0.95);
+      rock.rotation.set(hash2(i, 1) * 2, hash2(i, 2) * 2, 0);
       rock.castShadow = true;
-      rock.receiveShadow = true;
-      g.add(rock);
+      fire.add(rock);
     }
-    return g;
+
+    const flameTex = makeFlameTexture();
+    for (let i = 0; i < 7; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: flameTex,
+        color: i % 2 === 0 ? 0xff8a30 : 0xffc868,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const sp = new THREE.Sprite(mat);
+      const w = 0.72 - i * 0.055;
+      sp.scale.set(w, w * 1.7, 1);
+      sp.position.set((hash2(i, 4) - 0.5) * 0.2, 0.42 + i * 0.1, (hash2(i, 5) - 0.5) * 0.2);
+      sp.userData.baseW = w;
+      sp.userData.phase = i * 1.15;
+      this.fireSprites.push(sp);
+      fire.add(sp);
+    }
+
+    // Bright warm fire — heroes should read lit from the center
+    const light = new THREE.PointLight(0xff7a2e, 28, 18, 1.8);
+    light.position.set(0, 1.0, 0);
+    light.castShadow = true;
+    light.shadow.mapSize.set(512, 512);
+    fire.add(light);
+    this.fireLight = light;
+
+    const fill = new THREE.PointLight(0xffaa55, 10, 12, 2);
+    fill.position.set(0, 0.45, 0.8);
+    fire.add(fill);
+    this.fireLight2 = fill;
+
+    // Soft ground glow disc
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(1.6, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xff6a20,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.y = 0.04;
+    fire.add(glow);
+
+    fire.position.set(0, 0.02, 0.15);
+    this.scene.add(fire);
   }
 
   private buildSeats(): void {
     for (let i = 0; i < 4; i++) {
-      const ang = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      // Fan seats across the camera-facing arc
+      const ang = -Math.PI * 0.52 + (i / 3) * Math.PI * 1.04;
+      const x = Math.sin(ang) * SEAT_RADIUS;
+      const z = -Math.cos(ang) * SEAT_RADIUS * 0.58 - 0.55;
+
+      // Per-seat floating pad (clear standing platform, not furniture)
+      const pad = this.makeIsland({
+        topR: 1.25,
+        bottomR: 0.72,
+        height: 0.9,
+        grass: 0x1c3428,
+        rock: 0x262c38,
+      });
+      pad.position.set(x, 0.08 + (i % 2) * 0.05, z);
+      this.envRoot.add(pad);
+      this.islandBob.push({ root: pad, baseY: pad.position.y, phase: i * 1.35 });
+
       const g = new THREE.Group();
-      const x = Math.cos(ang) * SEAT_RADIUS;
-      const z = Math.sin(ang) * SEAT_RADIUS;
-      g.position.set(x, this.sampleTerrainY(x, z), z);
-      g.rotation.y = ang + Math.PI;
+      g.position.set(x, pad.position.y + 0.2, z);
+      // Face the fire
+      g.rotation.y = Math.atan2(-x, -z + 0.15);
       g.userData.slotIndex = i;
 
+      // Selection ring under feet
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.55, 0.7, 40),
+        new THREE.RingGeometry(0.68, 0.9, 48),
         new THREE.MeshBasicMaterial({
           color: 0x1a3048,
           transparent: true,
-          opacity: 0.35,
+          opacity: 0.32,
           side: THREE.DoubleSide,
+          depthWrite: false,
         }),
       );
       ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.05;
+      ring.position.y = 0.03;
       g.userData.ring = ring;
       g.add(ring);
 
+      // Simple log bench behind hero (human scale prop only — not dungeon furniture)
       const log = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.12, 0.14, 0.95, 8),
+        new THREE.CylinderGeometry(0.16, 0.18, 1.25, 8),
         new THREE.MeshStandardMaterial({ color: 0x3a2818, roughness: 0.95 }),
       );
       log.rotation.z = Math.PI / 2;
-      log.position.set(0, 0.12, 0.35);
+      log.position.set(0, 0.16, 0.48);
       log.castShadow = true;
       g.add(log);
+
+      // Click proxy at chest height
+      const proxy = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.6, 0.6, 2.0, 12),
+        new THREE.MeshBasicMaterial({ visible: false }),
+      );
+      proxy.position.y = 1.0;
+      proxy.userData.slotIndex = i;
+      g.add(proxy);
 
       this.scene.add(g);
       this.seats.push(g);
 
       const label = this.makeLabel("…");
-      label.position.set(0, 2.35, 0);
+      label.position.set(0, 2.55, 0);
       g.add(label);
       this.labels.push({ mesh: label, name: "…" });
     }
@@ -555,8 +563,11 @@ export class CampfireLobbyScene {
     canvas.height = 64;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, 256, 64);
-    ctx.fillStyle = "rgba(6,12,20,0.72)";
+    ctx.fillStyle = "rgba(6,12,20,0.78)";
     ctx.fillRect(8, 8, 240, 48);
+    ctx.strokeStyle = "rgba(95,224,255,0.35)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(8, 8, 240, 48);
     ctx.fillStyle = "#cfe8ff";
     ctx.font = "bold 22px system-ui,sans-serif";
     ctx.textAlign = "center";
@@ -566,7 +577,7 @@ export class CampfireLobbyScene {
     tex.colorSpace = THREE.SRGBColorSpace;
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const spr = new THREE.Sprite(mat);
-    spr.scale.set(1.4, 0.35, 1);
+    spr.scale.set(1.65, 0.4, 1);
     spr.userData.canvas = canvas;
     spr.userData.tex = tex;
     return spr;
@@ -580,9 +591,13 @@ export class CampfireLobbyScene {
     const tex = entry.mesh.userData.tex as THREE.CanvasTexture;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, 256, 64);
-    ctx.fillStyle = "rgba(6,12,20,0.72)";
+    const on = i === this.selected;
+    ctx.fillStyle = on ? "rgba(8,28,40,0.88)" : "rgba(6,12,20,0.78)";
     ctx.fillRect(8, 8, 240, 48);
-    ctx.fillStyle = i === this.selected ? "#5fe0ff" : "#cfe8ff";
+    ctx.strokeStyle = on ? "rgba(95,224,255,0.75)" : "rgba(95,224,255,0.25)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(8, 8, 240, 48);
+    ctx.fillStyle = on ? "#5fe0ff" : "#cfe8ff";
     ctx.font = "bold 22px system-ui,sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -591,25 +606,77 @@ export class CampfireLobbyScene {
   }
 
   private buildMist(): THREE.Points {
-    const n = 720;
+    const n = 160;
     const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 22;
-      pos[i * 3 + 1] = Math.random() * 7;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 22 - 2;
+      pos[i * 3] = (Math.random() - 0.5) * 32;
+      pos[i * 3 + 1] = Math.random() * 5 - 0.5;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 32 - 6;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
-      color: 0xa090ff,
-      size: 0.1,
+      color: 0xb8a888,
+      size: 0.14,
       transparent: true,
-      opacity: 0.28,
+      opacity: 0.18,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       fog: false,
     });
     return new THREE.Points(geo, mat);
+  }
+
+  /** Night sky stars — not Ethereal Falls curtains. */
+  private buildStars(): void {
+    const n = 360;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI * 0.48;
+      const r = 75;
+      pos[i * 3] = Math.cos(theta) * Math.sin(phi) * r;
+      pos[i * 3 + 1] = Math.cos(phi) * r * 0.7 + 8;
+      pos[i * 3 + 2] = Math.sin(theta) * Math.sin(phi) * r - 10;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+      color: 0xd0e0ff,
+      size: 0.32,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      fog: false,
+    });
+    this.stars = new THREE.Points(geo, mat);
+    this.scene.add(this.stars);
+  }
+
+  /** Soft distant color wash — cheap, no falls / no GLB. */
+  private buildSoftAurora(): void {
+    this.aurora = [];
+    const specs: Array<{ x: number; z: number; w: number; h: number; hue: number; op: number }> = [
+      { x: -12, z: -40, w: 18, h: 28, hue: 0x3a6a9a, op: 0.12 },
+      { x: 8, z: -44, w: 22, h: 32, hue: 0x4a5080, op: 0.1 },
+      { x: 0, z: -48, w: 14, h: 24, hue: 0x2a5a70, op: 0.09 },
+    ];
+    for (const s of specs) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: s.hue,
+        transparent: true,
+        opacity: s.op,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: false,
+      });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), mat);
+      mesh.position.set(s.x, s.h * 0.28, s.z);
+      this.aurora.push(mesh);
+      this.scene.add(mesh);
+    }
   }
 
   private onPointerDown = (e: PointerEvent): void => {
@@ -637,7 +704,6 @@ export class CampfireLobbyScene {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
-    this.fx.setSize(w, h);
   }
 
   private animate(): void {
@@ -646,28 +712,44 @@ export class CampfireLobbyScene {
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.elapsedTime;
 
-    this.torch?.update(dt);
-    this.ethereal?.update(t);
-
-    // Cinematic slow orbit — face the cosmic falls
-    this.orbit += dt * 0.045;
-    const r = 8.2;
-    this.camera.position.x = Math.sin(this.orbit) * r * 0.38;
-    this.camera.position.z = 8.0 + Math.cos(this.orbit) * 0.55;
-    this.camera.position.y = 3.0 + Math.sin(this.orbit * 0.65) * 0.18;
-    this.camera.lookAt(0, 1.35, -6.5);
-
-    if (this.mist) {
-      this.mist.rotation.y = t * 0.018;
-      const p = this.mist.geometry.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < p.count; i += 3) {
-        p.setY(i, (p.getY(i) + dt * 0.08) % 7);
-      }
-      p.needsUpdate = true;
+    for (const b of this.islandBob) {
+      b.root.position.y = b.baseY + Math.sin(t * 0.5 + b.phase) * 0.04;
     }
 
-    if (this.keyLight) {
-      this.keyLight.intensity = 0.65 + Math.sin(t * 0.4) * 0.08;
+    for (let i = 0; i < this.fireSprites.length; i++) {
+      const sp = this.fireSprites[i];
+      const f = Math.sin(t * (9 + i) + (sp.userData.phase as number)) * 0.5 + 0.5;
+      const w = sp.userData.baseW as number;
+      sp.scale.set(w * (0.88 + f * 0.3), w * 1.7 * (0.85 + f * 0.38), 1);
+      (sp.material as THREE.SpriteMaterial).opacity = 0.7 + f * 0.3;
+    }
+    if (this.fireLight) {
+      this.fireLight.intensity = 26 + Math.sin(t * 11) * 3.5 + Math.random() * 2;
+    }
+    if (this.fireLight2) {
+      this.fireLight2.intensity = 9 + Math.sin(t * 13.5) * 1.5;
+    }
+
+    this.orbit += dt * 0.032;
+    this.camera.position.x = CAM_POS.x + Math.sin(this.orbit) * 0.28;
+    this.camera.position.y = CAM_POS.y + Math.sin(this.orbit * 0.7) * 0.1;
+    this.camera.position.z = CAM_POS.z + Math.cos(this.orbit) * 0.16;
+    this.camera.lookAt(CAM_LOOK.x, CAM_LOOK.y, CAM_LOOK.z);
+
+    if (this.mist) this.mist.rotation.y = t * 0.01;
+    if (this.aurora) {
+      for (let i = 0; i < this.aurora.length; i++) {
+        const m = this.aurora[i].material as THREE.MeshBasicMaterial;
+        m.opacity = 0.07 + 0.05 * Math.sin(t * 0.3 + i * 1.5);
+      }
+    }
+
+    // Selected ring pulse
+    const sel = this.seats[this.selected];
+    if (sel?.userData.ring) {
+      const ring = sel.userData.ring as THREE.Mesh;
+      const s = 1 + 0.05 * Math.sin(t * 2.6);
+      ring.scale.setScalar(s);
     }
 
     for (const h of this.heroes) {
@@ -676,6 +758,23 @@ export class CampfireLobbyScene {
       h.update(dt);
     }
 
-    this.fx.render(dt);
+    this.renderer.render(this.scene, this.camera);
   }
+}
+
+function makeFlameTexture(): THREE.Texture {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+  const g = ctx.createRadialGradient(64, 78, 2, 64, 60, 62);
+  g.addColorStop(0, "rgba(255,252,235,1)");
+  g.addColorStop(0.2, "rgba(255,200,90,0.95)");
+  g.addColorStop(0.45, "rgba(255,110,30,0.55)");
+  g.addColorStop(0.75, "rgba(255,50,10,0.18)");
+  g.addColorStop(1, "rgba(255,20,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
 }

@@ -1,11 +1,12 @@
 /**
- * Landing page — app front door before Ethereal Falls voxel 4-slot / facility.
+ * Landing page — app front door before campfire 4-seat / facility.
  *
  * Puter.js under the hood for Grudge ID (username / email / guest).
  * After Puter sign-in we bridge to a Railway fleet JWT so characters
  * and account bag APIs work. Alternate path: full Grudge ID web SSO.
  *
- * No airship deck here — production select is CampfireLobbyScene (three.js voxel).
+ * No airship deck / Ethereal Falls overlook — production select is
+ * CampfireLobbyScene (floating islands + campfire).
  */
 import { useEffect, useState } from "react";
 const emblemArt = `${import.meta.env.BASE_URL}emblem.png`;
@@ -133,10 +134,10 @@ export function LandingPage({ onEnter }: Props) {
         <h1 className="landing-brand">
           GRUDGE<span className="landing-brand-accent">STUDIO</span>
         </h1>
-        <p className="landing-tag">Animator · Ethereal Falls · Danger Room</p>
+        <p className="landing-tag">Animator · Campfire seats · Danger Room</p>
         <p className="landing-about">
-          Sign in with Puter / Grudge ID, pick from your <strong>4 voxel hero seats</strong> at
-          Ethereal Falls, then enter combat. Production at{" "}
+          Sign in with Puter / Grudge ID, pick from your <strong>4 voxel hero seats</strong> at the
+          campfire, then enter combat. Production at{" "}
           <span className="landing-mono">threejs-rapier-react-three-controll.vercel.app</span>.
         </p>
 
@@ -216,7 +217,7 @@ export function LandingPage({ onEnter }: Props) {
               </p>
             )}
             <button className="landing-btn landing-btn-primary" onClick={onEnter}>
-              Enter Ethereal Falls
+              Enter campfire
             </button>
             {!hasFleetJwt && (
               <button className="landing-btn" onClick={doGrudgeIdWeb}>

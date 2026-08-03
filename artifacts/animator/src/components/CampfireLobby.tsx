@@ -1,5 +1,8 @@
 /**
- * Ethereal Falls campfire — accounts character page (charactersgrudox UX).
+ * Floating-island campfire — accounts character page (charactersgrudox UX).
+ *
+ * 4 hero seats around a real fireplace on floating islands. Heroes are
+ * human-scale (~1.8 m). Never Ethereal Falls overlook or a miniature dungeon.
  *
  * SSOT imagery/menus: Fantasy-Scene-Creator artifacts/charactersgrudox
  * public/ui/menu/*.png wooden-sign rail.
@@ -487,7 +490,7 @@ export function CampfireLobby({ onExit, onNavigate, onAvatarEdit, onPlayDanger }
       <header className="cfl-bar">
         <div className="cfl-brand">
           CHARACTERS<span>GRUDOX</span>
-          <em>Ethereal Falls · account character page</em>
+          <em>Campfire seats · account character page</em>
         </div>
         <div className="cfl-actions">
           <button type="button" className="cfl-btn primary" onClick={() => onAvatarEdit?.()}>

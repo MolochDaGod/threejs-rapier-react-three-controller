@@ -123,9 +123,9 @@ type Mode =
   | "avatar";
 
 // Optional deep-link: `?door=editor|danger|voxel|lobby|lobbyWorld|characters|campfire|minegrudge|landing|…`
-// Default: landing (Puter / Grudge ID) → Ethereal Falls voxel 4-slot → facility.
-// characters / campfire / charactersgrudox = CampfireLobbyScene (three.js voxel seats).
-// airship door is retired → same voxel 4-slot (do not mount AirshipLobby).
+// Default: landing (Puter / Grudge ID) → floating-island campfire 4-slot → facility.
+// characters / campfire / charactersgrudox = CampfireLobbyScene (islands + fire only).
+// airship door is retired → same campfire 4-slot (do not mount AirshipLobby).
 function initialMode(): Mode {
   try {
     const d = new URLSearchParams(window.location.search).get("door");
@@ -1313,8 +1313,8 @@ export default function App() {
   }, []);
 
   if (mode === "landing") {
-    // Front door: Puter / Grudge ID → Ethereal Falls voxel 4-slot (CampfireLobbyScene).
-    // Not airship deck; not lab cast — Railway / Foundry seats only.
+    // Front door: Puter / Grudge ID → floating-island campfire (CampfireLobbyScene).
+    // Not airship, not Ethereal Falls overlook, not dungeon stage.
     return <LandingPage onEnter={() => setMode("characters")} />;
   }
 
@@ -1352,7 +1352,7 @@ export default function App() {
   };
 
   if (mode === "characters" || mode === "campfire") {
-    // Production 4-slot: three.js CampfireLobbyScene (voxel Explorer rigs), not airship.
+    // Production 4-slot: floating islands + campfire (no dungeon / Ethereal Falls stage).
     return shell(
       withScreenTheme(
         <CampfireLobby
