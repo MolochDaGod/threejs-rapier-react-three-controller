@@ -20,6 +20,8 @@ const ANIM_ROOT = path.join(APP, "public/anim");
 const CATALOG_TS = path.join(APP, "src/three/explorer/clipCatalog.ts");
 const ANIMS_TS = path.join(APP, "src/three/grudge/anims.ts");
 const OUT_CSV = path.join(REPO_DOCS, "ANIMATION_CATALOG.csv");
+/** Controller registry (same rows + gate columns). Authoritative for AnimationController wiring. */
+const OUT_CSV2 = path.join(REPO_DOCS, "ANIMATION_CATALOG2.csv");
 const OUT_CHECKLIST = path.join(REPO_DOCS, "ANIMATION_CHECKLIST.md");
 const OUT_WIRING = path.join(REPO_DOCS, "ANIMATION_WIRING_AUDIT.md");
 const CDN_BASE = (process.env.VITE_ASSET_BASE || "https://assets.grudge-studio.com").replace(
@@ -379,8 +381,99 @@ const COLS = [
   "notes",
 ];
 
-function row(fields) {
-  return COLS.map((k) => csvEscape(fields[k] ?? "")).join(",");
+/** Extra columns for controller registration (CATALOG2). */
+const COLS2 = [
+  ...COLS,
+  "asset_cache_key",
+  "controller_status",
+  "optimization_priority",
+  "default_loop_policy",
+  "preload_tier",
+  "recommended_action",
+];
+
+function row(fields, cols = COLS) {
+  return cols.map((k) => csvEscape(fields[k] ?? "")).join(",");
+}
+
+/**
+ * Gate + cache + loop + preload from honest inventory fields.
+ * Does NOT invent cut times for virtual subclips.
+ */
+function enrichControllerFields(rows) {
+  const keyCount = new Map();
+  for (const r of rows) {
+    const key = r.source_path || r.animation_name;
+    r.asset_cache_key = key;
+    keyCount.set(key, (keyCount.get(key) || 0) + 1);
+  }
+
+  for (const r of rows) {
+    const key = r.asset_cache_key;
+    const shared = (keyCount.get(key) || 0) > 1;
+    const isVirtual = r.asset_exists === "virtual" || r.load_ok === "virtual_subclip";
+    const loadFail = r.load_ok === "fail" || r.load_ok === "empty_clip";
+    const missing = r.asset_exists === "no";
+    const wired =
+      r.in_wiring_table === "yes" &&
+      r.wired_connections &&
+      !/^ORPHAN_/i.test(r.wired_connections);
+
+    // Loop policy from animation_type
+    const t = String(r.animation_type || "").toLowerCase();
+    r.default_loop_policy =
+      /loco|idle|strafe|block.?idle|aim/.test(t) || t === "idle" || t === "locomotion"
+        ? "LoopRepeat"
+        : "LoopOnce";
+
+    // Defaults
+    r.controller_status = "READY";
+    r.optimization_priority = "P3";
+    r.preload_tier = wired ? "CORE_PRELOAD" : "ON_DEMAND";
+    r.recommended_action = "Keep mapped; monitor transition quality and memory use.";
+
+    if (isVirtual) {
+      r.controller_status = "BLOCKED_MISSING_ASSET";
+      r.optimization_priority = "P0";
+      r.preload_tier = "DO_NOT_LOAD";
+      r.recommended_action =
+        "Virtual subclip — add parent_asset,start_frame,end_frame,fps,exported_clip_name before cutting; parent must load_ok.";
+    } else if (missing) {
+      r.controller_status = "BLOCKED_MISSING_ASSET";
+      r.optimization_priority = "P0";
+      r.preload_tier = "DO_NOT_LOAD";
+      r.recommended_action = "Restore or re-export the asset before controller registration.";
+    } else if (loadFail) {
+      r.controller_status = "BLOCKED_LOAD_ERROR";
+      r.optimization_priority = "P0";
+      r.preload_tier = "DO_NOT_LOAD";
+      r.recommended_action =
+        "Fix the loader/runtime error or convert the source to a validated GLB.";
+    } else if (!wired) {
+      r.controller_status = "READY_TO_WIRE";
+      r.optimization_priority = "P1";
+      r.preload_tier = "ON_DEMAND";
+      r.recommended_action =
+        "Add a controller mapping in clipCatalog, then play-test hip and XZ locking.";
+    } else if (shared) {
+      r.controller_status = "READY_SHARED_CACHE_KEY";
+      r.optimization_priority = "P2";
+      r.preload_tier = "ON_DEMAND";
+      r.recommended_action = "Load asset_cache_key once; reuse AnimationClip for duplicate rows.";
+    } else {
+      // wired + loads
+      if (t === "locomotion" || t === "idle" || /idle|walk|run|strafe/.test(t)) {
+        r.preload_tier = "CORE_PRELOAD";
+      } else if (/attack|death|hit|reaction/.test(t)) {
+        r.preload_tier = "CORE_PRELOAD";
+      } else {
+        r.preload_tier = "ON_DEMAND";
+      }
+      r.controller_status = "READY";
+      r.optimization_priority = "P3";
+    }
+  }
+  return rows;
 }
 
 async function main() {
@@ -578,8 +671,12 @@ async function main() {
     ),
   );
 
+  enrichControllerFields(rows);
+
   fs.mkdirSync(REPO_DOCS, { recursive: true });
-  fs.writeFileSync(OUT_CSV, [COLS.join(","), ...rows.map(row)].join("\n") + "\n", "utf8");
+  // v1 columns (compat) + v2 controller registry (authoritative for AnimationController gates)
+  fs.writeFileSync(OUT_CSV, [COLS.join(","), ...rows.map((r) => row(r, COLS))].join("\n") + "\n", "utf8");
+  fs.writeFileSync(OUT_CSV2, [COLS2.join(","), ...rows.map((r) => row(r, COLS2))].join("\n") + "\n", "utf8");
 
   // Stats
   const count = (fn) => rows.filter(fn).length;
@@ -709,7 +806,8 @@ See also: \`ANIMATION_WIRING_AUDIT.md\`, \`ANIMATION_CATALOG.csv\`
 
   fs.writeFileSync(OUT_WIRING, audit, "utf8");
   fs.writeFileSync(OUT_CHECKLIST, checklist, "utf8");
-  console.log(`CSV → ${OUT_CSV}`);
+  console.log(`CSV  → ${OUT_CSV}`);
+  console.log(`CSV2 → ${OUT_CSV2} (controller gates / cache / loop / preload)`);
   console.log(`Audit → ${OUT_WIRING}`);
   console.log(JSON.stringify(stats, null, 2));
 }

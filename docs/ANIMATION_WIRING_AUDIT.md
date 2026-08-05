@@ -72,9 +72,13 @@ A clip is **wired** only if it appears in one of:
 
 ## CSV
 
-`ANIMATION_CATALOG.csv`
+| File | Role |
+|------|------|
+| `ANIMATION_CATALOG.csv` | Inventory (compat) |
+| **`ANIMATION_CATALOG2.csv`** | **Controller registry** — gates, cache keys, loop, preload |
 
-Columns include **wired_connections** (exact weapon:action keys) and **verified_for_use** (no soft lies).
+Columns include **wired_connections** (exact weapon:action keys) and **verified_for_use** (no soft lies).  
+Controller agents must read **CATALOG2** for `controller_status` / `DO_NOT_LOAD` / shared cache keys.
 
 ## Regenerate
 

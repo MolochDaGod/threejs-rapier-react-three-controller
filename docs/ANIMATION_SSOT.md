@@ -120,15 +120,34 @@ Staff bolt + fire combo use it; other skills should migrate to the same helper.
 
 | File | Role |
 |------|------|
-| `docs/ANIMATION_CATALOG.csv` | Full inventory: name, length, hip/xz, type, weapon, domain, verified |
-| `docs/ANIMATION_CHECKLIST.md` | Counts + how to promote `pipeline_locked` → `measured_pass` |
-| `artifacts/animator/scripts/build-anim-catalog.mjs` | Regenerator |
+| `docs/ANIMATION_CATALOG.csv` | Inventory (compat columns): length, hip/xz, type, weapon, domain, verified |
+| **`docs/ANIMATION_CATALOG2.csv`** | **Controller registry SSOT** — same rows + `asset_cache_key`, `controller_status`, `optimization_priority`, `default_loop_policy`, `preload_tier`, `recommended_action` |
+| `docs/ANIMATION_WIRING_AUDIT.md` | Orphans vs clipCatalog honesty |
+| `docs/ANIMATION_CHECKLIST.md` | Counts + promote `pipeline_locked` → `measured_pass` |
+| `artifacts/animator/scripts/build-anim-catalog.mjs` | Regenerator → writes **both** CSVs |
+
+### Controller gates (from CATALOG2 — do not invent)
+
+| `controller_status` | Action |
+|---------------------|--------|
+| `READY` | Register + map from `wired_connections` |
+| `READY_SHARED_CACHE_KEY` | Register; load `asset_cache_key` **once**, reuse clip |
+| `READY_TO_WIRE` | May load; **no** silent controller map until clipCatalog updated |
+| `BLOCKED_LOAD_ERROR` / `BLOCKED_MISSING_ASSET` | Exclude; fix asset/loader first |
+| `preload_tier=DO_NOT_LOAD` | Never fetch |
+
+**Code wiring SSOT remains** `clipCatalog.ts` + `anims.ts` — catalog rows are only **wired** when those tables reference them.  
+**Regenerate after every wire change:**
 
 ```bash
 cd artifacts/animator
-pnpm run anim:catalog          # local scan
+pnpm run anim:catalog          # local scan → CATALOG + CATALOG2
 pnpm run anim:catalog:cdn      # + fetch grudge6 CDN durations
 ```
+
+**Virtual subclips:** catalog may mark `exists=virtual` / `load_ok=virtual_subclip`. **Do not cut** without `parent_asset`, `start_frame`, `end_frame`, `fps`, `exported_clip_name` columns (not present yet).
+
+**Expected reconcile (2026-08 catalog2 audit):** 325 total · 290 controller-ready (READY+SHARED) · 21 READY_TO_WIRE · 14 P0 blocked · 16 rows on shared cache keys.
 
 ## Related
 
