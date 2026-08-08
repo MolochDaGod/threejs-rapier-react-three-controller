@@ -4,7 +4,7 @@
  * Characters are authored on grudox.grudge-studio.com (and fleet apps) and stored
  * via the Railway/API character service. This module resolves the active character
  * into an Animator `characterId` of the form `grudge-{race}-{class}` so Studio can
- * spawn a {@link GrudgeAvatar} (modular race FBX + gear preset) as the player.
+ * spawn a {@link GrudgeAvatar} (Toon RTS GLB + gear preset) as the player.
  */
 
 import type { WeaponId } from "../three/types";
@@ -480,9 +480,19 @@ export function rememberAnimatorCharacter(characterId: string, fleetCharId?: str
   }
 }
 
+/** Remembered ids that are NOT approved grudge6 Toon play — purge on read. */
+const PURGED_REMEMBERED = /^(explorer|gunslinger|orc|sanji|led-monk|tank|centurion)$/i;
+
 export function readRememberedAnimatorCharacter(): string | null {
   try {
-    return localStorage.getItem("animator.activeCharacterId");
+    const id = localStorage.getItem("animator.activeCharacterId");
+    if (!id) return null;
+    // Purge procedural / Meshy defaults so reloads land on Toon RTS kits.
+    if (PURGED_REMEMBERED.test(id) || id.startsWith("ikk")) {
+      localStorage.removeItem("animator.activeCharacterId");
+      return null;
+    }
+    return id;
   } catch {
     return null;
   }

@@ -39,12 +39,21 @@ export {
   formatBindSummary,
 } from "./skeleton";
 
-export type { LoadedCharacter } from "./loadCharacter";
+export type { LoadedCharacter, WarlordsPlayContract } from "./loadCharacter";
 export {
+  HUMAN_HEIGHT_M,
   loadCharacterModel,
   normalizeCharacterGroup,
+  normalizeToonPlayGroup,
+  normalizeAuthorFbxGroup,
+  kitHasUsableMaps,
+  normalizeEmbeddedMaps,
+  stampWarlordsPlayContract,
   applyGearPreset,
   applyBodyTexture,
 } from "./loadCharacter";
+
+export { fleetRaceToRaceId } from "./raceAssets";
+export type { FleetRaceId } from "./raceAssets";
 
 export { loadBodyTexture } from "./texture";

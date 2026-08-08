@@ -445,15 +445,14 @@ export const CHARACTERS: CharacterDef[] = [
 ];
 
 /**
- * Production picker roster — lab demos, Sensei, ikkau, and the 24 grudge6
- * race×class prefabs are intentionally absent. Account characters come from
- * fleet / campfire slots, not this catalog dump.
+ * Production picker roster — lab demos / Sensei / ikkau removed.
+ * grudge-* Toon RTS kits are playable via {@link getCharacter} synthetic defs
+ * (campfire / fleet handoff), not this static CHARACTERS dump.
  */
 export const PLAYABLE_CHARACTERS: CharacterDef[] = CHARACTERS.filter((c) => {
   const id = c.id.toLowerCase();
   const name = c.name.toLowerCase();
   if (id === "karate-boss" || name === "sensei") return false;
-  if (id.startsWith("grudge-")) return false;
   if (/ikkau|ikkaku/.test(id) || /ikkau|ikkaku/.test(name)) return false;
   return true;
 });
@@ -471,13 +470,139 @@ export function weaponCombat(id: string): WeaponCombat {
   return resolveCombat(getWeapon(id));
 }
 
+const GRUDGE_ID_RE =
+  /^grudge-(barbarians|dwarves|high-elves|orcs|undead|western-kingdoms)-(knight|warrior|ranger|mage|unarmed)$/i;
+
+const GRUDGE_RACE_LABEL: Record<string, string> = {
+  barbarians: "Barbarian",
+  dwarves: "Dwarf",
+  "high-elves": "High Elf",
+  orcs: "Orc",
+  undead: "Undead",
+  "western-kingdoms": "Kingdom",
+};
+
+/** Class → weapons + signature skill labels for Danger Room 1–4 / F. */
+function grudgeClassKit(cls: string): {
+  loadout: import("./types").WeaponId[];
+  offHand?: import("./types").WeaponId;
+  defaultWeapon: import("./types").WeaponId;
+  signatureSkills: CharacterDef["signatureSkills"];
+} {
+  switch (cls) {
+    case "knight":
+      return {
+        loadout: ["sword", "shield"],
+        offHand: "shield",
+        defaultWeapon: "sword",
+        signatureSkills: [
+          { label: "Shield Bash", clip: "attack", kind: "thrust" },
+          { label: "Cleave", clip: "attack", kind: "slash" },
+          { label: "Guard Break", clip: "attack", kind: "slam" },
+          { label: "Whirlwind", clip: "attack", kind: "nova" },
+        ],
+      };
+    case "ranger":
+      return {
+        loadout: ["bow"],
+        defaultWeapon: "bow",
+        signatureSkills: [
+          { label: "Power Shot", clip: "attack", kind: "muzzle" },
+          { label: "Multi Shot", clip: "attack", kind: "muzzle" },
+          { label: "Volley", clip: "attack", kind: "swordVolley" },
+          { label: "Rain of Arrows", clip: "attack", kind: "nova" },
+        ],
+      };
+    case "mage":
+      return {
+        loadout: ["staffFire"],
+        defaultWeapon: "staffFire",
+        signatureSkills: [
+          { label: "Firebolt", clip: "attack", kind: "bolt" },
+          { label: "Nova", clip: "attack", kind: "nova" },
+          { label: "Meteor", clip: "attack", kind: "meteor" },
+          { label: "Arcane Storm", clip: "attack", kind: "muzzle" },
+        ],
+      };
+    case "unarmed":
+      return {
+        loadout: ["none"],
+        defaultWeapon: "none",
+        signatureSkills: [
+          { label: "Jab", clip: "attack", kind: "thrust" },
+          { label: "Hook", clip: "attack", kind: "slash" },
+          { label: "Uppercut", clip: "attack", kind: "slam" },
+          { label: "Flurry", clip: "attack", kind: "nova" },
+        ],
+      };
+    case "warrior":
+    default:
+      return {
+        loadout: ["greataxe"],
+        defaultWeapon: "greataxe",
+        signatureSkills: [
+          { label: "Heavy Strike", clip: "attack", kind: "slash" },
+          { label: "Crush", clip: "attack", kind: "slam" },
+          { label: "Charge", clip: "attack", kind: "thrust" },
+          { label: "Berserk Spin", clip: "attack", kind: "nova" },
+        ],
+      };
+  }
+}
+
 /**
- * Resolve a character def. Removed lab ids (Sensei, grudge-*, ikkau) fall back
- * to Explorer so fleet handoff never crashes the Danger Room.
+ * Synthetic CharacterDef for grudge-{race}-{class} → GrudgeAvatar Toon RTS play.
+ * modelYaw 0 (Toon +Z). Skills + loadout for DRC weapon slots.
+ */
+export function makeGrudgeCharacterDef(raceSlug: string, classSlug: string): CharacterDef {
+  const race = raceSlug.toLowerCase();
+  const cls = classSlug.toLowerCase();
+  const kit = grudgeClassKit(cls);
+  const raceName = GRUDGE_RACE_LABEL[race] ?? race;
+  return {
+    id: `grudge-${race}-${cls}`,
+    name: `${raceName} ${cls.charAt(0).toUpperCase()}${cls.slice(1)}`,
+    file: "", // mesh from GrudgeAvatar race kit, not catalog GLB
+    scale: 1,
+    clips: {
+      idle: "idle",
+      walk: "walk",
+      run: "run",
+      attack: "attack",
+      block: "block",
+      hurt: "hurt",
+    },
+    signatureSkills: kit.signatureSkills,
+    loadout: kit.loadout,
+    offHand: kit.offHand,
+    defaultWeapon: kit.defaultWeapon,
+    handBone: "Bip001 R Hand",
+    // HARD: Toon play GLB faces +Z — never π/2 here
+    modelYaw: 0,
+  };
+}
+
+/**
+ * Resolve a character def. grudge-* → Toon RTS modular kit metadata (not Explorer).
+ * Removed lab ids (Sensei, ikkau) fall back to Explorer.
  */
 export function getCharacter(id: string): CharacterDef {
   const explorer = CHARACTERS.find((c) => c.id === "explorer") ?? CHARACTERS[0];
   if (!id) return explorer;
-  if (/ikkau|ikkaku|karate-boss/i.test(id) || id.startsWith("grudge-")) return explorer;
-  return CHARACTERS.find((c) => c.id === id) ?? explorer;
+  if (/ikkau|ikkaku|karate-boss/i.test(id)) return explorer;
+
+  const hit = CHARACTERS.find((c) => c.id === id);
+  if (hit) return hit;
+
+  const m = id.match(GRUDGE_ID_RE);
+  if (m) {
+    return makeGrudgeCharacterDef(m[1]!, m[2]!);
+  }
+  // grudge:race:preset internal form
+  const colon = id.match(/^grudge:([a-z0-9-]+):([a-z]+)$/i);
+  if (colon) {
+    return makeGrudgeCharacterDef(colon[1]!, colon[2]!);
+  }
+
+  return explorer;
 }

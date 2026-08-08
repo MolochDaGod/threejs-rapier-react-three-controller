@@ -1,39 +1,169 @@
 import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { assetLoadError, resolveAssetUrl } from "./assetBase";
 import { powerOfTenScale, unifySkeletons } from "./skeleton";
 
+/** SI human yardstick — grudge-world-scale / character-correctness. */
+export const HUMAN_HEIGHT_M = 1.8;
+
 export interface LoadedCharacter {
-  /** Auto-fit FBX group: ~2 units tall, feet on y=0, facing +Z. */
+  /** Kit root: ~1.8 m tall, feet on y=0, art-forward +Z for Toon play. */
   group: THREE.Group;
   skeleton: THREE.Skeleton | null;
   mixer: THREE.AnimationMixer;
   meshNames: string[];
+  /** true = Toon RTS / production GLB; false = author FBX path. */
+  isToonPlay: boolean;
 }
 
-// Load + normalize a customizable race FBX:
-//   FBXLoader -> unifySkeletons -> face +Z -> per-mesh power-of-ten unit
-//   normalization (over NON-skinned meshes) -> auto-fit bbox computed over
-//   SkinnedMesh body parts ONLY -> scale to ~2 units -> sit feet on y=0.
+export interface WarlordsPlayContract {
+  playSource: "toonRts";
+  kitUrl: string;
+  materialMode: "embedded" | "atlas-rebind" | "embedded-fallback" | "none";
+  faceYaw: 0;
+  heightTargetM: number;
+  loader: "loadRaceKit-parity";
+  stampedAt: string;
+}
+
+/** Stamp root.userData.warlordsPlayContract (parity with ObjectStore grudge6-kit). */
+export function stampWarlordsPlayContract(
+  root: THREE.Object3D,
+  partial: Omit<WarlordsPlayContract, "stampedAt" | "loader" | "faceYaw" | "heightTargetM"> &
+    Partial<Pick<WarlordsPlayContract, "faceYaw" | "heightTargetM">>,
+): void {
+  const contract: WarlordsPlayContract = {
+    playSource: "toonRts",
+    kitUrl: partial.kitUrl,
+    materialMode: partial.materialMode,
+    faceYaw: partial.faceYaw ?? 0,
+    heightTargetM: partial.heightTargetM ?? HUMAN_HEIGHT_M,
+    loader: "loadRaceKit-parity",
+    stampedAt: new Date().toISOString(),
+  };
+  root.userData.warlordsPlayContract = contract;
+  root.userData.grudge6MaterialMode = contract.materialMode;
+}
+
+/** True when embeds have a real texture map (not 1×1 stub). */
+export function kitHasUsableMaps(root: THREE.Object3D): boolean {
+  let ok = false;
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) return;
+    const mats = Array.isArray(node.material) ? node.material : [node.material];
+    for (const m of mats) {
+      if (!m || !("map" in m) || !m.map) continue;
+      const img = m.map.image as { width?: number; height?: number } | undefined;
+      const w = img?.width ?? 0;
+      const h = img?.height ?? 0;
+      if (w > 4 && h > 4) ok = true;
+    }
+  });
+  return ok;
+}
+
+/** sRGB normalize on embedded maps — never replace materials. */
+export function normalizeEmbeddedMaps(root: THREE.Object3D): number {
+  let n = 0;
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) return;
+    const mats = Array.isArray(node.material) ? node.material : [node.material];
+    for (const m of mats) {
+      if (!m || !("map" in m) || !m.map) continue;
+      m.map.colorSpace = THREE.SRGBColorSpace;
+      m.map.needsUpdate = true;
+      n++;
+      if ("metalness" in m && typeof (m as THREE.MeshStandardMaterial).metalness === "number") {
+        // Keep bake; slight roughness so DR key light doesn't chrome
+        const std = m as THREE.MeshStandardMaterial;
+        if (std.roughness < 0.2) std.roughness = 0.55;
+      }
+    }
+    node.castShadow = true;
+    node.receiveShadow = true;
+  });
+  return n;
+}
+
+function bodyBox(root: THREE.Object3D): THREE.Box3 {
+  const box = new THREE.Box3();
+  let any = false;
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (!(o instanceof THREE.SkinnedMesh) || !o.visible) return;
+    if (!any) {
+      box.setFromObject(o);
+      any = true;
+    } else {
+      box.expandByObject(o);
+    }
+  });
+  if (!any) box.setFromObject(root);
+  return box;
+}
+
+function collectMeshNames(root: THREE.Object3D): string[] {
+  const meshNames: string[] = [];
+  root.traverse((child) => {
+    if (child instanceof THREE.SkinnedMesh || child instanceof THREE.Mesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+      if (child.name) meshNames.push(child.name);
+    }
+  });
+  return meshNames;
+}
+
+/**
+ * Load GOLDEN Toon RTS GLB (or legacy FBX if URL ends in .fbx).
+ * Toon path: embeds kept, yaw 0 (+Z art-forward), SI fit ~1.8 m, feet on y=0.
+ * FBX path: unify skeletons, +π/2 art-forward, atlas rebind expected by caller.
+ */
 export function loadCharacterModel(modelUrl: string): Promise<LoadedCharacter> {
   const url = resolveAssetUrl(modelUrl);
-  return new Promise((resolve, reject) => {
-    new FBXLoader().load(
-      url,
-      (fbx) => {
-        try {
-          const meshNames: string[] = [];
-          fbx.traverse((child) => {
-            if (child instanceof THREE.SkinnedMesh || child instanceof THREE.Mesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-              if (child.name) meshNames.push(child.name);
-            }
-          });
+  const isFbx = /\.fbx($|\?)/i.test(url);
 
-          const skeleton = normalizeCharacterGroup(fbx);
-          const mixer = new THREE.AnimationMixer(fbx);
-          resolve({ group: fbx, skeleton, mixer, meshNames });
+  if (isFbx) {
+    return new Promise((resolve, reject) => {
+      new FBXLoader().load(
+        url,
+        (fbx) => {
+          try {
+            const meshNames = collectMeshNames(fbx);
+            const skeleton = normalizeAuthorFbxGroup(fbx);
+            const mixer = new THREE.AnimationMixer(fbx);
+            resolve({ group: fbx, skeleton, mixer, meshNames, isToonPlay: false });
+          } catch (err) {
+            reject(err);
+          }
+        },
+        undefined,
+        (err) => reject(assetLoadError(url, err)),
+      );
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().load(
+      url,
+      (gltf) => {
+        try {
+          const scene = gltf.scene;
+          // Wrap in Group so callers can treat as FBX-like Group root
+          const group = new THREE.Group();
+          group.name = "toonRtsKit";
+          group.add(scene);
+          const meshNames = collectMeshNames(group);
+          const skeleton = normalizeToonPlayGroup(group);
+          normalizeEmbeddedMaps(group);
+          stampWarlordsPlayContract(group, {
+            playSource: "toonRts",
+            kitUrl: url,
+            materialMode: kitHasUsableMaps(group) ? "embedded" : "none",
+          });
+          const mixer = new THREE.AnimationMixer(group);
+          resolve({ group, skeleton, mixer, meshNames, isToonPlay: true });
         } catch (err) {
           reject(err);
         }
@@ -44,21 +174,64 @@ export function loadCharacterModel(modelUrl: string): Promise<LoadedCharacter> {
   });
 }
 
-// Normalize a freshly-parsed customizable race FBX in place. Steps:
-//   unifySkeletons -> face +Z -> per-mesh power-of-ten unit normalization (over
-//   NON-skinned meshes) -> auto-fit bbox over SkinnedMesh body parts ONLY ->
-//   scale to ~2 units -> sit feet on y=0. Static off-origin gear meshes never
-//   warp the scale. Returns the widest unified skeleton (or null).
-export function normalizeCharacterGroup(fbx: THREE.Object3D): THREE.Skeleton | null {
-  // Collapse the ~27 per-mesh disconnected skeletons onto ONE canonical chain so
-  // animation clips actually deform every mesh.
+/**
+ * Toon RTS play normalize — grudge6-kit loadRaceKit parity:
+ * unify skeletons → yaw 0 → uniform SI fit 1.8 m → feet on y=0 → center XZ.
+ * NEVER apply π/2 (that is FBX +X art only).
+ */
+export function normalizeToonPlayGroup(root: THREE.Object3D): THREE.Skeleton | null {
+  const skeleton = unifySkeletons(root);
+
+  root.rotation.set(0, 0, 0);
+  root.position.set(0, 0, 0);
+  root.scale.setScalar(1);
+  root.updateMatrixWorld(true);
+
+  let box = bodyBox(root);
+  let h = Math.max(box.max.y - box.min.y, 1e-4);
+
+  // Classic 100× (cm as m) — decade fix on root only
+  if (h > 40) {
+    root.scale.setScalar(0.01);
+    root.updateMatrixWorld(true);
+    box = bodyBox(root);
+    h = Math.max(box.max.y - box.min.y, 1e-4);
+  }
+
+  const s = HUMAN_HEIGHT_M / h;
+  root.scale.multiplyScalar(s);
+  root.updateMatrixWorld(true);
+  box = bodyBox(root);
+
+  // Feet = structural min.y — never pelvis
+  root.position.y -= box.min.y;
+  const cx = (box.min.x + box.max.x) * 0.5;
+  const cz = (box.min.z + box.max.z) * 0.5;
+  root.position.x -= cx;
+  root.position.z -= cz;
+  root.updateMatrixWorld(true);
+
+  // Re-ground after XZ center (bbox can shift slightly)
+  box = bodyBox(root);
+  root.position.y -= box.min.y;
+  root.updateMatrixWorld(true);
+
+  root.userData.grudge6FaceYaw = 0;
+  root.userData.playSource = "toonRts";
+  return skeleton;
+}
+
+/**
+ * Author FBX normalize (lab/compare only — not play default).
+ * unifySkeletons → face +Z via π/2 → unit fix → fit ~1.8 m → feet y=0.
+ */
+export function normalizeAuthorFbxGroup(fbx: THREE.Object3D): THREE.Skeleton | null {
   const skeleton = unifySkeletons(fbx);
 
-  // Face +Z (toward the default camera) at zero facing-rotation.
+  // FBX Toon author often faces +X → one π/2 to local +Z
   fbx.rotation.y = Math.PI / 2;
   fbx.updateWorldMatrix(true, true);
 
-  // ── Per-mesh unit normalization (non-skinned meshes only) ──────────
   const _p = new THREE.Vector3();
   const _q = new THREE.Quaternion();
   const _s = new THREE.Vector3();
@@ -84,32 +257,34 @@ export function normalizeCharacterGroup(fbx: THREE.Object3D): THREE.Skeleton | n
   });
   if (normalizedAny) fbx.updateWorldMatrix(true, true);
 
-  // ── Auto-fit (bbox over SkinnedMesh body parts only) ───────────────
-  const bodyBox = new THREE.Box3();
-  let bodyMeshCount = 0;
-  fbx.traverse((node) => {
-    if (node instanceof THREE.SkinnedMesh) {
-      bodyBox.expandByObject(node);
-      bodyMeshCount++;
-    }
-  });
-  const box = bodyMeshCount > 0 ? bodyBox : new THREE.Box3().setFromObject(fbx);
-  const center = box.getCenter(new THREE.Vector3());
-  const size = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  if (maxDim > 0) fbx.scale.setScalar(2 / maxDim);
-  fbx.userData.bodyRawMax = maxDim;
-
-  // Sit feet on y=0 — re-measure body-only after scaling.
+  let box = bodyBox(fbx);
+  let h = Math.max(box.max.y - box.min.y, 1e-4);
+  if (h > 40) {
+    fbx.scale.multiplyScalar(0.01);
+    fbx.updateWorldMatrix(true, true);
+    box = bodyBox(fbx);
+    h = Math.max(box.max.y - box.min.y, 1e-4);
+  }
+  fbx.scale.multiplyScalar(HUMAN_HEIGHT_M / h);
   fbx.updateWorldMatrix(true, true);
-  const bodyBox2 = new THREE.Box3();
-  fbx.traverse((node) => {
-    if (node instanceof THREE.SkinnedMesh) bodyBox2.expandByObject(node);
-  });
-  const box2 = bodyMeshCount > 0 ? bodyBox2 : new THREE.Box3().setFromObject(fbx);
-  fbx.position.set(-center.x * fbx.scale.x, -box2.min.y, -center.z * fbx.scale.z);
+  box = bodyBox(fbx);
+  fbx.position.y -= box.min.y;
+  fbx.position.x -= (box.min.x + box.max.x) * 0.5;
+  fbx.position.z -= (box.min.z + box.max.z) * 0.5;
+  fbx.updateWorldMatrix(true, true);
+  box = bodyBox(fbx);
+  fbx.position.y -= box.min.y;
 
+  fbx.userData.grudge6FaceYaw = Math.PI / 2;
+  fbx.userData.playSource = "fbx-author";
   return skeleton;
+}
+
+/** @deprecated use normalizeToonPlayGroup / normalizeAuthorFbxGroup */
+export function normalizeCharacterGroup(fbx: THREE.Object3D): THREE.Skeleton | null {
+  // Legacy callers: detect by userData or assume FBX author path
+  if (fbx.userData.playSource === "toonRts") return normalizeToonPlayGroup(fbx);
+  return normalizeAuthorFbxGroup(fbx);
 }
 
 // Show only the preset's meshes (armour + weapon) with fuzzy meshKey matching
@@ -143,13 +318,9 @@ export function applyGearPreset(group: THREE.Object3D, visibleMeshes: string[]):
   });
 }
 
-// Apply the shared body-atlas texture to every mesh as a flat-toon
-// MeshLambertMaterial. One material instance is shared across all meshes —
-// weapons use the same body atlas as the armour. Returns it so the owner can
-// dispose it (the shared texture is owned separately).
+// Apply the shared body-atlas texture — FBX / broken-embed ONLY.
+// Do not call on good Toon RTS embeds (destroys polyart bake).
 export function applyBodyTexture(group: THREE.Object3D, texture: THREE.Texture): THREE.Material {
-  // MeshStandard keeps lighting consistent with the Danger Room key light;
-  // metalness 0 avoids chrome-grey when no env map is present.
   const material = new THREE.MeshStandardMaterial({
     map: texture,
     color: 0xffffff,

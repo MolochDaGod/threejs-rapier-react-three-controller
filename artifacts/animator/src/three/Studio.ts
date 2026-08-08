@@ -1521,7 +1521,7 @@ export class Studio {
     const def = getCharacter(id);
     let next: Avatar;
     if (grudge) {
-      // Modular race FBX + gear preset from assets.grudge-studio.com (same kit as GRUDOX / Warlords).
+      // GOLDEN: Toon RTS GLB + gear preset (loadRaceKit parity via GrudgeAvatar).
       next = new GrudgeAvatar(grudge.raceId, grudge.presetId);
     } else {
       next = def.procedural ? new ExplorerCharacter(def) : new Character(def);

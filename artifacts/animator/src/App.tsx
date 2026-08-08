@@ -251,8 +251,9 @@ export default function App() {
     };
   }, []);
   // Prefer last fleet/GRUDOX character so reloads keep the Warlords hero.
+  // Default = GOLDEN grudge6 Toon RTS (WK knight), not procedural Explorer / Meshy.
   const [characterId, setCharacterId] = useState(
-    () => readRememberedAnimatorCharacter() || "explorer",
+    () => readRememberedAnimatorCharacter() || "grudge-western-kingdoms-knight",
   );
   const [weaponId, setWeaponId] = useState<WeaponId>("sword");
   const [offHand, setOffHandState] = useState<WeaponId | null>(null);

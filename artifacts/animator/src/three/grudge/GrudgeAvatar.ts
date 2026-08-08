@@ -24,20 +24,17 @@ import {
   type PresetId,
   type RaceId,
 } from "./index";
+import { kitHasUsableMaps, normalizeEmbeddedMaps } from "./loadCharacter";
 import { directionalBlendWeights } from "../anim/blend";
 
 /**
- * An {@link Avatar} backed by the vendored Grudge character-kit: a normalized
- * customizable race FBX (one shared body atlas, equipment-driven mesh
- * visibility) animated by pre-baked Bip001 clips streamed from the asset host.
+ * An {@link Avatar} backed by the vendored Grudge character-kit:
+ * **GOLDEN play = Toon RTS GLB** (`asset-packs/toon-rts-characters/glb/…`) with
+ * embedded materials kept, mesh_ids equip, Bip001 baked packs from the asset host.
  *
- * It mirrors {@link Character} (the GLB avatar) so the Animator's `Controller`
- * drives it unchanged — a continuous idle/walk/run locomotion blend plus
- * one-shot overlay actions (attack) that crossfade in and hand control back.
- *
- * The normalized FBX group already faces +Z and sits with feet on y=0; an inner
- * `holder` carries the optional `modelYaw` so the art-forward can be re-aimed
- * without disturbing the group's self-contained centering transform.
+ * Mirrors {@link Character} so `Controller` drives it unchanged — idle/walk/run
+ * blend + attack one-shots. Art-forward is local **+Z with yaw 0** (Toon play).
+ * Do not forceAtlas or apply π/2 FBX yaw on the Toon path.
  */
 export class GrudgeAvatar implements Avatar {
   root = new THREE.Group();
@@ -127,9 +124,8 @@ export class GrudgeAvatar implements Avatar {
       loadout: catalog?.loadout,
       offHand: catalog?.offHand,
       handBone: catalog?.handBone ?? "Bip001_(R|L)_Hand",
-      // Catalog yaw is authored for fleet GLB path; FBX kit already faces via
-      // normalizeCharacterGroup — Studio still applies getCharacter().modelYaw.
-      modelYaw: catalog?.modelYaw ?? Math.PI + Math.PI / 2,
+      // Toon RTS play GLB is art-forward +Z — yaw 0 only (never π/2 / π+π/2).
+      modelYaw: catalog?.modelYaw ?? 0,
     };
     this.modelYaw = this.def.modelYaw ?? 0;
   }
@@ -145,21 +141,35 @@ export class GrudgeAvatar implements Avatar {
     }
     applyGearPreset(loaded.group, preset.visibleMeshes);
 
-    const tex = await loadBodyTexture(race.textureUrl);
-    if (this.disposed) {
-      tex.dispose();
-      this.disposeObject3D(loaded.group);
-      return;
+    // GOLDEN Toon: keep embedded maps. Atlas rebind only if embeds unusable (FBX/stub).
+    const embedsOk = loaded.isToonPlay && kitHasUsableMaps(loaded.group);
+    if (!embedsOk) {
+      try {
+        const tex = await loadBodyTexture(race.textureUrl);
+        if (this.disposed) {
+          tex.dispose();
+          this.disposeObject3D(loaded.group);
+          return;
+        }
+        this.bodyTexture = tex;
+        this.bodyMaterial = applyBodyTexture(loaded.group, tex);
+        if (loaded.group.userData.warlordsPlayContract) {
+          loaded.group.userData.warlordsPlayContract.materialMode = "atlas-rebind";
+        }
+        loaded.group.userData.grudge6MaterialMode = "atlas-rebind";
+      } catch (err) {
+        console.warn("[GrudgeAvatar] atlas fallback failed; keeping embeds", err);
+        normalizeEmbeddedMaps(loaded.group);
+      }
+    } else {
+      normalizeEmbeddedMaps(loaded.group);
     }
-    this.bodyTexture = tex;
-    this.bodyMaterial = applyBodyTexture(loaded.group, tex);
 
     this.model = loaded.group;
     this.mixer = loaded.mixer;
     this.holder.add(loaded.group);
 
-    // Plant feet on y=0 and center hips XZ under the controller root so walk/run
-    // no longer reads as leaning / off-balance (gear hide can bias the old bbox).
+    // Re-plant after gear hide (bbox can bias when many meshes go invisible).
     this.centerHipsBetweenFeet(this.model);
 
     // Stream the full pack clip table (core loco + directional + defense) from
