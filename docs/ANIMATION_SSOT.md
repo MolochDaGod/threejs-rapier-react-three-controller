@@ -5,6 +5,20 @@
 
 Do **not** invent a second mixer, second retarget path, or mix Mixamo tracks onto Bip001.
 
+### Deployment-wide (browser play)
+
+Animation systems for **gameplay** must be fleet-deployed:
+
+| Layer | Production |
+|-------|------------|
+| App | Vercel prod (`threejs-rapier-react-three-controll.vercel.app` / Open when embedded) |
+| Explorer clips | Shipped with app deploy **or** deliberately promoted to CDN |
+| grudge6 clips | `https://assets.grudge-studio.com/anims/baked/**` only |
+| Registry | `docs/ANIMATION_CATALOG2.csv` on `main` (gates); regenerate after wire changes |
+| Never | Local-only CSV edits without push; Node-only load_ok as ship proof |
+
+Fleet asset contract: ObjectStore `docs/BROWSER_GAMEPLAY_DEPLOY_SSOT.md` · skill `grudge-live-servers` L0.
+
 ---
 
 ## Two skeletons, two packs (never cross-bind)
