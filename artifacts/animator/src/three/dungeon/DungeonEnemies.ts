@@ -66,11 +66,15 @@ const FREE_REPTILE_MODEL = "models/enemies/free_reptile.glb";
 const FREE_REPTILE_HEIGHT_M = 1.85;
 const ARMORED_CRAB_MODEL = "models/enemies/creature_crab.glb";
 const ARMORED_CRAB_HEIGHT_M = 1.4;
-/** Awakened Caesar — dark slayer boss (Arena of Valor Mst_902).
- *  PENDING ObjectStore tools/grudge-convert: load at NATIVE metres Y-up -Z.
- *  NO height normalization, NO maxDim>300 auto-scale, NO SI-fit.
- *  Ground via existing pit-boss capsule until GLB placed. */
-// const CAESAR_MODEL = "models/enemies/dark_slayer_caesar_arena_of_valor.glb";
+/** Awakened Caesar — Mst_902 pit boss (3.695m native, Y-hip grounded).
+ *  SOURCE: /workspace/public/models/enemies/caesar_pit_boss.glb (Grok box)
+ *  TARGET: public/models/enemies/caesar_pit_boss.glb (THIS repo)
+ *  World bbox: [−1.142, 0.000, −1.381] to [1.142, 3.695, 1.475]
+ *  Native metres Y-up -Z, NO SI-fit, NO height normalization.
+ *  _rootJoint scale [37.18, 46.97, 46.97] already baked into world size.
+ *  Clips: Born2/Idle/Atk1/Atk2/Run/Spell1/Spell2/Spell4/Dead (Scene absent).
+ *  Skip leg IK (no thigh/calf/foot), ground on pit capsule. */
+const CAESAR_MODEL = "models/enemies/caesar_pit_boss.glb";
 
 /** Kinds that load a skinned/animated GLB instead of capsule placeholders. */
 const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
@@ -82,7 +86,7 @@ const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
   "thorn_beast",
   "free_reptile",
   "armored_crab",
-  // "boss", // UNCOMMENT when Caesar GLB placed at converted path (native metres, no scaling)
+  "boss",
 ]);
 
 interface KindProfile {
@@ -478,9 +482,8 @@ export class DungeonEnemies implements CombatTargets {
         return { path: FREE_REPTILE_MODEL, height: FREE_REPTILE_HEIGHT_M, label: "Wild Reptile" };
       case "armored_crab":
         return { path: ARMORED_CRAB_MODEL, height: ARMORED_CRAB_HEIGHT_M, label: "Armored Crab" };
-      // Caesar: UNCOMMENT when GLB placed. height: 0 = native metres, no scaling.
-      // case "boss":
-      //   return { path: CAESAR_MODEL, height: 0, label: "Awakened Caesar" };
+      case "boss":
+        return { path: CAESAR_MODEL, height: 0, label: "Awakened Caesar" };
       default:
         return null;
     }

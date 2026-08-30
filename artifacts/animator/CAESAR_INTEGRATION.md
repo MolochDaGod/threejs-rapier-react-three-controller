@@ -3,22 +3,33 @@
 ## Overview
 Helm lock A wires the clip map for the Awakened Caesar (Mst_902_AwakenedCaesar) pit boss GLB while keeping the existing procedural capsule-with-horns until the converted GLB is placed. All combat mechanics, stats, and behaviors remain unchanged.
 
-## Asset Requirements
+## Asset Ready ✅
 
-### GLB Conversion
-- **Source**: dark_slayer_caesar_arena_of_valor (Mst_902 rig)
-- **Converter**: ObjectStore `tools/grudge-convert` (GLB only, not the 104MB app.json)
-- **Target Path**: TBD (pending ObjectStore conversion completion)
-- **Do NOT invent**: URL, R2 key, or placeholder mesh
+### GLB File
+- **Name**: `caesar_pit_boss.glb`
+- **Size**: 4,313,096 bytes (4.3 MB)
+- **Source**: `/workspace/public/models/enemies/caesar_pit_boss.glb` (Grok box)
+- **Target**: `artifacts/animator/public/models/enemies/caesar_pit_boss.glb` (THIS repo)
+- **Runtime path**: `models/enemies/caesar_pit_boss.glb`
 
-### Conversion Spec
-- **Tool**: ObjectStore `tools/grudge-convert`
+### Verified Dimensions (World Inspect, ALE)
+- **Bounding box**: 
+  - min: [-1.142, 0.000, -1.381]
+  - max: [1.142, 3.695, 1.475]
+  - size: [2.285m, 3.695m, 2.856m]
+- **Max dimension**: 3.695m (Y-axis, native height)
+- **Y-hip on ground**: Already grounded at Y=0
+- **_rootJoint scale**: [37.18, 46.97, 46.97] baked into world size
+- **Wrapper**: Identity transform
+
+### Conversion Verified
 - **Format**: Native metres, Y-up, -Z forward, quaternions, hip bind
-- **NO height normalization**: Load at native metres (FORBID SI-fit, FORBID maxDim>300 auto-scale)
-- **Rig Notes**: 
-  - Bip001 root + wings/tail/EF_ball
-  - **NO thigh/calf/foot bones** → skip leg IK
-  - Ground via existing pit-boss capsule origin (not foot placement)
+- **NO height normalization**: Loads at native 3.695m
+- **NO SI-fit**: ObjectStore tools/grudge-convert output preserved
+- **NO maxDim>300 auto-scale**: Verbatim loading
+- **Rig**: Bip001 + wings/tail/EF_ball, NO thigh/calf/foot
+- **Clips**: Born2, Idle, Atk1, Atk2, Run, Spell1, Spell2, Spell4, Dead
+- **Scene clip**: Absent (confirmed)
 
 ### Animation Mapping (READY, clips wired)
 Caesar clips map to existing DungeonEnemies combat slots:
@@ -50,19 +61,28 @@ Caesar clips map to existing DungeonEnemies combat slots:
 - **Targeting**: Player and allies unchanged (KCC + CombatTargets)
 
 ## Current State
-- ✅ **Clip map wired**: Atk*/Spell*/Born2 mapping ready in `classifyHeroClip()`
+- ✅ **Code ready**: Caesar GLB loading enabled at native 3.695m
+- ✅ **Clip map wired**: Atk*/Spell*/Born2 confirmed in file, mapped in code
 - ✅ **Born2 spawn**: Plays once on spawnPit, transitions to idle
-- ✅ **Native metres**: No SI-fit, no maxDim>300 auto-scale (height: 0 = native)
-- ✅ **Rig documented**: Bip001, no thigh/calf/foot, capsule-grounded
-- ⏸️ **Boss stays capsule**: Existing Moloch procedural mesh until GLB placed
-- ⏳ **Pending**: Caesar GLB from ObjectStore tools/grudge-convert
+- ✅ **Native metres**: height: 0 loads at 3.695m (no SI-fit, no maxDim scaling)
+- ✅ **"boss" in GLB_ENEMY_KINDS**: Pit boss will load Caesar mesh
+- ✅ **glbSpec updated**: `caesar_pit_boss.glb` at height: 0
+- ⏳ **Awaiting file placement**: Copy 4.3MB GLB to `public/models/enemies/caesar_pit_boss.glb`
 
-### To Enable Caesar Visual (when GLB ready):
-1. Place converted GLB at determined path
-2. Uncomment `CAESAR_MODEL` constant (line ~73)
-3. Uncomment `"boss"` in `GLB_ENEMY_KINDS` (line ~82)
-4. Uncomment boss case in `glbSpec()` (line ~468-469)
-5. Verify: pit boss stands at native scale, Atk/Spell fire
+### File Placement
+Copy from Grok box:
+```
+SOURCE: /workspace/public/models/enemies/caesar_pit_boss.glb
+TARGET: artifacts/animator/public/models/enemies/caesar_pit_boss.glb
+```
+
+Once placed, pit boss will:
+1. Load Caesar mesh at native 3.695m height
+2. Play Born2 spawn animation once
+3. Fire Atk1/Atk2 during CombatController attacks
+4. Fire Spell1/2/4 during DungeonEnemies skills
+5. Play Dead animation on kill
+6. Fall back to procedural capsule if load fails
 
 ## Testing (when GLB placed)
 - [ ] Pit boss loads at native metres (no SI-fit, no maxDim scaling)
