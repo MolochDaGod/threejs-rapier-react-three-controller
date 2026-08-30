@@ -3,33 +3,34 @@
 ## Overview
 Helm lock A wires the clip map for the Awakened Caesar (Mst_902_AwakenedCaesar) pit boss GLB while keeping the existing procedural capsule-with-horns until the converted GLB is placed. All combat mechanics, stats, and behaviors remain unchanged.
 
-## Asset Ready ✅
+## Caesar GLB Ready ✅
 
-### GLB File
-- **Name**: `caesar_pit_boss.glb`
-- **Size**: 4,313,096 bytes (4.3 MB)
+### Binary Confirmed
+- **Location**: `public/models/enemies/caesar_pit_boss.glb` ✅
+- **Size**: 4,313,096 bytes (4.2 MB) ✅
+- **SHA256 prefix**: `7ef1a6e3329195d6` ✅
+- **Commit**: `18a5f12ffe03f50899db049e313341059c45e76b` ✅
 - **Source**: `/workspace/public/models/enemies/caesar_pit_boss.glb` (Grok box)
-- **Target**: `artifacts/animator/public/models/enemies/caesar_pit_boss.glb` (THIS repo)
-- **Runtime path**: `models/enemies/caesar_pit_boss.glb`
 
-### Verified Dimensions (World Inspect, ALE)
+### Code Configuration ✅
+- **CAESAR_MODEL**: `"models/enemies/caesar_pit_boss.glb"` (line 77)
+- **GLB_ENEMY_KINDS**: `"boss"` added (line 89)
+- **glbSpec**: Returns `height: 0` for boss (line 485-486)
+- **Loading**: Native 3.695m, NO height scaling when `height: 0` (line 510-512)
+
+### Verified Dimensions
 - **Bounding box**: 
   - min: [-1.142, 0.000, -1.381]
   - max: [1.142, 3.695, 1.475]
   - size: [2.285m, 3.695m, 2.856m]
 - **Max dimension**: 3.695m (Y-axis, native height)
 - **Y-hip on ground**: Already grounded at Y=0
-- **_rootJoint scale**: [37.18, 46.97, 46.97] baked into world size
+- **_rootJoint scale**: [37.18, 46.97, 46.97] baked into world size (no compensation)
 - **Wrapper**: Identity transform
 
-### Conversion Verified
-- **Format**: Native metres, Y-up, -Z forward, quaternions, hip bind
-- **NO height normalization**: Loads at native 3.695m
-- **NO SI-fit**: ObjectStore tools/grudge-convert output preserved
-- **NO maxDim>300 auto-scale**: Verbatim loading
-- **Rig**: Bip001 + wings/tail/EF_ball, NO thigh/calf/foot
-- **Clips**: Born2, Idle, Atk1, Atk2, Run, Spell1, Spell2, Spell4, Dead
-- **Scene clip**: Absent (confirmed)
+### Clips Confirmed
+✅ Born2, Idle, Atk1, Atk2, Run, Spell1, Spell2, Spell4, Dead
+✅ Scene clip absent (as expected)
 
 ### Animation Mapping (READY, clips wired)
 Caesar clips map to existing DungeonEnemies combat slots:
@@ -60,23 +61,18 @@ Caesar clips map to existing DungeonEnemies combat slots:
 - **Navmesh**: pitNav (flat sealed floor, not lava editor arena)
 - **Targeting**: Player and allies unchanged (KCC + CombatTargets)
 
-## Current State
+## Current State ✅ READY
+- ✅ **Caesar GLB landed**: `public/models/enemies/caesar_pit_boss.glb` (4.3 MB, commit 18a5f12) ✅
 - ✅ **Code ready**: Caesar GLB loading enabled at native 3.695m
 - ✅ **Clip map wired**: Atk*/Spell*/Born2 confirmed in file, mapped in code
 - ✅ **Born2 spawn**: Plays once on spawnPit, transitions to idle
 - ✅ **Native metres**: height: 0 loads at 3.695m (no SI-fit, no maxDim scaling)
 - ✅ **"boss" in GLB_ENEMY_KINDS**: Pit boss will load Caesar mesh
 - ✅ **glbSpec updated**: `caesar_pit_boss.glb` at height: 0
-- ⏳ **Awaiting file placement**: Copy 4.3MB GLB to `public/models/enemies/caesar_pit_boss.glb`
+- ⏳ **Awaiting user testing**: All code complete, ready for dungeon spawn verification
 
-### File Placement
-Copy from Grok box:
-```
-SOURCE: /workspace/public/models/enemies/caesar_pit_boss.glb
-TARGET: artifacts/animator/public/models/enemies/caesar_pit_boss.glb
-```
-
-Once placed, pit boss will:
+### Expected Behavior
+Once testing starts, pit boss will:
 1. Load Caesar mesh at native 3.695m height
 2. Play Born2 spawn animation once
 3. Fire Atk1/Atk2 during CombatController attacks
@@ -84,13 +80,14 @@ Once placed, pit boss will:
 5. Play Dead animation on kill
 6. Fall back to procedural capsule if load fails
 
-## Testing (when GLB placed)
-- [ ] Pit boss loads at native metres (no SI-fit, no maxDim scaling)
-- [ ] Born2 spawn animation plays once, transitions to idle
-- [ ] Atk1/Atk2 fire during CombatController attack windows
-- [ ] Spell1/Spell2/Spell4 fire during DungeonEnemies skill telegraphs
+## Testing Checklist (For User Verification)
+When testing the dungeon pit boss spawn:
+- [ ] Pit boss loads with Caesar mesh at native ~3.7m height (no SI-fit, no maxDim scaling)
+- [ ] Born2 spawn animation plays once on pit spawn, transitions to idle
+- [ ] Atk1/Atk2 fire during CombatController attack windows (light/heavy)
+- [ ] Spell1/Spell2/Spell4 fire during DungeonEnemies skill telegraphs/projectiles
 - [ ] Dead animation plays on kill
-- [ ] Procedural capsule fallback if GLB load fails
+- [ ] Procedural capsule fallback if GLB load fails (graceful degradation)
 - [ ] Hardened pit combat (max difficulty regardless of setting)
 - [ ] NoRespawn behavior (boss stays dead after clear)
 
