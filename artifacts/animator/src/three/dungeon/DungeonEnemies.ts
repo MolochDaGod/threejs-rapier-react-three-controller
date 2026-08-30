@@ -66,6 +66,9 @@ const FREE_REPTILE_MODEL = "models/enemies/free_reptile.glb";
 const FREE_REPTILE_HEIGHT_M = 1.85;
 const ARMORED_CRAB_MODEL = "models/enemies/creature_crab.glb";
 const ARMORED_CRAB_HEIGHT_M = 1.4;
+/** Awakened Caesar — dark slayer boss (Arena of Valor pack, Mst_902). */
+const CAESAR_MODEL = "models/enemies/dark_slayer_caesar_arena_of_valor.glb";
+const CAESAR_HEIGHT_M = 1.8;
 
 /** Kinds that load a skinned/animated GLB instead of capsule placeholders. */
 const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
@@ -77,6 +80,7 @@ const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
   "thorn_beast",
   "free_reptile",
   "armored_crab",
+  "boss",
 ]);
 
 interface KindProfile {
@@ -470,6 +474,8 @@ export class DungeonEnemies implements CombatTargets {
         return { path: FREE_REPTILE_MODEL, height: FREE_REPTILE_HEIGHT_M, label: "Wild Reptile" };
       case "armored_crab":
         return { path: ARMORED_CRAB_MODEL, height: ARMORED_CRAB_HEIGHT_M, label: "Armored Crab" };
+      case "boss":
+        return { path: CAESAR_MODEL, height: CAESAR_HEIGHT_M, label: "Awakened Caesar" };
       default:
         return null;
     }
@@ -489,6 +495,9 @@ export class DungeonEnemies implements CombatTargets {
         const root = gltf.scene;
         const box = new THREE.Box3().setFromObject(root);
         const size = box.getSize(new THREE.Vector3());
+        // Caesar (Mst_902): no thigh/calf/foot bones → skip leg IK, ground via
+        // capsule origin. Converted to meters/Y-up/-Z via ObjectStore bc-d11136d8.
+        // Scale to SI-fit height (1.8m yardstick) without Dungeon.ts maxDim auto-scale.
         if (size.y > 1e-4) root.scale.multiplyScalar(spec.height / size.y);
         const box2 = new THREE.Box3().setFromObject(root);
         const center = box2.getCenter(new THREE.Vector3());
@@ -553,9 +562,11 @@ export class DungeonEnemies implements CombatTargets {
     this.playEnemyAnim(e, "idle", true);
   }
 
-  /** Map pack clip names (Belerick / Helcurt / Ziambetov / Ifrit / Drake) → combat roles. */
+  /** Map pack clip names (Belerick / Helcurt / Ziambetov / Ifrit / Drake / Caesar) → combat roles. */
   private classifyHeroClip(name: string): string | null {
     const n = name.toLowerCase();
+    // Ignore "Scene" clip (editor metadata, not animation).
+    if (n === "scene") return null;
     if (n.includes("dead") || n.includes("death") || n === "die") return "dead";
     if (
       n.includes("fight_idle") ||
@@ -573,7 +584,11 @@ export class DungeonEnemies implements CombatTargets {
       n === "walk"
     )
       return "run";
+    // Caesar Atk1/Atk2 → attack (light/heavy both map to the attack slot).
     if (
+      n.includes("atk1") ||
+      n.includes("atk2") ||
+      n.includes("atk3") ||
       n.includes("attack1") ||
       n.includes("attack2") ||
       n.includes("attack3") ||
@@ -582,8 +597,19 @@ export class DungeonEnemies implements CombatTargets {
       n.includes("use_skill")
     )
       return "attack";
-    if (n.includes("skill1") || n.includes("skill2") || n.includes("skill3") || n.includes("skill_"))
+    // Caesar Spell1/Spell2/Spell4 → skill (telegraph/projectile slots).
+    if (
+      n.includes("spell1") ||
+      n.includes("spell2") ||
+      n.includes("spell4") ||
+      n.includes("skill1") ||
+      n.includes("skill2") ||
+      n.includes("skill3") ||
+      n.includes("skill_")
+    )
       return "skill";
+    // Born2 → unused (no spawn cinematic slot, fallback to idle).
+    if (n.includes("born")) return "idle";
     if (n.includes("taunt") || n.includes("verigo") || n.includes("shout") || n.includes("get hit") || n.includes("behit") || n.includes("hit"))
       return "taunt";
     return null;
