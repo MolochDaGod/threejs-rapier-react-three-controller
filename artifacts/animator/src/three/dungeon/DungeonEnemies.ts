@@ -66,9 +66,11 @@ const FREE_REPTILE_MODEL = "models/enemies/free_reptile.glb";
 const FREE_REPTILE_HEIGHT_M = 1.85;
 const ARMORED_CRAB_MODEL = "models/enemies/creature_crab.glb";
 const ARMORED_CRAB_HEIGHT_M = 1.4;
-/** Awakened Caesar — dark slayer boss (Arena of Valor pack, Mst_902). */
-const CAESAR_MODEL = "models/enemies/dark_slayer_caesar_arena_of_valor.glb";
-const CAESAR_HEIGHT_M = 1.8;
+/** Awakened Caesar — dark slayer boss (Arena of Valor Mst_902).
+ *  PENDING ObjectStore tools/grudge-convert: load at NATIVE metres Y-up -Z.
+ *  NO height normalization, NO maxDim>300 auto-scale, NO SI-fit.
+ *  Ground via existing pit-boss capsule until GLB placed. */
+// const CAESAR_MODEL = "models/enemies/dark_slayer_caesar_arena_of_valor.glb";
 
 /** Kinds that load a skinned/animated GLB instead of capsule placeholders. */
 const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
@@ -80,7 +82,7 @@ const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
   "thorn_beast",
   "free_reptile",
   "armored_crab",
-  "boss",
+  // "boss", // UNCOMMENT when Caesar GLB placed at converted path (native metres, no scaling)
 ]);
 
 interface KindProfile {
@@ -476,8 +478,9 @@ export class DungeonEnemies implements CombatTargets {
         return { path: FREE_REPTILE_MODEL, height: FREE_REPTILE_HEIGHT_M, label: "Wild Reptile" };
       case "armored_crab":
         return { path: ARMORED_CRAB_MODEL, height: ARMORED_CRAB_HEIGHT_M, label: "Armored Crab" };
-      case "boss":
-        return { path: CAESAR_MODEL, height: CAESAR_HEIGHT_M, label: "Awakened Caesar" };
+      // Caesar: UNCOMMENT when GLB placed. height: 0 = native metres, no scaling.
+      // case "boss":
+      //   return { path: CAESAR_MODEL, height: 0, label: "Awakened Caesar" };
       default:
         return null;
     }
@@ -497,10 +500,13 @@ export class DungeonEnemies implements CombatTargets {
         const root = gltf.scene;
         const box = new THREE.Box3().setFromObject(root);
         const size = box.getSize(new THREE.Vector3());
-        // Caesar (Mst_902): no thigh/calf/foot bones → skip leg IK, ground via
-        // capsule origin. Converted to meters/Y-up/-Z via ObjectStore bc-d11136d8.
-        // Scale to SI-fit height (1.8m yardstick) without Dungeon.ts maxDim auto-scale.
-        if (size.y > 1e-4) root.scale.multiplyScalar(spec.height / size.y);
+        // Caesar (height: 0): load at native metres from ObjectStore tools/grudge-convert
+        // (Y-up, -Z, quats, hip bind). NO height normalization, NO maxDim>300 auto-scale.
+        // Mst_902 rig: Bip001 + wings/tail/EF_ball, NO thigh/calf/foot → skip leg IK,
+        // ground via existing pit-boss capsule.
+        if (spec.height > 0 && size.y > 1e-4) {
+          root.scale.multiplyScalar(spec.height / size.y);
+        }
         const box2 = new THREE.Box3().setFromObject(root);
         const center = box2.getCenter(new THREE.Vector3());
         root.position.x -= center.x;

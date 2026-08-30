@@ -1,27 +1,26 @@
 # Awakened Caesar Pit Boss Integration
 
 ## Overview
-Helm lock A integrates the Awakened Caesar (Mst_902_AwakenedCaesar) from the Arena of Valor pack as the dungeon pit boss visual. This replaces the procedural capsule-with-horns "Moloch Da God" mesh while keeping all combat mechanics, stats, and behaviors unchanged.
+Helm lock A wires the clip map for the Awakened Caesar (Mst_902_AwakenedCaesar) pit boss GLB while keeping the existing procedural capsule-with-horns until the converted GLB is placed. All combat mechanics, stats, and behaviors remain unchanged.
 
 ## Asset Requirements
 
 ### GLB Conversion
 - **Source**: dark_slayer_caesar_arena_of_valor (Mst_902 rig)
-- **Converter**: ObjectStore agent `bc-d11136d8` (GLB only, not the 104MB app.json)
-- **Target Path**: `public/models/enemies/dark_slayer_caesar_arena_of_valor.glb`
-- **Fallback CDN**: `https://assets.grudge-studio.com/models/enemies/dark_slayer_caesar_arena_of_valor.glb`
+- **Converter**: ObjectStore `tools/grudge-convert` (GLB only, not the 104MB app.json)
+- **Target Path**: TBD (pending ObjectStore conversion completion)
+- **Do NOT invent**: URL, R2 key, or placeholder mesh
 
 ### Conversion Spec
-- **Tool**: ObjectStore `tools/grudge-convert` agent (NOT Dungeon.ts maxDim>300 auto-scale)
-- **Scale**: Meters (SI-fit to 1.8m human yardstick, NOT 2m capsule)
-- **Orientation**: Y-up, -Z forward
-- **Format**: Quaternions, hip bind
+- **Tool**: ObjectStore `tools/grudge-convert`
+- **Format**: Native metres, Y-up, -Z forward, quaternions, hip bind
+- **NO height normalization**: Load at native metres (FORBID SI-fit, FORBID maxDim>300 auto-scale)
 - **Rig Notes**: 
   - Bip001 root + wings/tail/EF_ball
   - **NO thigh/calf/foot bones** → skip leg IK
-  - Ground via capsule origin, not foot placement
+  - Ground via existing pit-boss capsule origin (not foot placement)
 
-### Animation Mapping
+### Animation Mapping (READY, clips wired)
 Caesar clips map to existing DungeonEnemies combat slots:
 
 | Caesar Clip | Combat Slot | Usage |
@@ -50,17 +49,24 @@ Caesar clips map to existing DungeonEnemies combat slots:
 - **Navmesh**: pitNav (flat sealed floor, not lava editor arena)
 - **Targeting**: Player and allies unchanged (KCC + CombatTargets)
 
-## Implementation Status
-- ✅ Added "boss" to `GLB_ENEMY_KINDS`
-- ✅ Added Caesar GLB spec (path, 1.8m SI-fit height)
-- ✅ Extended `classifyHeroClip()` for Atk*/Spell*/Born2 mapping
-- ✅ Born2 spawn animation plays once on spawnPit, transitions to idle
-- ✅ Documented leg-less rig grounding (capsule origin, no foot IK)
-- ✅ Documented ObjectStore conversion: tools/grudge-convert (Y-up, -Z, metres, quats, hip bind)
-- ⏳ **Pending**: Caesar GLB asset at specified path (ObjectStore conversion in progress)
+## Current State
+- ✅ **Clip map wired**: Atk*/Spell*/Born2 mapping ready in `classifyHeroClip()`
+- ✅ **Born2 spawn**: Plays once on spawnPit, transitions to idle
+- ✅ **Native metres**: No SI-fit, no maxDim>300 auto-scale (height: 0 = native)
+- ✅ **Rig documented**: Bip001, no thigh/calf/foot, capsule-grounded
+- ⏸️ **Boss stays capsule**: Existing Moloch procedural mesh until GLB placed
+- ⏳ **Pending**: Caesar GLB from ObjectStore tools/grudge-convert
 
-## Testing Checklist
-- [ ] Pit boss stands at SI-fit scale (~1.8m human reference, not 2m capsule)
+### To Enable Caesar Visual (when GLB ready):
+1. Place converted GLB at determined path
+2. Uncomment `CAESAR_MODEL` constant (line ~73)
+3. Uncomment `"boss"` in `GLB_ENEMY_KINDS` (line ~82)
+4. Uncomment boss case in `glbSpec()` (line ~468-469)
+5. Verify: pit boss stands at native scale, Atk/Spell fire
+
+## Testing (when GLB placed)
+- [ ] Pit boss loads at native metres (no SI-fit, no maxDim scaling)
+- [ ] Born2 spawn animation plays once, transitions to idle
 - [ ] Atk1/Atk2 fire during CombatController attack windows
 - [ ] Spell1/Spell2/Spell4 fire during DungeonEnemies skill telegraphs
 - [ ] Dead animation plays on kill
