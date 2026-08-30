@@ -12,8 +12,10 @@ Helm lock A integrates the Awakened Caesar (Mst_902_AwakenedCaesar) from the Are
 - **Fallback CDN**: `https://assets.grudge-studio.com/models/enemies/dark_slayer_caesar_arena_of_valor.glb`
 
 ### Conversion Spec
+- **Tool**: ObjectStore `tools/grudge-convert` agent (NOT Dungeon.ts maxDim>300 auto-scale)
 - **Scale**: Meters (SI-fit to 1.8m human yardstick, NOT 2m capsule)
 - **Orientation**: Y-up, -Z forward
+- **Format**: Quaternions, hip bind
 - **Rig Notes**: 
   - Bip001 root + wings/tail/EF_ball
   - **NO thigh/calf/foot bones** → skip leg IK
@@ -24,17 +26,18 @@ Caesar clips map to existing DungeonEnemies combat slots:
 
 | Caesar Clip | Combat Slot | Usage |
 |-------------|-------------|-------|
-| Idle | `idle` | Locomotion visual |
-| Run | `run` | Locomotion visual |
+| Idle | `idle` | Locomotion visual (loop) |
+| Run | `run` | Locomotion visual (loop) |
 | Atk1 | `attack` | CombatController light attack |
 | Atk2 | `attack` | CombatController heavy attack (same slot) |
 | Spell1 | `skill` | DungeonEnemies telegraph/projectile skill |
 | Spell2 | `skill` | DungeonEnemies telegraph/projectile skill |
 | Spell4 | `skill` | DungeonEnemies telegraph/projectile skill |
-| Born2 | `idle` | Unused (no spawn cinematic slot) |
+| Born2 | `spawn` | Plays once on spawnPit, then transitions to idle |
 | Dead | `dead` | On kill |
 
 **Scene clip**: Ignored (editor metadata, not animation)
+**Tornado**: VFX only, not a gameplay hazard
 
 ## VFX Notes
 - **Tornado**: VFX only, NOT a hazard volume
@@ -50,9 +53,11 @@ Caesar clips map to existing DungeonEnemies combat slots:
 ## Implementation Status
 - ✅ Added "boss" to `GLB_ENEMY_KINDS`
 - ✅ Added Caesar GLB spec (path, 1.8m SI-fit height)
-- ✅ Extended `classifyHeroClip()` for Atk*/Spell* mapping
+- ✅ Extended `classifyHeroClip()` for Atk*/Spell*/Born2 mapping
+- ✅ Born2 spawn animation plays once on spawnPit, transitions to idle
 - ✅ Documented leg-less rig grounding (capsule origin, no foot IK)
-- ⏳ **Pending**: Caesar GLB asset at specified path (ObjectStore conversion)
+- ✅ Documented ObjectStore conversion: tools/grudge-convert (Y-up, -Z, metres, quats, hip bind)
+- ⏳ **Pending**: Caesar GLB asset at specified path (ObjectStore conversion in progress)
 
 ## Testing Checklist
 - [ ] Pit boss stands at SI-fit scale (~1.8m human reference, not 2m capsule)

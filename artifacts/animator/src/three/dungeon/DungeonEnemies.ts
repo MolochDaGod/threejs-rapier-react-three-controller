@@ -351,13 +351,15 @@ interface Enemy {
   repathT: number;
   ownGeos: THREE.BufferGeometry[];
   ownMats: THREE.Material[];
-  /** Optional skinned GLB visual (Belerick / future heroes). */
+  /** Optional skinned GLB visual (Belerick / Caesar / future heroes). */
   glbRoot: THREE.Object3D | null;
   mixer: THREE.AnimationMixer | null;
   actions: Map<string, THREE.AnimationAction>;
   currentAnim: string;
   /** Hide procedural limbs when GLB is driving the look. */
   useGlbVisual: boolean;
+  /** True if spawn animation (Born2) has played once. */
+  spawnPlayed: boolean;
 }
 
 interface Projectile {
@@ -559,7 +561,21 @@ export class DungeonEnemies implements CombatTargets {
       action.enabled = true;
       e.actions.set(key, action);
     }
-    this.playEnemyAnim(e, "idle", true);
+    // Play spawn animation (Born2) once if available, else idle.
+    if (e.actions.has("spawn") && !e.spawnPlayed) {
+      this.playEnemyAnim(e, "spawn", false);
+      e.spawnPlayed = true;
+      // Transition to idle after spawn completes (clip duration + small buffer).
+      const spawnAction = e.actions.get("spawn");
+      if (spawnAction) {
+        const duration = spawnAction.getClip().duration;
+        window.setTimeout(() => {
+          if (e.mixer && !e.dead) this.playEnemyAnim(e, "idle", true);
+        }, duration * 1000 + 100);
+      }
+    } else {
+      this.playEnemyAnim(e, "idle", true);
+    }
   }
 
   /** Map pack clip names (Belerick / Helcurt / Ziambetov / Ifrit / Drake / Caesar) → combat roles. */
@@ -568,6 +584,8 @@ export class DungeonEnemies implements CombatTargets {
     // Ignore "Scene" clip (editor metadata, not animation).
     if (n === "scene") return null;
     if (n.includes("dead") || n.includes("death") || n === "die") return "dead";
+    // Born2 → spawn (one-shot on spawnPit, not idle loop).
+    if (n.includes("born")) return "spawn";
     if (
       n.includes("fight_idle") ||
       n.includes("wait_1") ||
@@ -584,7 +602,7 @@ export class DungeonEnemies implements CombatTargets {
       n === "walk"
     )
       return "run";
-    // Caesar Atk1/Atk2 → attack (light/heavy both map to the attack slot).
+    // Caesar Atk1 (light) / Atk2 (heavy) → attack slot (CombatController resolves timing).
     if (
       n.includes("atk1") ||
       n.includes("atk2") ||
@@ -597,7 +615,7 @@ export class DungeonEnemies implements CombatTargets {
       n.includes("use_skill")
     )
       return "attack";
-    // Caesar Spell1/Spell2/Spell4 → skill (telegraph/projectile slots).
+    // Caesar Spell1/Spell2/Spell4 → skill (DungeonEnemies telegraph/projectile).
     if (
       n.includes("spell1") ||
       n.includes("spell2") ||
@@ -608,8 +626,6 @@ export class DungeonEnemies implements CombatTargets {
       n.includes("skill_")
     )
       return "skill";
-    // Born2 → unused (no spawn cinematic slot, fallback to idle).
-    if (n.includes("born")) return "idle";
     if (n.includes("taunt") || n.includes("verigo") || n.includes("shout") || n.includes("get hit") || n.includes("behit") || n.includes("hit"))
       return "taunt";
     return null;
@@ -846,6 +862,7 @@ export class DungeonEnemies implements CombatTargets {
       actions: new Map(),
       currentAnim: "",
       useGlbVisual: false,
+      spawnPlayed: false,
     };
 
     // Skinned GLB enemies — mount mesh when template ready
