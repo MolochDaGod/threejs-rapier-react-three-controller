@@ -1863,14 +1863,19 @@ export class DungeonEnemies implements CombatTargets {
       if (e.state === "windup") {
         // One-shot attack/skill telegraph (don't re-roll every frame)
         if (e.currentAnim !== "attack" && e.currentAnim !== "skill") {
-          this.playEnemyAnim(e, "attack", false);
+          // Route some windups to skill animation if available (Spell1/2/4 for Caesar)
+          const useSkill = e.actions.has("skill") && Math.random() < 0.33;
+          this.playEnemyAnim(e, useSkill ? "skill" : "attack", false);
         }
       } else if (e.state === "recover") {
         this.playEnemyAnim(e, "idle", true);
       } else if (moveT > 0.15) {
         this.playEnemyAnim(e, "run", true);
       } else {
-        this.playEnemyAnim(e, "idle", true);
+        // Lock spawn: don't override Born2 until it finishes naturally
+        if (e.currentAnim !== "spawn") {
+          this.playEnemyAnim(e, "idle", true);
+        }
       }
       return;
     }
