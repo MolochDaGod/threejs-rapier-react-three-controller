@@ -541,7 +541,12 @@ export class DungeonEnemies implements CombatTargets {
     const tpl = this.glbTpls.get(e.kind);
     if (!tpl || e.glbRoot) return;
     const clone = tpl.root.clone(true);
-    clone.scale.multiplyScalar(e.profile.scale);
+    // Caesar/boss at height: 0 loads native metres (~3.7m) — DO NOT multiply by profile.scale.
+    // Other GLB enemies use profile.scale for consistent sizing.
+    const spec = this.glbSpec(e.kind);
+    if (spec && spec.height > 0) {
+      clone.scale.multiplyScalar(e.profile.scale);
+    }
     clone.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
@@ -563,13 +568,16 @@ export class DungeonEnemies implements CombatTargets {
     const mixer = new THREE.AnimationMixer(clone);
     e.mixer = mixer;
     e.actions = new Map();
+    console.info(`[DungeonEnemies] Mounting ${e.kind} GLB, clips available:`, tpl.clips.map(c => c.name).join(", "));
     for (const clip of tpl.clips) {
       const key = this.classifyHeroClip(clip.name);
+      console.info(`[DungeonEnemies] ${e.kind} clip "${clip.name}" → key="${key}"`);
       if (!key || e.actions.has(key)) continue;
       const action = mixer.clipAction(clip);
       action.enabled = true;
       e.actions.set(key, action);
     }
+    console.info(`[DungeonEnemies] ${e.kind} actions map:`, Array.from(e.actions.keys()).join(", "));
     // Play spawn animation (Born2) once if available, else idle.
     if (e.actions.has("spawn") && !e.spawnPlayed) {
       this.playEnemyAnim(e, "spawn", false);
