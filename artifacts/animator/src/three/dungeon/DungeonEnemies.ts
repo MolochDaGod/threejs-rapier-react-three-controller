@@ -501,6 +501,10 @@ export class DungeonEnemies implements CombatTargets {
       try {
         const gltf = await new GLTFLoader().loadAsync(asset(spec.path));
         const root = gltf.scene;
+        // Debug: check if animations exist
+        if (!gltf.animations || gltf.animations.length === 0) {
+          console.warn(`[DungeonEnemies] ${spec.label} GLB has NO animations - ingest may have dropped clips`);
+        }
         const box = new THREE.Box3().setFromObject(root);
         const size = box.getSize(new THREE.Vector3());
         // Caesar (height: 0): load at native metres from ObjectStore tools/grudge-convert
@@ -523,6 +527,9 @@ export class DungeonEnemies implements CombatTargets {
           }
         });
         this.glbTpls.set(kind, { root, clips: gltf.animations?.slice() ?? [] });
+        // Debug: log raw clip names from gltf.animations
+        const rawClips = gltf.animations?.map(c => c.name).join(", ") || "(no animations)";
+        console.info(`[DungeonEnemies] ${spec.label} raw gltf.animations: ${rawClips}`);
         for (const e of this.enemies) {
           if (e.kind === kind && !e.glbRoot) this.mountGlbVisual(e);
         }
