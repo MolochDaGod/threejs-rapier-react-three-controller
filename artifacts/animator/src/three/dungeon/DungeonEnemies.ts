@@ -349,6 +349,8 @@ interface Enemy {
   slowMul: number;
   /** Telegraph kind for the current windup. */
   windupKind: SkillKind;
+  /** Attack counter for skill rotation (every 3rd attack = skill). */
+  attackCount: number;
   flash: number;
   walkPhase: number;
   // Pathing
@@ -874,6 +876,7 @@ export class DungeonEnemies implements CombatTargets {
       slowT: 0,
       slowMul: 1,
       windupKind: profile.ranged ? "bolt" : "slash",
+      attackCount: 0,
       flash: 0,
       walkPhase: Math.random() * Math.PI * 2,
       path: [],
@@ -1678,7 +1681,10 @@ export class DungeonEnemies implements CombatTargets {
       if (inRange && e.attackCd <= 0) {
         e.state = "windup";
         e.stateT = profile.windup * diff.windup;
-        e.windupKind = profile.ranged ? "bolt" : "slash";
+        e.attackCount++;
+        // Every 3rd attack is a skill (telegraph/projectile) if enemy has skill action
+        const isSkillAttack = e.actions.has("skill") && e.attackCount % 3 === 0;
+        e.windupKind = isSkillAttack ? "nova" : (profile.ranged ? "bolt" : "slash");
         ctx.onWindup?.(this.chest(e), e.windupKind);
       } else {
         // Ranged kites: back off if too close.
@@ -1863,8 +1869,9 @@ export class DungeonEnemies implements CombatTargets {
       if (e.state === "windup") {
         // One-shot attack/skill telegraph (don't re-roll every frame)
         if (e.currentAnim !== "attack" && e.currentAnim !== "skill") {
-          // Route some windups to skill animation if available (Spell1/2/4 for Caesar)
-          const useSkill = e.actions.has("skill") && Math.random() < 0.33;
+          // Route based on windupKind: skill types → skill anim, others → attack
+          const skillKinds: SkillKind[] = ["nova", "fireDragon", "meteor", "soul", "laser"];
+          const useSkill = skillKinds.includes(e.windupKind);
           this.playEnemyAnim(e, useSkill ? "skill" : "attack", false);
         }
       } else if (e.state === "recover") {
