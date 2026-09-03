@@ -362,7 +362,7 @@ interface Enemy {
   /** Optional skinned GLB visual (Belerick / Caesar / future heroes). */
   glbRoot: THREE.Object3D | null;
   mixer: THREE.AnimationMixer | null;
-  actions: Map<string, THREE.AnimationAction>;
+  actions: Map<string, THREE.AnimationAction[]>;
   currentAnim: string;
   /** Hide procedural limbs when GLB is driving the look. */
   useGlbVisual: boolean;
@@ -581,20 +581,23 @@ export class DungeonEnemies implements CombatTargets {
     for (const clip of tpl.clips) {
       const key = this.classifyHeroClip(clip.name);
       console.info(`[DungeonEnemies] ${e.kind} clip "${clip.name}" → key="${key}"`);
-      if (!key || e.actions.has(key)) continue;
+      if (!key) continue;
       const action = mixer.clipAction(clip);
       action.enabled = true;
-      e.actions.set(key, action);
+      if (!e.actions.has(key)) {
+        e.actions.set(key, []);
+      }
+      e.actions.get(key)!.push(action);
     }
-    console.info(`[DungeonEnemies] ${e.kind} actions map:`, Array.from(e.actions.keys()).join(", "));
+    console.info(`[DungeonEnemies] ${e.kind} actions map:`, Array.from(e.actions.entries()).map(([k, v]) => `${k}:${v.length}`).join(", "));
     // Play spawn animation (Born2) once if available, else idle.
     if (e.actions.has("spawn") && !e.spawnPlayed) {
       this.playEnemyAnim(e, "spawn", false);
       e.spawnPlayed = true;
       // Transition to idle after spawn completes (clip duration + small buffer).
-      const spawnAction = e.actions.get("spawn");
-      if (spawnAction) {
-        const duration = spawnAction.getClip().duration;
+      const spawnActions = e.actions.get("spawn");
+      if (spawnActions && spawnActions.length > 0) {
+        const duration = spawnActions[0].getClip().duration;
         window.setTimeout(() => {
           if (e.mixer && !e.dead) this.playEnemyAnim(e, "idle", true);
         }, duration * 1000 + 100);
@@ -660,15 +663,22 @@ export class DungeonEnemies implements CombatTargets {
   private playEnemyAnim(e: Enemy, role: string, loop: boolean): void {
     if (!e.mixer || e.actions.size === 0) return;
     if (e.currentAnim === role) return;
-    const next = e.actions.get(role) ?? e.actions.get("idle");
-    if (!next) return;
-    const prev = e.currentAnim ? e.actions.get(e.currentAnim) : null;
+    // Select a random action from the array for this role
+    const candidates = e.actions.get(role) ?? e.actions.get("idle");
+    if (!candidates || candidates.length === 0) return;
+    const next = candidates[Math.floor(Math.random() * candidates.length)];
+    const prevActions = e.currentAnim ? e.actions.get(e.currentAnim) : null;
     next.reset();
     next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     next.clampWhenFinished = !loop;
     next.setEffectiveWeight(1);
     next.play();
-    if (prev && prev !== next) prev.crossFadeTo(next, 0.18, false);
+    // Fade out all previous actions in the category
+    if (prevActions) {
+      for (const prev of prevActions) {
+        if (prev !== next) prev.crossFadeTo(next, 0.18, false);
+      }
+    }
     e.currentAnim = role;
   }
 
