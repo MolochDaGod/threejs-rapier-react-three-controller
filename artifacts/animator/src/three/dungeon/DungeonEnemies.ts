@@ -665,8 +665,15 @@ export class DungeonEnemies implements CombatTargets {
     if (e.currentAnim === role) return;
     // Select a random action from the array for this role
     const candidates = e.actions.get(role) ?? e.actions.get("idle");
-    if (!candidates || candidates.length === 0) return;
-    const next = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!candidates || candidates.length === 0) {
+      console.warn(`[DungeonEnemies] ${e.kind} tried to play "${role}" but no actions available`);
+      return;
+    }
+    const idx = Math.floor(Math.random() * candidates.length);
+    const next = candidates[idx];
+    const clipName = next.getClip().name;
+    const duration = next.getClip().duration;
+    console.info(`[DungeonEnemies] ${e.kind} playing "${role}" → clip "${clipName}" (${duration.toFixed(2)}s, ${candidates.length} variants, selected #${idx})`);
     const prevActions = e.currentAnim ? e.actions.get(e.currentAnim) : null;
     next.reset();
     next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
