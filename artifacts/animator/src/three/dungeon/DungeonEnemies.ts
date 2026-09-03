@@ -66,6 +66,15 @@ const FREE_REPTILE_MODEL = "models/enemies/free_reptile.glb";
 const FREE_REPTILE_HEIGHT_M = 1.85;
 const ARMORED_CRAB_MODEL = "models/enemies/creature_crab.glb";
 const ARMORED_CRAB_HEIGHT_M = 1.4;
+/** Awakened Caesar — Mst_902 pit boss (3.695m native, Y-hip grounded).
+ *  SOURCE: /workspace/public/models/enemies/caesar_pit_boss.glb (Grok box)
+ *  TARGET: public/models/enemies/caesar_pit_boss.glb (THIS repo)
+ *  World bbox: [−1.142, 0.000, −1.381] to [1.142, 3.695, 1.475]
+ *  Native metres Y-up -Z, NO SI-fit, NO height normalization.
+ *  _rootJoint scale [37.18, 46.97, 46.97] already baked into world size.
+ *  Clips: Born2/Idle/Atk1/Atk2/Run/Spell1/Spell2/Spell4/Dead (Scene absent).
+ *  Skip leg IK (no thigh/calf/foot), ground on pit capsule. */
+const CAESAR_MODEL = "models/enemies/caesar_pit_boss.glb";
 
 /** Kinds that load a skinned/animated GLB instead of capsule placeholders. */
 const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
@@ -77,6 +86,7 @@ const GLB_ENEMY_KINDS: ReadonlySet<EnemyKind> = new Set([
   "thorn_beast",
   "free_reptile",
   "armored_crab",
+  "boss",
 ]);
 
 interface KindProfile {
@@ -339,6 +349,8 @@ interface Enemy {
   slowMul: number;
   /** Telegraph kind for the current windup. */
   windupKind: SkillKind;
+  /** Attack counter for skill rotation (every 3rd attack = skill). */
+  attackCount: number;
   flash: number;
   walkPhase: number;
   // Pathing
@@ -347,13 +359,15 @@ interface Enemy {
   repathT: number;
   ownGeos: THREE.BufferGeometry[];
   ownMats: THREE.Material[];
-  /** Optional skinned GLB visual (Belerick / future heroes). */
+  /** Optional skinned GLB visual (Belerick / Caesar / future heroes). */
   glbRoot: THREE.Object3D | null;
   mixer: THREE.AnimationMixer | null;
-  actions: Map<string, THREE.AnimationAction>;
+  actions: Map<string, THREE.AnimationAction[]>;
   currentAnim: string;
   /** Hide procedural limbs when GLB is driving the look. */
   useGlbVisual: boolean;
+  /** True if spawn animation (Born2) has played once. */
+  spawnPlayed: boolean;
 }
 
 interface Projectile {
@@ -470,6 +484,8 @@ export class DungeonEnemies implements CombatTargets {
         return { path: FREE_REPTILE_MODEL, height: FREE_REPTILE_HEIGHT_M, label: "Wild Reptile" };
       case "armored_crab":
         return { path: ARMORED_CRAB_MODEL, height: ARMORED_CRAB_HEIGHT_M, label: "Armored Crab" };
+      case "boss":
+        return { path: CAESAR_MODEL, height: 0, label: "Awakened Caesar" };
       default:
         return null;
     }
@@ -487,9 +503,19 @@ export class DungeonEnemies implements CombatTargets {
       try {
         const gltf = await new GLTFLoader().loadAsync(asset(spec.path));
         const root = gltf.scene;
+        // Debug: check if animations exist
+        if (!gltf.animations || gltf.animations.length === 0) {
+          console.warn(`[DungeonEnemies] ${spec.label} GLB has NO animations - ingest may have dropped clips`);
+        }
         const box = new THREE.Box3().setFromObject(root);
         const size = box.getSize(new THREE.Vector3());
-        if (size.y > 1e-4) root.scale.multiplyScalar(spec.height / size.y);
+        // Caesar (height: 0): load at native metres from ObjectStore tools/grudge-convert
+        // (Y-up, -Z, quats, hip bind). NO height normalization, NO maxDim>300 auto-scale.
+        // Mst_902 rig: Bip001 + wings/tail/EF_ball, NO thigh/calf/foot → skip leg IK,
+        // ground via existing pit-boss capsule.
+        if (spec.height > 0 && size.y > 1e-4) {
+          root.scale.multiplyScalar(spec.height / size.y);
+        }
         const box2 = new THREE.Box3().setFromObject(root);
         const center = box2.getCenter(new THREE.Vector3());
         root.position.x -= center.x;
@@ -503,6 +529,9 @@ export class DungeonEnemies implements CombatTargets {
           }
         });
         this.glbTpls.set(kind, { root, clips: gltf.animations?.slice() ?? [] });
+        // Debug: log raw clip names from gltf.animations
+        const rawClips = gltf.animations?.map(c => c.name).join(", ") || "(no animations)";
+        console.info(`[DungeonEnemies] ${spec.label} raw gltf.animations: ${rawClips}`);
         for (const e of this.enemies) {
           if (e.kind === kind && !e.glbRoot) this.mountGlbVisual(e);
         }
@@ -521,7 +550,12 @@ export class DungeonEnemies implements CombatTargets {
     const tpl = this.glbTpls.get(e.kind);
     if (!tpl || e.glbRoot) return;
     const clone = tpl.root.clone(true);
-    clone.scale.multiplyScalar(e.profile.scale);
+    // Caesar/boss at height: 0 loads native metres (~3.7m) — DO NOT multiply by profile.scale.
+    // Other GLB enemies use profile.scale for consistent sizing.
+    const spec = this.glbSpec(e.kind);
+    if (spec && spec.height > 0) {
+      clone.scale.multiplyScalar(e.profile.scale);
+    }
     clone.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
@@ -543,20 +577,44 @@ export class DungeonEnemies implements CombatTargets {
     const mixer = new THREE.AnimationMixer(clone);
     e.mixer = mixer;
     e.actions = new Map();
+    console.info(`[DungeonEnemies] Mounting ${e.kind} GLB, clips available:`, tpl.clips.map(c => c.name).join(", "));
     for (const clip of tpl.clips) {
       const key = this.classifyHeroClip(clip.name);
-      if (!key || e.actions.has(key)) continue;
+      console.info(`[DungeonEnemies] ${e.kind} clip "${clip.name}" → key="${key}"`);
+      if (!key) continue;
       const action = mixer.clipAction(clip);
       action.enabled = true;
-      e.actions.set(key, action);
+      if (!e.actions.has(key)) {
+        e.actions.set(key, []);
+      }
+      e.actions.get(key)!.push(action);
     }
-    this.playEnemyAnim(e, "idle", true);
+    console.info(`[DungeonEnemies] ${e.kind} actions map:`, Array.from(e.actions.entries()).map(([k, v]) => `${k}:${v.length}`).join(", "));
+    // Play spawn animation (Born2) once if available, else idle.
+    if (e.actions.has("spawn") && !e.spawnPlayed) {
+      this.playEnemyAnim(e, "spawn", false);
+      e.spawnPlayed = true;
+      // Transition to idle after spawn completes (clip duration + small buffer).
+      const spawnActions = e.actions.get("spawn");
+      if (spawnActions && spawnActions.length > 0) {
+        const duration = spawnActions[0].getClip().duration;
+        window.setTimeout(() => {
+          if (e.mixer && !e.dead) this.playEnemyAnim(e, "idle", true);
+        }, duration * 1000 + 100);
+      }
+    } else {
+      this.playEnemyAnim(e, "idle", true);
+    }
   }
 
-  /** Map pack clip names (Belerick / Helcurt / Ziambetov / Ifrit / Drake) → combat roles. */
+  /** Map pack clip names (Belerick / Helcurt / Ziambetov / Ifrit / Drake / Caesar) → combat roles. */
   private classifyHeroClip(name: string): string | null {
     const n = name.toLowerCase();
+    // Ignore "Scene" clip (editor metadata, not animation).
+    if (n === "scene") return null;
     if (n.includes("dead") || n.includes("death") || n === "die") return "dead";
+    // Born2 → spawn (one-shot on spawnPit, not idle loop).
+    if (n.includes("born")) return "spawn";
     if (
       n.includes("fight_idle") ||
       n.includes("wait_1") ||
@@ -573,7 +631,11 @@ export class DungeonEnemies implements CombatTargets {
       n === "walk"
     )
       return "run";
+    // Caesar Atk1 (light) / Atk2 (heavy) → attack slot (CombatController resolves timing).
     if (
+      n.includes("atk1") ||
+      n.includes("atk2") ||
+      n.includes("atk3") ||
       n.includes("attack1") ||
       n.includes("attack2") ||
       n.includes("attack3") ||
@@ -582,7 +644,16 @@ export class DungeonEnemies implements CombatTargets {
       n.includes("use_skill")
     )
       return "attack";
-    if (n.includes("skill1") || n.includes("skill2") || n.includes("skill3") || n.includes("skill_"))
+    // Caesar Spell1/Spell2/Spell4 → skill (DungeonEnemies telegraph/projectile).
+    if (
+      n.includes("spell1") ||
+      n.includes("spell2") ||
+      n.includes("spell4") ||
+      n.includes("skill1") ||
+      n.includes("skill2") ||
+      n.includes("skill3") ||
+      n.includes("skill_")
+    )
       return "skill";
     if (n.includes("taunt") || n.includes("verigo") || n.includes("shout") || n.includes("get hit") || n.includes("behit") || n.includes("hit"))
       return "taunt";
@@ -592,15 +663,29 @@ export class DungeonEnemies implements CombatTargets {
   private playEnemyAnim(e: Enemy, role: string, loop: boolean): void {
     if (!e.mixer || e.actions.size === 0) return;
     if (e.currentAnim === role) return;
-    const next = e.actions.get(role) ?? e.actions.get("idle");
-    if (!next) return;
-    const prev = e.currentAnim ? e.actions.get(e.currentAnim) : null;
+    // Select a random action from the array for this role
+    const candidates = e.actions.get(role) ?? e.actions.get("idle");
+    if (!candidates || candidates.length === 0) {
+      console.warn(`[DungeonEnemies] ${e.kind} tried to play "${role}" but no actions available`);
+      return;
+    }
+    const idx = Math.floor(Math.random() * candidates.length);
+    const next = candidates[idx];
+    const clipName = next.getClip().name;
+    const duration = next.getClip().duration;
+    console.info(`[DungeonEnemies] ${e.kind} playing "${role}" → clip "${clipName}" (${duration.toFixed(2)}s, ${candidates.length} variants, selected #${idx})`);
+    const prevActions = e.currentAnim ? e.actions.get(e.currentAnim) : null;
     next.reset();
     next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     next.clampWhenFinished = !loop;
     next.setEffectiveWeight(1);
     next.play();
-    if (prev && prev !== next) prev.crossFadeTo(next, 0.18, false);
+    // Fade out all previous actions in the category
+    if (prevActions) {
+      for (const prev of prevActions) {
+        if (prev !== next) prev.crossFadeTo(next, 0.18, false);
+      }
+    }
     e.currentAnim = role;
   }
 
@@ -808,6 +893,7 @@ export class DungeonEnemies implements CombatTargets {
       slowT: 0,
       slowMul: 1,
       windupKind: profile.ranged ? "bolt" : "slash",
+      attackCount: 0,
       flash: 0,
       walkPhase: Math.random() * Math.PI * 2,
       path: [],
@@ -820,6 +906,7 @@ export class DungeonEnemies implements CombatTargets {
       actions: new Map(),
       currentAnim: "",
       useGlbVisual: false,
+      spawnPlayed: false,
     };
 
     // Skinned GLB enemies — mount mesh when template ready
@@ -1611,7 +1698,10 @@ export class DungeonEnemies implements CombatTargets {
       if (inRange && e.attackCd <= 0) {
         e.state = "windup";
         e.stateT = profile.windup * diff.windup;
-        e.windupKind = profile.ranged ? "bolt" : "slash";
+        e.attackCount++;
+        // Every 3rd attack is a skill (telegraph/projectile) if enemy has skill action
+        const isSkillAttack = e.actions.has("skill") && e.attackCount % 3 === 0;
+        e.windupKind = isSkillAttack ? "nova" : (profile.ranged ? "bolt" : "slash");
         ctx.onWindup?.(this.chest(e), e.windupKind);
       } else {
         // Ranged kites: back off if too close.
@@ -1796,14 +1886,20 @@ export class DungeonEnemies implements CombatTargets {
       if (e.state === "windup") {
         // One-shot attack/skill telegraph (don't re-roll every frame)
         if (e.currentAnim !== "attack" && e.currentAnim !== "skill") {
-          this.playEnemyAnim(e, "attack", false);
+          // Route based on windupKind: skill types → skill anim, others → attack
+          const skillKinds: SkillKind[] = ["nova", "fireDragon", "meteor", "soul", "laser"];
+          const useSkill = skillKinds.includes(e.windupKind);
+          this.playEnemyAnim(e, useSkill ? "skill" : "attack", false);
         }
       } else if (e.state === "recover") {
         this.playEnemyAnim(e, "idle", true);
       } else if (moveT > 0.15) {
         this.playEnemyAnim(e, "run", true);
       } else {
-        this.playEnemyAnim(e, "idle", true);
+        // Lock spawn: don't override Born2 until it finishes naturally
+        if (e.currentAnim !== "spawn") {
+          this.playEnemyAnim(e, "idle", true);
+        }
       }
       return;
     }
