@@ -204,6 +204,19 @@ export class Dungeon {
   }
 
   /**
+   * Override spawn to place the player directly in the pit arena with the boss,
+   * at a safe distance (10m back from pit center) so Caesar is immediately visible
+   * at his native 3.7m height. Skips the surface-to-pit descent to verify animations.
+   */
+  spawnPlayerInPit() {
+    // Place player 10m back from pit center (Z-), facing toward center (+Z = forward)
+    const x = this.pitSpawn.x;
+    const y = this.pitSpawn.y + 0.05;
+    const z = this.pitSpawn.z - 10;
+    this.spawn.set(x, y, z);
+  }
+
+  /**
    * Extend the level downward: a translucent water volume hanging under the map,
    * an air gap, then a sealed pit (solid floor + perimeter walls) packed by the
    * enemy system. The player drops off the surface map's edge, sinks through the
@@ -271,6 +284,9 @@ export class Dungeon {
       z1 - NAV_INSET,
       this.pitFloorY,
     );
+
+    // Spawn player in the pit arena for immediate boss verification
+    this.spawnPlayerInPit();
   }
 
   /** Build a render box, bake a static trimesh collider, and track it. */
