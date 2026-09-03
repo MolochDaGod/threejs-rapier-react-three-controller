@@ -101,9 +101,40 @@ scene.getObjectByName('caesar') // or similar query
 ✅ Dead animation plays on death
 ✅ Console logs show clip names, durations, and variant selection
 
+## Dungeon Spawn Fix (Required for Verification)
+
+### Problem
+Original playtest showed:
+- Camera clipped inside dungeon geometry
+- Player defeated in ~10 seconds
+- Caesar never appeared in frame (50m below at pit floor)
+- Animations could not be verified
+
+### Solution
+Modified `Dungeon.ts` to spawn player DIRECTLY in the pit arena:
+- Player spawns 10m back from pit center (same Y as Caesar)
+- Caesar at pit center is immediately visible
+- No surface-to-pit descent required
+- Clean camera view with no geometry clipping
+
+```typescript
+// Player at (pitX, pitY, pitZ - 10) facing Caesar at (pitX, pitY, pitZ)
+spawnPlayerInPit() {
+  const x = this.pitSpawn.x;
+  const y = this.pitSpawn.y + 0.05;
+  const z = this.pitSpawn.z - 10;  // 10m back from center
+  this.spawn.set(x, y, z);
+}
+```
+
 ## Commits
 - `d82c724` - Fix Caesar mixer: store multiple animations per action type
 - `eed8030` - Add detailed animation playback logging
+- `5a79ce9` - Add comprehensive mixer fix documentation
+- `9631f52` - Remove temporary animation check script
+- `1cadd30` - Fix dungeon spawn: place player in pit arena with Caesar
 
 ## Files Changed
 - `artifacts/animator/src/three/dungeon/DungeonEnemies.ts` - Mixer fix and logging
+- `artifacts/animator/src/three/dungeon/Dungeon.ts` - Spawn placement fix
+- `artifacts/animator/CAESAR_MIXER_FIX.md` - Documentation
